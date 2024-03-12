@@ -81,7 +81,7 @@ fabric.properties
 .idea/caches/build_file_checksums.ser
 
 ### PyCharm+all Patch ###
-# Ignore everything but code style settings and run configurations
+# Ignore everything but code style settings and train configurations
 # that are supposed to be shared within teams.
 
 .idea/*
@@ -176,7 +176,7 @@ ipython_config.py
 
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
+#   intended to train in multiple environments; otherwise, check them in:
 # .python-version
 
 # pipenv

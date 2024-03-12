@@ -44,7 +44,7 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 # original _unroll_mac for next observation is different from Pymarl.
 # thus we provide a new JointQLoss here
-class JointQLoss(nn.Module):
+class IQLLoss(nn.Module):
     def __init__(self,
                  model,
                  target_model,
@@ -245,9 +245,9 @@ class IQLPolicy(Policy):
         self.params = list(self.model.parameters())
         if self.mixer:
             self.params += list(self.mixer.parameters())
-        self.loss = JointQLoss(self.model, self.target_model, self.mixer,
-                               self.target_mixer, self.n_agents, self.n_actions,
-                               self.config["double_q"], self.config["gamma"])
+        self.loss = IQLLoss(self.model, self.target_model, self.mixer,
+                            self.target_mixer, self.n_agents, self.n_actions,
+                            self.config["double_q"], self.config["gamma"])
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
