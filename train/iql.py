@@ -19,10 +19,7 @@ if __name__ == '__main__':
     iql.fit(
         env,
         model,
-        stop={
-            'episode_reward_mean': 2000,
-            'timesteps_total': 10000000,
-        },
+        stop=config.mpe['stop_condition'],
         local_mode=True,
         num_gpus=0,
         num_workers=0,

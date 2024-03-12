@@ -15,5 +15,9 @@ mpe = {
     'model_preference': {
         "core_arch": "mlp",
         "encode_layer": "128-256",
+    },
+    'stop_condition': {
+        'episode_reward_mean': 2000,
+        'timesteps_total': 10000000,
     }
 }
