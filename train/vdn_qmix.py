@@ -23,7 +23,7 @@ if __name__ == '__main__':
         stop=config.mpe['stop_condition'],
         local_mode=True,
         num_gpus=torch.cuda.device_count(),
-        num_workers=0,
+        num_workers=1,
         share_policy='all',
         checkpoint_freq=10,
     )
