@@ -18,6 +18,6 @@ mpe = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 10000000,
+        'timesteps_total': 3861200,
     }
 }
