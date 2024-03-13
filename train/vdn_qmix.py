@@ -17,12 +17,13 @@ if __name__ == '__main__':
     model = marl.build_model(env, algo, model_preference=config.mpe['model_preference'])
 
     # start training
+    gpu_count = torch.cuda.device_count()
     algo.fit(
         env,
         model,
         stop=config.mpe['stop_condition'],
-        local_mode=True,
-        num_gpus=torch.cuda.device_count(),
+        local_mode=gpu_count == 0,
+        num_gpus=gpu_count,
         num_workers=1,
         share_policy='all',
         checkpoint_freq=10,

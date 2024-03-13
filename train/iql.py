@@ -17,12 +17,13 @@ if __name__ == '__main__':
     model = marl.build_model(env, iql, model_preference=config.mpe['model_preference'])
 
     # start learning + extra experiment settings if needed. remember to check ray.yaml before use
+    gpu_count = torch.cuda.device_count()
     iql.fit(
         env,
         model,
         stop=config.mpe['stop_condition'],
-        local_mode=True,
-        num_gpus=torch.cuda.device_count(),
+        local_mode=gpu_count == 0,
+        num_gpus=gpu_count,
         num_workers=1,
         share_policy='individual',
         checkpoint_freq=10,
