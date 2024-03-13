@@ -1,3 +1,4 @@
+import torch
 from marllib import marl
 from niql import env, scripts, config
 
@@ -21,7 +22,7 @@ if __name__ == '__main__':
         model,
         stop=config.mpe['stop_condition'],
         local_mode=True,
-        num_gpus=0,
+        num_gpus=torch.cuda.device_count(),
         num_workers=0,
         share_policy='individual',
         checkpoint_freq=10,
