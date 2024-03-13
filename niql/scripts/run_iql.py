@@ -1,6 +1,6 @@
 import json
 
-from marllib.marl import JointQMLP
+from marllib.marl import JointQMLP, JointQRNN
 from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan
 from marllib.marl.algos.utils.log_dir_util import available_local_dir
 from marllib.marl.algos.utils.setup_utils import AlgVar
@@ -31,7 +31,7 @@ def run_iql(model_class, exp_info, run_config, env_info, stop_config, restore_co
     config = {
         "model": {
             "max_seq_len": episode_limit,  # dynamic
-            "custom_model": JointQMLP,
+            "custom_model": JointQMLP if exp_info["model_arch_args"]["core_arch"] == "mlp" else JointQRNN,
             "custom_model_config": back_up_config,
         },
     }

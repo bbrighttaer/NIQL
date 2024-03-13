@@ -13,7 +13,7 @@ mpe = {
         }
     },
     'model_preference': {
-        "core_arch": "mlp",
+        "core_arch": "gru",  # mlp | gru | lstm
         "encode_layer": "128-256",
     },
     'stop_condition': {
