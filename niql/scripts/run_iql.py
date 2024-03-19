@@ -13,6 +13,11 @@ from ray.util.ml_utils.dict import merge_dicts
 from niql.algo import IQLPolicy
 
 
+def before_learn_on_batch(batch, *args):
+    # print('before_learn_on_batch')
+    return batch
+
+
 def run_iql(model_class, exp_info, run_config, env_info, stop_config, restore_config):
     _param = AlgVar(exp_info)
 
@@ -58,6 +63,7 @@ def run_iql(model_class, exp_info, run_config, env_info, stop_config, restore_co
     DEFAULT_CONFIG["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
     DEFAULT_CONFIG["optimizer"] = optimizer
     DEFAULT_CONFIG["training_intensity"] = None
+    DEFAULT_CONFIG['before_learn_on_batch'] = before_learn_on_batch
 
     # create trainer
     IQLTrainer = GenericOffPolicyTrainer.with_updates(
@@ -94,6 +100,7 @@ def run_iql(model_class, exp_info, run_config, env_info, stop_config, restore_co
         verbose=1,
         progress_reporter=CLIReporter(),
         local_dir=available_local_dir if exp_info["local_dir"] == "" else exp_info["local_dir"],
+
     )
 
     return results

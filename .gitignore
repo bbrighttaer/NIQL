@@ -263,4 +263,4 @@ pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python,pycharm+all
 
-exp_results
+exp_results*/

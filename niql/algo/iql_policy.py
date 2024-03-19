@@ -1,10 +1,11 @@
 # MIT License
 from collections import OrderedDict
+from typing import Tuple
 
 import torch
 import torch.nn as nn
 import tree  # pip install dm_tree
-from gym.spaces import Dict as Gym_Dict
+from gym.spaces import Dict as Gym_Dict, Box
 from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan
 from marllib.marl.models.zoo.mlp.jointQ_mlp import JointQMLP
 from marllib.marl.models.zoo.rnn.jointQ_rnn import JointQRNN
@@ -20,6 +21,7 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
+from ray.rllib.utils.typing import AgentID
 
 
 # Copyright (c) 2023 Replicable-MARL
@@ -169,10 +171,10 @@ class IQLLoss(nn.Module):
 class IQLPolicy(Policy):
 
     def __init__(self, obs_space, action_space, config):
+        self.n_agents = len(obs_space.original_space.spaces)
         config = dict(ray.rllib.agents.qmix.qmix.DEFAULT_CONFIG, **config)
         self.framework = "torch"
         super().__init__(obs_space, action_space, config)
-        self.n_agents = len(obs_space.original_space.spaces)
         config["model"]["n_agents"] = self.n_agents
         self.n_actions = action_space.n
         self.h_size = config["model"]["lstm_cell_size"]
@@ -181,8 +183,15 @@ class IQLPolicy(Policy):
         self.device = (torch.device("cuda")
                        if torch.cuda.is_available() else torch.device("cpu"))
         self.reward_standardize = config["reward_standardize"]
+        self.training_iter_num = 0
 
-        agent_obs_space = obs_space.original_space.spaces
+        # agent_obs_space = obs_space.original_space.spaces
+        agent_obs_space = Box(
+            low=obs_space.low[0],
+            high=obs_space.high[0],
+            shape=(obs_space.shape[0] + 2,)
+        )
+        self.agent_obs_space = agent_obs_space
         if isinstance(agent_obs_space, Gym_Dict):
             space_keys = set(agent_obs_space.spaces.keys())
             if "obs" not in space_keys:
@@ -212,6 +221,8 @@ class IQLPolicy(Policy):
             self.env_global_state_shape = (self.obs_size, self.n_agents)
 
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
+        seed = agent_obs_space.np_random
+        agent_obs_space._np_random = seed
         self.model = ModelCatalog.get_model_v2(
             agent_obs_space,
             action_space,
@@ -275,6 +286,8 @@ class IQLPolicy(Policy):
                         explore=None,
                         timestep=None,
                         **kwargs):
+        obs_batch = self._pad_observation(obs_batch)
+
         explore = explore if explore is not None else self.config["explore"]
         obs_batch, action_mask, _ = self._unpack_observation(obs_batch)
         # We need to ensure we do not use the env global state
@@ -305,6 +318,15 @@ class IQLPolicy(Policy):
 
         return [action], hiddens, {}
 
+    def _pad_observation(self, obs_batch):
+        """
+        Add training iteration number and exploration value to observation.
+        """
+        append_arr = np.array([[self.training_iter_num, self.exploration.get_state()['cur_epsilon']]])
+        append_arr = np.repeat(append_arr, obs_batch.shape[0], axis=0)
+        obs_batch = np.concatenate([obs_batch, append_arr], axis=1)
+        return obs_batch
+
     @override(Policy)
     def compute_log_likelihoods(self,
                                 actions,
@@ -314,6 +336,31 @@ class IQLPolicy(Policy):
                                 prev_reward_batch=None):
         obs_batch, action_mask, _ = self._unpack_observation(obs_batch)
         return np.zeros(obs_batch.size()[0])
+
+    def pad_sample_batch(self, sample_batch: SampleBatch):
+        sample_batch = sample_batch.copy()
+        obs = sample_batch[SampleBatch.OBS]
+        obs = self._pad_observation(obs)
+        next_obs = sample_batch[SampleBatch.NEXT_OBS]
+        next_obs = self._pad_observation(next_obs)
+        sample_batch[SampleBatch.OBS] = obs
+        sample_batch[SampleBatch.NEXT_OBS] = next_obs
+        return sample_batch
+
+    def postprocess_trajectory(
+            self,
+            sample_batch: SampleBatch,
+            other_agent_batches: Optional[Dict[AgentID, Tuple["Policy", SampleBatch]]] = None,
+            episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
+        # pad batches with current training iteration number and exploration term (epsilon)
+        sample_batch = self.pad_sample_batch(sample_batch)
+
+        # share data among neighbours
+        neighbours_data = map(self.pad_sample_batch, [v[1] for v in other_agent_batches.values()])
+        for n_data in neighbours_data:
+            sample_batch = sample_batch.concat(n_data)
+
+        return sample_batch
 
     @override(Policy)
     def learn_on_batch(self, samples):
@@ -407,6 +454,7 @@ class IQLPolicy(Policy):
                             mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
         }
+        self.training_iter_num += 1
         return {LEARNER_STATS_KEY: stats}
 
     @override(Policy)
@@ -487,7 +535,7 @@ class IQLPolicy(Policy):
 
         unpacked = _unpack_obs(
             np.array(obs_batch, dtype=np.float32),
-            self.observation_space.original_space,
+            self.agent_obs_space,
             tensorlib=np)
 
         if not isinstance(unpacked, list):
