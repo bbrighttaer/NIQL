@@ -24,7 +24,7 @@ if __name__ == '__main__':
         stop=config.mpe['stop_condition'],
         local_mode=gpu_count == 0,
         num_gpus=gpu_count,
-        num_workers=5,
+        num_workers=2,
         share_policy='individual',
         checkpoint_freq=10,
     )
