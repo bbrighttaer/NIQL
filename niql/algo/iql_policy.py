@@ -176,6 +176,7 @@ class IQLPolicy(Policy):
         self.framework = "torch"
         super().__init__(obs_space, action_space, config)
         config["model"]["n_agents"] = self.n_agents
+        self.info_sharing = config["info_sharing"]
         self.n_actions = action_space.n
         self.h_size = config["model"]["lstm_cell_size"]
         self.has_env_global_state = False
@@ -337,9 +338,10 @@ class IQLPolicy(Policy):
         sample_batch = self._pad_sample_batch(sample_batch)
 
         # share data among neighbours
-        neighbours_data = map(self._pad_sample_batch, [v[1] for v in other_agent_batches.values()])
-        for n_data in neighbours_data:
-            sample_batch = sample_batch.concat(n_data)
+        if self.info_sharing:
+            neighbours_data = map(self._pad_sample_batch, [v[1] for v in other_agent_batches.values()])
+            for n_data in neighbours_data:
+                sample_batch = sample_batch.concat(n_data)
 
         return sample_batch
 

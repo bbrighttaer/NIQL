@@ -64,6 +64,7 @@ def run_iql(model_class, exp_info, run_config, env_info, stop_config, restore_co
     DEFAULT_CONFIG["optimizer"] = optimizer
     DEFAULT_CONFIG["training_intensity"] = None
     DEFAULT_CONFIG['before_learn_on_batch'] = before_learn_on_batch
+    DEFAULT_CONFIG["info_sharing"] = exp_info.get("info_sharing", True)
 
     # create trainer
     IQLTrainer = GenericOffPolicyTrainer.with_updates(

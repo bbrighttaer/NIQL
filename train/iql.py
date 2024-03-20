@@ -15,6 +15,14 @@ if __name__ == '__main__':
         help='The core architecture of the model',
     )
 
+    parser.add_argument(
+        '-s', '--no-info-share',
+        dest='no_sharing',
+        action='store_true',
+        default=False,
+        help='If specified, information sharing is disabled between agents.'
+    )
+
     args = parser.parse_args()
 
     # get env
@@ -43,4 +51,5 @@ if __name__ == '__main__':
         num_workers=1,
         share_policy='individual',
         checkpoint_freq=10,
+        info_sharing=not args.no_sharing,
     )
