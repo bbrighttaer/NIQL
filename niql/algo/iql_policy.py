@@ -1,5 +1,5 @@
 # MIT License
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from typing import Tuple
 
 import torch
@@ -21,7 +21,7 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
-from ray.rllib.utils.typing import AgentID
+from ray.rllib.utils.typing import AgentID, TensorType
 
 
 # Copyright (c) 2023 Replicable-MARL
@@ -318,15 +318,6 @@ class IQLPolicy(Policy):
 
         return [action], hiddens, {}
 
-    def _pad_observation(self, obs_batch):
-        """
-        Add training iteration number and exploration value to observation.
-        """
-        append_arr = np.array([[self.training_iter_num, self.exploration.get_state()['cur_epsilon']]])
-        append_arr = np.repeat(append_arr, obs_batch.shape[0], axis=0)
-        obs_batch = np.concatenate([obs_batch, append_arr], axis=1)
-        return obs_batch
-
     @override(Policy)
     def compute_log_likelihoods(self,
                                 actions,
@@ -337,26 +328,16 @@ class IQLPolicy(Policy):
         obs_batch, action_mask, _ = self._unpack_observation(obs_batch)
         return np.zeros(obs_batch.size()[0])
 
-    def pad_sample_batch(self, sample_batch: SampleBatch):
-        sample_batch = sample_batch.copy()
-        obs = sample_batch[SampleBatch.OBS]
-        obs = self._pad_observation(obs)
-        next_obs = sample_batch[SampleBatch.NEXT_OBS]
-        next_obs = self._pad_observation(next_obs)
-        sample_batch[SampleBatch.OBS] = obs
-        sample_batch[SampleBatch.NEXT_OBS] = next_obs
-        return sample_batch
-
     def postprocess_trajectory(
             self,
             sample_batch: SampleBatch,
             other_agent_batches: Optional[Dict[AgentID, Tuple["Policy", SampleBatch]]] = None,
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
         # pad batches with current training iteration number and exploration term (epsilon)
-        sample_batch = self.pad_sample_batch(sample_batch)
+        sample_batch = self._pad_sample_batch(sample_batch)
 
         # share data among neighbours
-        neighbours_data = map(self.pad_sample_batch, [v[1] for v in other_agent_batches.values()])
+        neighbours_data = map(self._pad_sample_batch, [v[1] for v in other_agent_batches.values()])
         for n_data in neighbours_data:
             sample_batch = sample_batch.concat(n_data)
 
@@ -454,7 +435,6 @@ class IQLPolicy(Policy):
                             mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
         }
-        self.training_iter_num += 1
         return {LEARNER_STATS_KEY: stats}
 
     @override(Policy)
@@ -567,6 +547,29 @@ class IQLPolicy(Policy):
         else:
             state = None
         return obs, action_mask, state
+
+    def _pad_observation(self, obs_batch):
+        """
+        Add training iteration number and exploration value to observation.
+        """
+        append_arr = np.array([[self.training_iter_num, self.exploration.get_state()['cur_epsilon']]])
+        append_arr = np.repeat(append_arr, obs_batch.shape[0], axis=0)
+        obs_batch = np.concatenate([obs_batch, append_arr], axis=1)
+        return obs_batch
+
+    def _pad_sample_batch(self, sample_batch: SampleBatch):
+        sample_batch = sample_batch.copy()
+        obs = sample_batch[SampleBatch.OBS]
+        obs = self._pad_observation(obs)
+        next_obs = sample_batch[SampleBatch.NEXT_OBS]
+        next_obs = self._pad_observation(next_obs)
+        sample_batch[SampleBatch.OBS] = obs
+        sample_batch[SampleBatch.NEXT_OBS] = next_obs
+        return sample_batch
+
+    def on_global_var_update(self, global_vars: Dict[str, TensorType]) -> None:
+        super().on_global_var_update(global_vars)
+        self.training_iter_num += 1
 
 
 IQLTrainer = GenericOffPolicyTrainer.with_updates(
