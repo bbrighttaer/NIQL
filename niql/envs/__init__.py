@@ -1,6 +1,7 @@
 import numpy as np
 from marllib import marl
 from marllib.envs.base_env import ENV_REGISTRY
+from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 
 from .mpe_simple import MPESimple
 
@@ -17,11 +18,12 @@ def make_mpe_env(**kwargs):
 
     # register new env
     ENV_REGISTRY["mpe"] = MPESimple
+    COOP_ENV_REGISTRY["mpe"] = MPESimple
 
     # choose environment + scenario
     env = marl.make_env(
         environment_name="mpe",
-        map_name="simple",
+        map_name="simple_spread",
         # force_coop=True,
         max_cycles=25,
         **kwargs,
