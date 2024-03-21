@@ -1,10 +1,10 @@
 import torch
 from marllib import marl
-from niql import env, config
+from niql import envs, config
 
 if __name__ == '__main__':
     # get env
-    env = env.make_mpe_env()
+    env = envs.make_mpe_env()
 
     # set algorithm to use
     ctde = getattr(marl.algos, 'qmix')

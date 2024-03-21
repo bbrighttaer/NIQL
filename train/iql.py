@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 
 import torch
 from marllib import marl
-from niql import env, scripts, config
+from niql import envs, scripts, config
 
 if __name__ == '__main__':
     parser = ArgumentParser()
@@ -26,7 +26,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # get env
-    env = env.make_mpe_env()
+    env = envs.make_mpe_env()
 
     # register new algorithm
     marl.algos.register_algo(algo_name="iql2", style="il", script=scripts.run_iql)
