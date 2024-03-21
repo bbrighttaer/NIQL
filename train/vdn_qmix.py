@@ -1,13 +1,16 @@
+import os
 import torch
 from marllib import marl
 from niql import envs, config
+
+os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
 
 if __name__ == '__main__':
     # get env
     env = envs.make_mpe_env()
 
     # set algorithm to use
-    ctde = getattr(marl.algos, 'qmix')
+    ctde = getattr(marl.algos, 'iql')
 
     # initialise algorithm with hyperparameters
     algo = ctde  # (hyperparam_source='mpe')

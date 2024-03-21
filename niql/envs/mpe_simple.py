@@ -31,7 +31,7 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 # from pettingzoo 1.12.0
 
 policy_mapping_dict = {
-    "simple": {
+    "simple_spread": {
         "description": "one team cooperate",
         "team_prefix": ("agent_",),
         "all_agents_one_policy": True,
@@ -43,6 +43,7 @@ policy_mapping_dict = {
 class MPESimple(MultiAgentEnv):
 
     def __init__(self, env_config):
+        map_name = env_config["map_name"]
         env_config.pop("map_name", None)
         env = simple_v2.parallel_env(**env_config)
 
@@ -60,7 +61,7 @@ class MPESimple(MultiAgentEnv):
             dtype=self.env.observation_space.dtype)})
         self.agents = self.env.agents
         self.num_agents = len(self.agents)
-        env_config["map_name"] = "simple"
+        env_config["map_name"] = map_name
         self.env_config = env_config
 
     def reset(self):

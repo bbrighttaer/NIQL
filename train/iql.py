@@ -1,8 +1,12 @@
+import os
 from argparse import ArgumentParser
 
 import torch
 from marllib import marl
 from niql import envs, scripts, config
+
+os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
+
 
 if __name__ == '__main__':
     parser = ArgumentParser()

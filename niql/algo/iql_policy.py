@@ -190,7 +190,7 @@ class IQLPolicy(Policy):
         agent_obs_space = Box(
             low=obs_space.low[0],
             high=obs_space.high[0],
-            shape=(obs_space.shape[0] + 2,)
+            shape=(obs_space.shape[0],)
         )
         self.agent_obs_space = agent_obs_space
         if isinstance(agent_obs_space, Gym_Dict):
@@ -287,7 +287,7 @@ class IQLPolicy(Policy):
                         explore=None,
                         timestep=None,
                         **kwargs):
-        obs_batch = self._pad_observation(obs_batch)
+        # obs_batch = self._pad_observation(obs_batch)
 
         explore = explore if explore is not None else self.config["explore"]
         obs_batch, action_mask, _ = self._unpack_observation(obs_batch)
@@ -335,13 +335,13 @@ class IQLPolicy(Policy):
             other_agent_batches: Optional[Dict[AgentID, Tuple["Policy", SampleBatch]]] = None,
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
         # pad batches with current training iteration number and exploration term (epsilon)
-        sample_batch = self._pad_sample_batch(sample_batch)
+        # sample_batch = self._pad_sample_batch(sample_batch)
 
         # share data among neighbours
-        if self.info_sharing:
-            neighbours_data = map(self._pad_sample_batch, [v[1] for v in other_agent_batches.values()])
-            for n_data in neighbours_data:
-                sample_batch = sample_batch.concat(n_data)
+        # if self.info_sharing:
+        #     neighbours_data = map(self._pad_sample_batch, [v[1] for v in other_agent_batches.values()])
+        #     for n_data in neighbours_data:
+        #         sample_batch = sample_batch.concat(n_data)
 
         return sample_batch
 
