@@ -28,7 +28,6 @@ marllib @ git+https://github.com/Replicable-MARL/MARLlib.git@368c6173577d0f9c0ad
 matplotlib==3.7.5
 msgpack==1.0.8
 networkx==3.1
--e git+https://github.com/bbrighttaer/NIQL.git@b6cc4cdea840018153cbc2663db3eab9d2558fc1#egg=NIQL
 numpy==1.20.3
 opencv-python==3.4.18.65
 packaging==24.0
