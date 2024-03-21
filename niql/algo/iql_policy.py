@@ -1,30 +1,7 @@
 # MIT License
-from collections import OrderedDict, namedtuple
-from typing import Tuple
-
-import torch
-import torch.nn as nn
-import tree  # pip install dm_tree
-from gym.spaces import Dict as Gym_Dict, Box
-from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan
-from marllib.marl.models.zoo.mlp.jointQ_mlp import JointQMLP
-from marllib.marl.models.zoo.rnn.jointQ_rnn import JointQRNN
-from ray.rllib.agents.dqn.dqn import GenericOffPolicyTrainer
-from ray.rllib.agents.qmix.model import RNNModel, _get_size
-from ray.rllib.agents.qmix.qmix import DEFAULT_CONFIG
-from ray.rllib.agents.qmix.qmix_policy import _mac, _unroll_mac
-from ray.rllib.execution.replay_buffer import *
-from ray.rllib.models.catalog import ModelCatalog
-from ray.rllib.models.modelv2 import _unpack_obs
-from ray.rllib.models.torch.torch_action_dist import TorchCategorical
-from ray.rllib.policy.policy import Policy
-from ray.rllib.policy.rnn_sequencing import chop_into_sequences
-from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
-from ray.rllib.utils.typing import AgentID, TensorType
-
 
 # Copyright (c) 2023 Replicable-MARL
+
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
@@ -43,10 +20,33 @@ from ray.rllib.utils.typing import AgentID, TensorType
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import tree  # pip install dm_tree
+import torch
+import torch.nn as nn
+from gym.spaces import Dict as Gym_Dict, Tuple
+from ray.rllib.policy.torch_policy import TorchPolicy
+from ray.rllib.policy.policy import Policy
+from ray.rllib.models.modelv2 import _unpack_obs
+from ray.rllib.agents.qmix.model import RNNModel, _get_size
+from ray.rllib.execution.replay_buffer import *
+from ray.rllib.models.torch.torch_action_dist import TorchCategorical
+from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
+from ray.rllib.models.catalog import ModelCatalog
+from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.agents.qmix.qmix_policy import _mac, _validate, _unroll_mac
+from ray.rllib.agents.dqn.dqn import GenericOffPolicyTrainer
+from ray.rllib.agents.qmix.qmix import DEFAULT_CONFIG
+from ray.rllib.policy.rnn_sequencing import chop_into_sequences
+
+from marllib.marl.models.zoo.rnn.jointQ_rnn import JointQRNN
+from marllib.marl.models.zoo.mlp.jointQ_mlp import JointQMLP
+
+from marllib.marl.models.zoo.mixer import QMixer, VDNMixer
+from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan
 
 # original _unroll_mac for next observation is different from Pymarl.
 # thus we provide a new JointQLoss here
-class IQLLoss(nn.Module):
+class JointQLoss(nn.Module):
     def __init__(self,
                  model,
                  target_model,
@@ -171,12 +171,14 @@ class IQLLoss(nn.Module):
 class IQLPolicy(Policy):
 
     def __init__(self, obs_space, action_space, config):
-        self.n_agents = len(obs_space.original_space.spaces)
+        obs_space = config["obs_space"]
+        # action_space = config["act_space"]
+        # _validate(obs_space, action_space)
         config = dict(ray.rllib.agents.qmix.qmix.DEFAULT_CONFIG, **config)
         self.framework = "torch"
         super().__init__(obs_space, action_space, config)
+        self.n_agents = len(obs_space.original_space.spaces)
         config["model"]["n_agents"] = self.n_agents
-        self.info_sharing = config["info_sharing"]
         self.n_actions = action_space.n
         self.h_size = config["model"]["lstm_cell_size"]
         self.has_env_global_state = False
@@ -184,15 +186,8 @@ class IQLPolicy(Policy):
         self.device = (torch.device("cuda")
                        if torch.cuda.is_available() else torch.device("cpu"))
         self.reward_standardize = config["reward_standardize"]
-        self.training_iter_num = 0
 
-        # agent_obs_space = obs_space.original_space.spaces
-        agent_obs_space = Box(
-            low=obs_space.low[0],
-            high=obs_space.high[0],
-            shape=(obs_space.shape[0],)
-        )
-        self.agent_obs_space = agent_obs_space
+        agent_obs_space = obs_space.original_space.spaces[0]
         if isinstance(agent_obs_space, Gym_Dict):
             space_keys = set(agent_obs_space.spaces.keys())
             if "obs" not in space_keys:
@@ -216,14 +211,10 @@ class IQLPolicy(Policy):
             config["model"]["full_obs_space"] = agent_obs_space
             agent_obs_space = agent_obs_space.spaces["obs"]
         else:
-            if isinstance(agent_obs_space, OrderedDict):
-                agent_obs_space = self.agent_obs_space = agent_obs_space['obs']
             self.obs_size = _get_size(agent_obs_space)
             self.env_global_state_shape = (self.obs_size, self.n_agents)
 
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
-        seed = agent_obs_space.np_random
-        agent_obs_space._np_random = seed
         self.model = ModelCatalog.get_model_v2(
             agent_obs_space,
             action_space,
@@ -232,7 +223,6 @@ class IQLPolicy(Policy):
             framework="torch",
             name="model",
             default_model=JointQMLP if core_arch == "mlp" else JointQRNN).to(self.device)
-        self.model.n_agents = self.n_agents
 
         self.target_model = ModelCatalog.get_model_v2(
             agent_obs_space,
@@ -242,13 +232,24 @@ class IQLPolicy(Policy):
             framework="torch",
             name="target_model",
             default_model=JointQMLP if core_arch == "mlp" else JointQRNN).to(self.device)
-        self.target_model.n_agents = self.n_agents
 
         self.exploration = self._create_exploration()
 
-        # No mixer network.
-        self.mixer = None
-        self.target_mixer = None
+        # Setup the mixer network.
+        custom_config = config["model"]["custom_model_config"]
+        if custom_config["global_state_flag"]:
+            state_dim = custom_config["space_obs"]["state"].shape
+        else:
+            state_dim = custom_config["space_obs"]["obs"].shape + (custom_config["num_agents"],)
+        if config["mixer"] is None:  # "iql"
+            self.mixer = None
+            self.target_mixer = None
+        elif config["mixer"] == "qmix":
+            self.mixer = QMixer(custom_config, state_dim).to(self.device)
+            self.target_mixer = QMixer(custom_config, state_dim).to(self.device)
+        elif config["mixer"] == "vdn":
+            self.mixer = VDNMixer().to(self.device)
+            self.target_mixer = VDNMixer().to(self.device)
 
         self.cur_epsilon = 1.0
         self.update_target()  # initial sync
@@ -257,9 +258,9 @@ class IQLPolicy(Policy):
         self.params = list(self.model.parameters())
         if self.mixer:
             self.params += list(self.mixer.parameters())
-        self.loss = IQLLoss(self.model, self.target_model, self.mixer,
-                            self.target_mixer, self.n_agents, self.n_actions,
-                            self.config["double_q"], self.config["gamma"])
+        self.loss = JointQLoss(self.model, self.target_model, self.mixer,
+                               self.target_mixer, self.n_agents, self.n_actions,
+                               self.config["double_q"], self.config["gamma"])
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
@@ -287,8 +288,6 @@ class IQLPolicy(Policy):
                         explore=None,
                         timestep=None,
                         **kwargs):
-        # obs_batch = self._pad_observation(obs_batch)
-
         explore = explore if explore is not None else self.config["explore"]
         obs_batch, action_mask, _ = self._unpack_observation(obs_batch)
         # We need to ensure we do not use the env global state
@@ -310,14 +309,16 @@ class IQLPolicy(Policy):
             masked_q_values[avail == 0.0] = -float("inf")
             masked_q_values_folded = torch.reshape(
                 masked_q_values, [-1] + list(masked_q_values.shape)[2:])
-            action, _ = self.exploration.get_exploration_action(
+            actions, _ = self.exploration.get_exploration_action(
                 action_distribution=TorchCategorical(masked_q_values_folded),
                 timestep=timestep,
                 explore=explore)
-            action = action.item()
+            actions = torch.reshape(
+                actions,
+                list(masked_q_values.shape)[:-1]).cpu().numpy()
             hiddens = [s.cpu().numpy() for s in hiddens]
 
-        return [action], hiddens, {}
+        return [actions.item()], hiddens, {}
 
     @override(Policy)
     def compute_log_likelihoods(self,
@@ -328,22 +329,6 @@ class IQLPolicy(Policy):
                                 prev_reward_batch=None):
         obs_batch, action_mask, _ = self._unpack_observation(obs_batch)
         return np.zeros(obs_batch.size()[0])
-
-    def postprocess_trajectory(
-            self,
-            sample_batch: SampleBatch,
-            other_agent_batches: Optional[Dict[AgentID, Tuple["Policy", SampleBatch]]] = None,
-            episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
-        # pad batches with current training iteration number and exploration term (epsilon)
-        # sample_batch = self._pad_sample_batch(sample_batch)
-
-        # share data among neighbours
-        # if self.info_sharing:
-        #     neighbours_data = map(self._pad_sample_batch, [v[1] for v in other_agent_batches.values()])
-        #     for n_data in neighbours_data:
-        #         sample_batch = sample_batch.concat(n_data)
-
-        return sample_batch
 
     @override(Policy)
     def learn_on_batch(self, samples):
@@ -356,7 +341,7 @@ class IQLPolicy(Policy):
 
         input_list = [
             group_rewards, action_mask, next_action_mask,
-            samples[SampleBatch.ACTIONS].reshape(-1, 1), samples[SampleBatch.DONES],
+            samples[SampleBatch.ACTIONS], samples[SampleBatch.DONES],
             obs_batch, next_obs_batch
         ]
         if self.has_env_global_state:
@@ -416,9 +401,18 @@ class IQLPolicy(Policy):
 
         # Compute loss
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = (
-            self.loss(rewards, actions, terminated, mask, obs, next_obs,
-                      action_mask, next_action_mask, env_global_state,
-                      next_env_global_state))
+            self.loss(
+                rewards,
+                actions.unsqueeze(2),
+                terminated,
+                mask,
+                obs,
+                next_obs,
+                action_mask,
+                next_action_mask,
+                env_global_state,
+                next_env_global_state,
+            ))
 
         # Optimise
         self.optimiser.zero_grad()
@@ -517,11 +511,8 @@ class IQLPolicy(Policy):
 
         unpacked = _unpack_obs(
             np.array(obs_batch, dtype=np.float32),
-            self.agent_obs_space,
+            self.observation_space.original_space,
             tensorlib=np)
-
-        if not isinstance(unpacked, list):
-            unpacked = [unpacked]
 
         if isinstance(unpacked[0], dict):
             assert "obs" in unpacked[0]
@@ -550,33 +541,11 @@ class IQLPolicy(Policy):
             state = None
         return obs, action_mask, state
 
-    def _pad_observation(self, obs_batch):
-        """
-        Add training iteration number and exploration value to observation.
-        """
-        append_arr = np.array([[self.training_iter_num, self.exploration.get_state()['cur_epsilon']]])
-        append_arr = np.repeat(append_arr, obs_batch.shape[0], axis=0)
-        obs_batch = np.concatenate([obs_batch, append_arr], axis=1)
-        return obs_batch
-
-    def _pad_sample_batch(self, sample_batch: SampleBatch):
-        sample_batch = sample_batch.copy()
-        obs = sample_batch[SampleBatch.OBS]
-        obs = self._pad_observation(obs)
-        next_obs = sample_batch[SampleBatch.NEXT_OBS]
-        next_obs = self._pad_observation(next_obs)
-        sample_batch[SampleBatch.OBS] = obs
-        sample_batch[SampleBatch.NEXT_OBS] = next_obs
-        return sample_batch
-
-    def on_global_var_update(self, global_vars: Dict[str, TensorType]) -> None:
-        super().on_global_var_update(global_vars)
-        self.training_iter_num += 1
-
 
 IQLTrainer = GenericOffPolicyTrainer.with_updates(
-    name="JointQ",
+    name="IQLTrainer",
     default_config=DEFAULT_CONFIG,
     default_policy=IQLPolicy,
     get_policy_class=None,
-    execution_plan=episode_execution_plan)
+    execution_plan=episode_execution_plan
+)

@@ -1,1 +1,1 @@
-from .iql_policy import IQLPolicy
+from .iql_policy import IQLPolicy, IQLTrainer

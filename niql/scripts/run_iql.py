@@ -1,27 +1,29 @@
-import json
+import copy
 
-from marllib.marl import JointQMLP, JointQRNN
-from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan
+from gym.spaces import Tuple, Dict as Gym_Dict
+from marllib.marl.algos.scripts.coma import restore_model
 from marllib.marl.algos.utils.log_dir_util import available_local_dir
 from marllib.marl.algos.utils.setup_utils import AlgVar
 from ray import tune
-from ray.rllib.agents.dqn.dqn import GenericOffPolicyTrainer
-from ray.rllib.agents.qmix import DEFAULT_CONFIG
+from ray.rllib.agents.qmix import DEFAULT_CONFIG as IQL_Config
+from ray.rllib.models import ModelCatalog
 from ray.tune import CLIReporter
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import IQLPolicy
-
+from niql.algo import IQLTrainer
 
 def before_learn_on_batch(batch, *args):
     # print('before_learn_on_batch')
     return batch
 
 
-def run_iql(model_class, exp_info, run_config, env_info, stop_config, restore_config):
-    _param = AlgVar(exp_info)
+def run_iql(model_class, exp, run_config, env, stop, restore):
+    ModelCatalog.register_custom_model("IQL_Q_Model", model_class)
 
-    episode_limit = env_info["episode_limit"]
+    _param = AlgVar(exp)
+
+    algorithm = exp["algorithm"]
+    episode_limit = env["episode_limit"]
     train_batch_episode = _param["batch_episode"]
     lr = _param["lr"]
     buffer_size = _param["buffer_size"]
@@ -30,78 +32,74 @@ def run_iql(model_class, exp_info, run_config, env_info, stop_config, restore_co
     epsilon_timesteps = _param["epsilon_timesteps"]
     reward_standardize = _param["reward_standardize"]
     optimizer = _param["optimizer"]
-    back_up_config = merge_dicts(exp_info, env_info)
+    back_up_config = merge_dicts(exp, env)
     back_up_config.pop("algo_args")  # clean for grid_search
+
+    mixer_dict = {
+        "qmix": "qmix",
+        "vdn": "vdn",
+        "iql": None
+    }
 
     config = {
         "model": {
             "max_seq_len": episode_limit,  # dynamic
-            "custom_model": JointQMLP if exp_info["model_arch_args"]["core_arch"] == "mlp" else JointQRNN,
             "custom_model_config": back_up_config,
         },
     }
 
     config.update(run_config)
 
-    DEFAULT_CONFIG.update(
+    IQL_Config.update(
         {
             "rollout_fragment_length": 1,
             "buffer_size": buffer_size * episode_limit,  # in timesteps
             "train_batch_size": train_batch_episode,  # in sequence
             "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps
             "learning_starts": episode_limit * train_batch_episode,
-            "lr": lr if restore_config is None else 1e-10,
+            "lr": lr if restore is None else 1e-10,
             "exploration_config": {
                 "type": "EpsilonGreedy",
                 "initial_epsilon": 1.0,
                 "final_epsilon": final_epsilon,
                 "epsilon_timesteps": epsilon_timesteps,
             },
-            "mixer": None
+            "mixer": mixer_dict[algorithm]
         })
 
-    DEFAULT_CONFIG["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
-    DEFAULT_CONFIG["optimizer"] = optimizer
-    DEFAULT_CONFIG["training_intensity"] = None
-    DEFAULT_CONFIG['before_learn_on_batch'] = before_learn_on_batch
-    DEFAULT_CONFIG["info_sharing"] = exp_info.get("info_sharing", True)
+    IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
+    IQL_Config["optimizer"] = optimizer
+    IQL_Config["training_intensity"] = None
+    # JointQ_Config['before_learn_on_batch'] = before_learn_on_batch
+    IQL_Config["info_sharing"] = exp.get("info_sharing", True)
+    space_obs = env["space_obs"]["obs"]
+    setattr(space_obs, 'original_space', Tuple([copy.deepcopy(env["space_obs"])]))
+    IQL_Config["obs_space"] = space_obs
+    action_space = env["space_act"]
+    IQL_Config["act_space"] = Tuple([action_space])
 
     # create trainer
-    IQLTrainer = GenericOffPolicyTrainer.with_updates(
-        name="IQLTrainer",
-        default_config=DEFAULT_CONFIG,
-        default_policy=IQLPolicy,
-        get_policy_class=None,
-        execution_plan=episode_execution_plan)
+    trainer = IQLTrainer.with_updates(
+        name=algorithm.upper(),
+        default_config=IQL_Config,
+    )
 
-    algorithm = exp_info["algorithm"]
-    map_name = exp_info["env_args"]["map_name"]
-    arch = exp_info["model_arch_args"]["core_arch"]
-    RUNNING_NAME = '_'.join([algorithm, arch, map_name])
-
-    if restore_config is not None:
-        with open(restore_config["params_path"], 'r') as JSON:
-            raw_config = json.load(JSON)
-            raw_config = raw_config["model"]["custom_model_config"]['model_arch_args']
-            check_config = config["model"]["custom_model_config"]['model_arch_args']
-            if check_config != raw_config:
-                raise ValueError("is not using the params required by the checkpoint model")
-        model_path = restore_config["model_path"]
-    else:
-        model_path = None
+    map_name = exp["env_args"]["map_name"]
+    arch = exp["model_arch_args"]["core_arch"]
+    running_name = '_'.join([algorithm, arch, map_name])
+    model_path = restore_model(restore, exp)
 
     results = tune.run(
-        IQLTrainer,
-        name=RUNNING_NAME,
-        checkpoint_at_end=exp_info['checkpoint_end'],
-        checkpoint_freq=exp_info['checkpoint_freq'],
+        trainer,
+        name=running_name,
+        checkpoint_at_end=exp['checkpoint_end'],
+        checkpoint_freq=exp['checkpoint_freq'],
         restore=model_path,
-        stop=stop_config,
+        stop=stop,
         config=config,
         verbose=1,
         progress_reporter=CLIReporter(),
-        local_dir=available_local_dir if exp_info["local_dir"] == "" else exp_info["local_dir"],
-
+        local_dir=available_local_dir if exp["local_dir"] == "" else exp["local_dir"],
     )
 
     return results

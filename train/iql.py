@@ -33,11 +33,11 @@ if __name__ == '__main__':
     env = envs.make_mpe_env()
 
     # register new algorithm
-    marl.algos.register_algo(algo_name="iql2", style="il", script=scripts.run_iql)
+    marl.algos.register_algo(algo_name="iql", style="il", script=scripts.run_iql)
 
     # initialize algorithm
-    iql = marl.algos.iql2  # (hyperparam_source="mpe")
-    iql.algo_parameters = config.mpe['algo_parameters']
+    iql = marl.algos.iql(hyperparam_source="mpe")
+    # iql.algo_parameters = config.mpe['algo_parameters']
 
     # build agent model based on env + algorithms + user preference if checked available
     model_config = config.mpe['model_preference']
