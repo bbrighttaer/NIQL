@@ -1,6 +1,6 @@
 import copy
 
-from gym.spaces import Tuple, Dict as Gym_Dict
+from gym.spaces import Tuple
 from marllib.marl.algos.scripts.coma import restore_model
 from marllib.marl.algos.utils.log_dir_util import available_local_dir
 from marllib.marl.algos.utils.setup_utils import AlgVar
@@ -10,7 +10,8 @@ from ray.rllib.models import ModelCatalog
 from ray.tune import CLIReporter
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import IQLTrainer
+from niql.algo import DQNTrainer
+
 
 def before_learn_on_batch(batch, *args):
     # print('before_learn_on_batch')
@@ -79,7 +80,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     IQL_Config["act_space"] = Tuple([action_space])
 
     # create trainer
-    trainer = IQLTrainer.with_updates(
+    trainer = DQNTrainer.with_updates(
         name=algorithm.upper(),
         default_config=IQL_Config,
     )

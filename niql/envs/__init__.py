@@ -8,26 +8,26 @@ from .mpe_simple import MPESimple
 
 def make_mpe_env(**kwargs):
     # choose environment + scenario
-    # env = marl.make_env(
-    #     environment_name="mpe",
-    #     map_name="simple_spread",
-    #     force_coop=True,
-    #     max_cycles=25,
-    #     **kwargs,
-    # )
-
-    # register new env
-    ENV_REGISTRY["mpe"] = MPESimple
-    COOP_ENV_REGISTRY["mpe"] = MPESimple
-
-    # choose environment + scenario
     env = marl.make_env(
         environment_name="mpe",
         map_name="simple_spread",
-        # force_coop=True,
+        force_coop=True,
         max_cycles=25,
         **kwargs,
     )
+
+    # register new env
+    # ENV_REGISTRY["mpe"] = MPESimple
+    # COOP_ENV_REGISTRY["mpe"] = MPESimple
+
+    # choose environment + scenario
+    # env = marl.make_env(
+    #     environment_name="mpe",
+    #     map_name="simple_spread",
+    #     # force_coop=True,
+    #     max_cycles=25,
+    #     **kwargs,
+    # )
     return env
 
 
