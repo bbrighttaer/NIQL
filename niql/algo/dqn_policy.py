@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union, List
 
 import torch
 from marllib.patch.rllib.policy.torch_policy import _directStepOptimizerSingleton
@@ -6,10 +6,16 @@ from ray.rllib.policy import Policy, TorchPolicy
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils import override, DeveloperAPI
 from ray.rllib.utils.threading import with_lock
-from ray.rllib.utils.typing import TensorType, ModelGradients, AgentID
+from ray.rllib.utils.typing import TensorType, ModelGradients, AgentID, TensorStructType
 
 
 class IQLPolicy(TorchPolicy):
+
+    def compute_actions(
+            self,
+            **kwargs) -> \
+            Tuple[TensorStructType, List[TensorType], Dict[str, TensorType]]:
+        return super().compute_actions(**kwargs)
 
     @with_lock
     @override(Policy)

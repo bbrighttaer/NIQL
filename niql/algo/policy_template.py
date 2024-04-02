@@ -3,13 +3,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type, \
 
 import gym
 import ray
-from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan
+from marllib.marl import JointQMLP, JointQRNN
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
 from ray.rllib.agents.dqn.simple_q_tf_policy import (
-    get_distribution_inputs_and_class)
+    get_distribution_inputs_and_class, Q_SCOPE, Q_TARGET_SCOPE)
 from ray.rllib.agents.dqn.simple_q_torch_policy import build_q_losses, stats_fn, extra_action_out_fn, setup_late_mixins, \
     build_q_model_and_distribution, TargetNetworkMixin
-from ray.rllib.agents.trainer_template import build_trainer
 from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.jax.jax_modelv2 import JAXModelV2
 from ray.rllib.models.modelv2 import ModelV2
@@ -20,6 +19,7 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.torch_policy import TorchPolicy
 from ray.rllib.utils import add_mixins, force_list, NullContextManager
 from ray.rllib.utils.annotations import override, DeveloperAPI
+from ray.rllib.utils.error import UnsupportedSpaceException
 from ray.rllib.utils.framework import try_import_torch, try_import_jax
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_non_torch_type, concat_multi_gpu_td_errors
@@ -421,6 +421,49 @@ def build_policy_class(
     return policy_cls
 
 
+def build_q_models(policy: Policy, obs_space: gym.spaces.Space,
+                   action_space: gym.spaces.Space,
+                   config: TrainerConfigDict) -> ModelV2:
+    """Build q_model and target_model for Simple Q learning
+
+    Note that this function works for both Tensorflow and PyTorch.
+
+    Args:
+        policy (Policy): The Policy, which will use the model for optimization.
+        obs_space (gym.spaces.Space): The policy's observation space.
+        action_space (gym.spaces.Space): The policy's action space.
+        config (TrainerConfigDict):
+
+    Returns:
+        ModelV2: The Model for the Policy to use.
+            Note: The target q model will not be returned, just assigned to
+            `policy.target_model`.
+    """
+    if not isinstance(action_space, gym.spaces.Discrete):
+        raise UnsupportedSpaceException(
+            "Action space {} is not supported for DQN.".format(action_space))
+    core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
+    model = ModelCatalog.get_model_v2(
+        obs_space=config['obs_space'],
+        action_space=action_space,
+        num_outputs=action_space.n,
+        model_config=config["model"],
+        framework=config["framework"],
+        default_model=JointQMLP if core_arch == "mlp" else JointQRNN,
+        name=Q_SCOPE)
+
+    policy.target_model = ModelCatalog.get_model_v2(
+        obs_space=config['obs_space'],
+        action_space=action_space,
+        num_outputs=action_space.n,
+        model_config=config["model"],
+        framework=config["framework"],
+        default_model=JointQMLP if core_arch == "mlp" else JointQRNN,
+        name=Q_TARGET_SCOPE)
+
+    return model
+
+
 SimpleQTorchPolicy = build_policy_class(
     name="SimpleQPolicy",
     framework="torch",
@@ -430,14 +473,9 @@ SimpleQTorchPolicy = build_policy_class(
     extra_action_out_fn=extra_action_out_fn,
     after_init=setup_late_mixins,
     make_model_and_action_dist=build_q_model_and_distribution,
+    # make_model=build_q_models,
     mixins=[TargetNetworkMixin],
     action_distribution_fn=get_distribution_inputs_and_class,
     extra_learn_fetches_fn=concat_multi_gpu_td_errors,
 )
 
-DQNTrainer = build_trainer(
-    name="DQNTrainer",
-    get_policy_class=lambda c: SimpleQTorchPolicy,
-    default_config=DEFAULT_CONFIG,
-    execution_plan=episode_execution_plan,
-)

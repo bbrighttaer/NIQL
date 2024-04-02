@@ -5,7 +5,7 @@ from marllib.marl.algos.scripts.coma import restore_model
 from marllib.marl.algos.utils.log_dir_util import available_local_dir
 from marllib.marl.algos.utils.setup_utils import AlgVar
 from ray import tune
-from ray.rllib.agents.qmix import DEFAULT_CONFIG as IQL_Config
+from ray.rllib.agents.dqn import DEFAULT_CONFIG as IQL_Config
 from ray.rllib.models import ModelCatalog
 from ray.tune import CLIReporter
 from ray.util.ml_utils.dict import merge_dicts
@@ -74,7 +74,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     # JointQ_Config['before_learn_on_batch'] = before_learn_on_batch
     IQL_Config["info_sharing"] = exp.get("info_sharing", True)
     space_obs = env["space_obs"]["obs"]
-    setattr(space_obs, 'original_space', Tuple([copy.deepcopy(env["space_obs"])]))
+    setattr(space_obs, 'original_space', copy.deepcopy(space_obs))
     IQL_Config["obs_space"] = space_obs
     action_space = env["space_act"]
     IQL_Config["act_space"] = Tuple([action_space])
