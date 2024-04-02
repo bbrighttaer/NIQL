@@ -10,7 +10,7 @@ from ray.rllib.models import ModelCatalog
 from ray.tune import CLIReporter
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import DQNTrainer
+from niql.algo import IQLTrainer
 
 
 def before_learn_on_batch(batch, *args):
@@ -80,7 +80,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     IQL_Config["act_space"] = Tuple([action_space])
 
     # create trainer
-    trainer = DQNTrainer.with_updates(
+    trainer = IQLTrainer.with_updates(
         name=algorithm.upper(),
         default_config=IQL_Config,
     )

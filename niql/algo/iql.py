@@ -25,7 +25,7 @@ def get_size(obs_space):
     return get_preprocessor(obs_space)(obs_space).size
 
 
-class QLearningPolicy(Policy):
+class IQLPolicy(Policy):
 
     def __init__(self, obs_space, action_space, config):
         self.framework = "torch"
