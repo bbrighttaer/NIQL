@@ -255,8 +255,9 @@ class IQLPolicy(Policy):
         while "state_in_{}".format(i) in train_batch:
             state_batches_h.append(train_batch["state_in_{}".format(i)])
             i += 1
-        assert state_batches_h
-        i = 0
+        if self._is_recurrent:
+            assert state_batches_h
+        # i = 0
         # state_batches_h_prime = []
         # while "state_out_{}".format(i) in train_batch:
         #     state_batches_h_prime.append(train_batch["state_out_{}".format(i)])
