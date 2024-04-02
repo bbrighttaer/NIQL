@@ -63,6 +63,7 @@ class MPESimple(MultiAgentEnv):
         self.num_agents = len(self.agents)
         env_config["map_name"] = map_name
         self.env_config = env_config
+        self.env.seed(321)
 
     def reset(self):
         original_obs = self.env.reset()

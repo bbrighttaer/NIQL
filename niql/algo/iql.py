@@ -41,7 +41,7 @@ class IQLPolicy(Policy):
         self.obs_size = get_size(obs_space)
         self.env_global_state_shape = (self.obs_size, self.n_agents)
         config["model"]["full_obs_space"] = obs_space
-        self.core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
+        core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
 
         # models
         self.model = ModelCatalog.get_model_v2(
@@ -51,7 +51,7 @@ class IQLPolicy(Policy):
             config["model"],
             framework="torch",
             name="model",
-            default_model=FullyConnectedNetwork  # if core_arch == "mlp" else JointQRNN
+            default_model=FullyConnectedNetwork if core_arch == "mlp" else JointQRNN
         ).to(self.device)
 
         self.target_model = ModelCatalog.get_model_v2(
@@ -61,7 +61,7 @@ class IQLPolicy(Policy):
             config["model"],
             framework="torch",
             name="model",
-            default_model=FullyConnectedNetwork  # if core_arch == "mlp" else JointQRNN
+            default_model=FullyConnectedNetwork if core_arch == "mlp" else JointQRNN
         ).to(self.device)
 
         self.exploration = self._create_exploration()
@@ -109,7 +109,6 @@ class IQLPolicy(Policy):
             **kwargs) -> Tuple[TensorType, List[TensorType], Dict[str, TensorType]]:
         explore = explore if explore is not None else self.config["explore"]
         timestep = timestep if timestep is not None else self.global_timestep
-        self._is_recurrent = state_batches is not None and state_batches != []
 
         # Switch to eval mode.
         if self.model:
@@ -250,9 +249,24 @@ class IQLPolicy(Policy):
             functools.partial(convert_to_torch_tensor, device=self.device)
         )
 
+        # get hidden states for RNN case
+        i = 0
+        state_batches_h = []
+        while "state_in_{}".format(i) in train_batch:
+            state_batches_h.append(train_batch["state_in_{}".format(i)])
+            i += 1
+        assert state_batches_h
+        i = 0
+        # state_batches_h_prime = []
+        # while "state_out_{}".format(i) in train_batch:
+        #     state_batches_h_prime.append(train_batch["state_out_{}".format(i)])
+        #     i += 1
+        # assert state_batches_h_prime
+        seq_lens = train_batch.get(SampleBatch.SEQ_LENS)
+
         # compute q-vals
-        qt, _ = self.model(obs, [], None)
-        qt_prime, _ = self.model(next_obs, [], None)
+        qt, _ = self.model(obs, state_batches_h, seq_lens)
+        qt_prime, _ = self.model(next_obs, state_batches_h, seq_lens)
 
         # q scores for actions which we know were selected in the given state.
         one_hot_selection = F.one_hot(train_batch[SampleBatch.ACTIONS].long(), num_classes=self.action_space.n)

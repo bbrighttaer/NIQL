@@ -1,11 +1,17 @@
 import os
+import random
 from argparse import ArgumentParser
 
 import torch
 from marllib import marl
 from niql import envs, scripts, config
+import numpy as np
 
 os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
+seed = 321
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
 
 
 if __name__ == '__main__':
