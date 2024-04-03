@@ -1,16 +1,20 @@
 import copy
 
 from gym.spaces import Tuple
+from marllib.envs.base_env import ENV_REGISTRY
+from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 from marllib.marl.algos.scripts.coma import restore_model
 from marllib.marl.algos.utils.log_dir_util import available_local_dir
 from marllib.marl.algos.utils.setup_utils import AlgVar
 from ray import tune
 from ray.rllib.agents.dqn import DEFAULT_CONFIG as IQL_Config
 from ray.rllib.models import ModelCatalog
-from ray.tune import CLIReporter
+from ray.tune import CLIReporter, register_env
 from ray.util.ml_utils.dict import merge_dicts
 
 from niql.algo import IQLTrainer
+from niql.envs.wrappers import create_fingerprint_env_wrapper_class
+from niql.utils import determine_multiagent_policy_mapping
 
 
 def before_learn_on_batch(batch, *args):
@@ -20,6 +24,35 @@ def before_learn_on_batch(batch, *args):
 
 def run_iql(model_class, exp, run_config, env, stop, restore):
     ModelCatalog.register_custom_model("IQL_Q_Model", model_class)
+    prefix = ''
+
+    if exp["use_fingerprint"]:
+        # new environment name
+        env_reg_name = "fp_" + run_config["env"]
+        run_config["env"] = env_reg_name
+        prefix += 'fp'
+
+        def create_env(*arg, **kwargs):
+            env_class = ENV_REGISTRY.get(exp["env"]) or COOP_ENV_REGISTRY[exp["env"]]
+            return create_fingerprint_env_wrapper_class(env_class)(exp["env_args"])
+
+        # add wrapped environment to envs list
+        register_env(env_reg_name, create_env)
+
+        # get new environment information
+        wrapped_env = create_env()
+        env_info = wrapped_env.get_env_info()
+        wrapped_env.close()
+
+        # update env information
+        env.update(env_info)
+
+        # update multi-agent policy mapping so observation space can match new updated environment info
+        policies, policy_mapping_fn = determine_multiagent_policy_mapping(exp, env)
+        run_config["multiagent"] = {
+            "policies": policies,
+            "policy_mapping_fn": policy_mapping_fn
+        }
 
     _param = AlgVar(exp)
 
@@ -72,7 +105,8 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     IQL_Config["optimizer"] = optimizer
     IQL_Config["training_intensity"] = None
     # JointQ_Config['before_learn_on_batch'] = before_learn_on_batch
-    IQL_Config["info_sharing"] = exp.get("info_sharing", True)
+    IQL_Config["info_sharing"] = exp["info_sharing"]
+    IQL_Config["use_fingerprint"] = exp["use_fingerprint"]
     space_obs = env["space_obs"]["obs"]
     setattr(space_obs, 'original_space', copy.deepcopy(space_obs))
     IQL_Config["obs_space"] = space_obs
@@ -87,7 +121,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
-    running_name = '_'.join([algorithm, arch, map_name])
+    running_name = '_'.join([prefix, algorithm, arch, map_name])
     model_path = restore_model(restore, exp)
 
     results = tune.run(

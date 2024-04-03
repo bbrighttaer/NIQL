@@ -1,3 +1,4 @@
+FINGERPRINT_SIZE = 2
 mpe = {
     'algo_parameters': {
         'algo_args': {

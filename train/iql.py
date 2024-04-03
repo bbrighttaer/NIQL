@@ -33,6 +33,14 @@ if __name__ == '__main__':
         help='If specified, information sharing is disabled between agents.'
     )
 
+    parser.add_argument(
+        '-f', '--use-fingerprint',
+        dest='use_fingerprint',
+        action='store_true',
+        default=False,
+        help='If specified, fingerprints are added to observations (see https://arxiv.org/abs/1702.08887).'
+    )
+
     args = parser.parse_args()
 
     # get env
@@ -62,4 +70,5 @@ if __name__ == '__main__':
         share_policy='individual',
         checkpoint_freq=10,
         info_sharing=not args.no_sharing,
+        use_fingerprint=args.use_fingerprint,
     )

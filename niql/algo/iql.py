@@ -18,6 +18,8 @@ from ray.rllib.utils import override
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
+from niql.config import FINGERPRINT_SIZE
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,6 +35,8 @@ class IQLPolicy(Policy):
         super().__init__(obs_space, action_space, config)
         self.n_agents = len(obs_space.original_space)
         config["model"]["n_agents"] = self.n_agents
+        self.use_fingerprint = config["use_fingerprint"]
+        self.info_sharing = config["info_sharing"]
         self.n_actions = action_space.n
         self.h_size = config["model"]["lstm_cell_size"]
         self.has_env_global_state = False
@@ -69,6 +73,8 @@ class IQLPolicy(Policy):
 
         self._state_inputs = self.model.get_initial_state()
         self._is_recurrent = len(self._state_inputs) > 0
+        self._training_iteration_num = 0
+        self._global_update_count = 0
 
         # optimizer
         self.params = self.model.parameters()
@@ -109,6 +115,9 @@ class IQLPolicy(Policy):
             **kwargs) -> Tuple[TensorType, List[TensorType], Dict[str, TensorType]]:
         explore = explore if explore is not None else self.config["explore"]
         timestep = timestep if timestep is not None else self.global_timestep
+
+        if self.use_fingerprint:
+            obs_batch = self._pad_observation(obs_batch)
 
         # Switch to eval mode.
         if self.model:
@@ -161,6 +170,8 @@ class IQLPolicy(Policy):
             other_agent_batches: Optional[Dict[AgentID, Tuple[
                 "Policy", SampleBatch]]] = None,
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
+        if self.use_fingerprint:
+            sample_batch = self._pad_sample_batch(sample_batch)
         return sample_batch
 
     def learn_on_batch(self, samples: SampleBatch) -> Dict[str, TensorType]:
@@ -198,7 +209,6 @@ class IQLPolicy(Policy):
         if self.model:
             data["model"] = self.model.metrics()
         data.update({"custom_metrics": learn_stats})
-
         return data
 
     @override(Policy)
@@ -236,6 +246,11 @@ class IQLPolicy(Policy):
     def update_target(self):
         self.target_model.load_state_dict(self.model.state_dict())
         logger.debug("Updated target networks")
+
+    def on_global_var_update(self, global_vars: Dict[str, TensorType]) -> None:
+        self._global_update_count += 1
+        if self._global_update_count % self.config["timesteps_per_iteration"] == 0:
+            self._training_iteration_num += 1
 
     def compute_q_losses(self, train_batch: SampleBatch) -> TensorType:
         # batch preprocessing ops
@@ -301,3 +316,29 @@ class IQLPolicy(Policy):
             functools.partial(convert_to_torch_tensor, device=self.device)
         )
         return obs_batch
+
+    def _pad_observation(self, obs_batch):
+        """
+        Add training iteration number and exploration value to observation.
+        obs_batch is structured as [batch_size, feature_dim, ...]
+        """
+        b = obs_batch.shape[0]
+        fp = np.array(
+            [
+                self.exploration.get_state()['cur_epsilon'],
+                self._training_iteration_num
+            ]
+        ).reshape(1, -1)
+        fp = np.tile(fp, (b, 1))
+        obs_batch = np.concatenate([obs_batch[:, :-FINGERPRINT_SIZE], fp], axis=1)
+        return obs_batch
+
+    def _pad_sample_batch(self, sample_batch: SampleBatch):
+        sample_batch = sample_batch.copy()
+        obs = sample_batch[SampleBatch.OBS]
+        obs = self._pad_observation(obs)
+        next_obs = sample_batch[SampleBatch.NEXT_OBS]
+        next_obs = self._pad_observation(next_obs)
+        sample_batch[SampleBatch.OBS] = obs
+        sample_batch[SampleBatch.NEXT_OBS] = next_obs
+        return sample_batch
