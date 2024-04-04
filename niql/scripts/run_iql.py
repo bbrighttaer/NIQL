@@ -24,13 +24,11 @@ def before_learn_on_batch(batch, *args):
 
 def run_iql(model_class, exp, run_config, env, stop, restore):
     ModelCatalog.register_custom_model("IQL_Q_Model", model_class)
-    prefix = ''
 
     if exp["use_fingerprint"]:
         # new environment name
         env_reg_name = "fp_" + run_config["env"]
         run_config["env"] = env_reg_name
-        prefix += 'fp'
 
         def create_env(*arg, **kwargs):
             env_class = ENV_REGISTRY.get(exp["env"]) or COOP_ENV_REGISTRY[exp["env"]]
@@ -75,6 +73,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
         "iql": None
     }
 
+    back_up_config["num_agents"] = 1  # one agent one model IQL
     config = {
         "model": {
             "max_seq_len": episode_limit,  # dynamic
@@ -121,7 +120,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
-    running_name = '_'.join([prefix, algorithm, arch, map_name])
+    running_name = '_'.join([algorithm, arch, map_name])
     model_path = restore_model(restore, exp)
 
     results = tune.run(

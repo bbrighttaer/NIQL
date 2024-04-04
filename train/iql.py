@@ -19,7 +19,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-m', '--model_arch',
-        default='mlp',
+        default='gru',
         type=str,
         choices=['mlp', 'gru', 'lstm'],
         help='The core architecture of the model',

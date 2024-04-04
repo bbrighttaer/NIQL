@@ -143,6 +143,7 @@ class IQLPolicy(Policy):
             self.exploration.before_compute_actions(explore=explore, timestep=timestep)
 
             # predict q-vals
+            initial_state = self.model.get_initial_state()
             dist_inputs, state_out = self.model(obs_batch, state_batches, seq_lens)
 
             # select action

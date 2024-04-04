@@ -1,20 +1,38 @@
 import os
+import random
+from argparse import ArgumentParser
+
+import numpy as np
 import torch
 from marllib import marl
 from niql import envs, config
 
 os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
+seed = 321
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
 
 if __name__ == '__main__':
+    parser = ArgumentParser()
+    parser.add_argument(
+        '-a', '--algo',
+        type=str,
+        default='vdn',
+        choices=['vdn', 'qmix'],
+        help='Select which CTDE algorithm to run.',
+    )
+    args = parser.parse_args()
+
     # get env
     env = envs.make_mpe_env()
 
-    # set algorithm to use
-    ctde = getattr(marl.algos, 'iql')
-
     # initialise algorithm with hyperparameters
-    algo = ctde  # (hyperparam_source='mpe')
-    ctde.algo_parameters = config.mpe['algo_parameters']
+    if args.algo == 'qmix':
+        algo = marl.algos.qmix(hyperparam_source="mpe")
+    else:
+        algo = marl.algos.vdn(hyperparam_source="mpe")
+    algo.algo_parameters = config.mpe['algo_parameters']
 
     # build model
     model = marl.build_model(env, algo, model_preference=config.mpe['model_preference'])
