@@ -3,10 +3,12 @@ from marllib import marl
 from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 
+from .matrix_game import MultiAgentCoopMatrixGame
 from .mpe_simple import MPESimple
+from .utils import make_local_env
 
 
-def make_mpe_env(**kwargs):
+def make_mpe_simple_spread_env(**kwargs):
     # choose environment + scenario
     env = marl.make_env(
         environment_name="mpe",
@@ -15,19 +17,36 @@ def make_mpe_env(**kwargs):
         max_cycles=25,
         **kwargs,
     )
+    return env
 
+
+def make_mpe_simple_env(**kwargs):
     # register new env
-    # ENV_REGISTRY["mpe"] = MPESimple
-    # COOP_ENV_REGISTRY["mpe"] = MPESimple
-    #
-    # # choose environment + scenario
-    # env = marl.make_env(
-    #     environment_name="mpe",
-    #     map_name="simple_spread",
-    #     # force_coop=True,
-    #     max_cycles=25,
-    #     **kwargs,
-    # )
+    ENV_REGISTRY["mpe"] = MPESimple
+    COOP_ENV_REGISTRY["mpe"] = MPESimple
+
+    # choose environment + scenario
+    env = marl.make_env(
+        environment_name="mpe",
+        map_name="simple_spread",
+        # force_coop=True,
+        max_cycles=25,
+        **kwargs,
+    )
+    return env
+
+
+def make_matrix_game_env(**kwargs):
+    # register new env
+    ENV_REGISTRY["CoopMatrixGame"] = MultiAgentCoopMatrixGame
+    COOP_ENV_REGISTRY["CoopMatrixGame"] = MultiAgentCoopMatrixGame
+
+    # choose environment + scenario
+    env = make_local_env(
+        environment_name="CoopMatrixGame",
+        map_name="all_scenario",
+        **kwargs,
+    )
     return env
 
 

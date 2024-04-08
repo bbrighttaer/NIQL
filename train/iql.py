@@ -6,6 +6,7 @@ import torch
 from marllib import marl
 from niql import envs, scripts, config
 import numpy as np
+from niql.models import * # noqa
 
 os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
 seed = 321
@@ -19,7 +20,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-m', '--model_arch',
-        default='gru',
+        default='mlp',
         type=str,
         choices=['mlp', 'gru', 'lstm'],
         help='The core architecture of the model',
@@ -44,26 +45,29 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # get env
-    env = envs.make_mpe_env()
+    env = envs.make_matrix_game_env()
+    config = config.COOP_MATRIX
 
     # register new algorithm
     marl.algos.register_algo(algo_name="iql", style="il", script=scripts.run_iql)
 
     # initialize algorithm
     iql = marl.algos.iql(hyperparam_source="mpe")
-    # iql.algo_parameters = config.mpe['algo_parameters']
+    iql.algo_parameters = config['algo_parameters']
 
     # build agent model based on env + algorithms + user preference if checked available
-    model_config = config.mpe['model_preference']
+    model_config = config['model_preference']
     model_config.update({'core_arch': args.model_arch})
     model = marl.build_model(env, iql, model_preference=model_config)
+    if model_config.get('custom_model'):
+        model = (eval(model_config['custom_model']), model[1])
 
     # start learning + extra experiment settings if needed. remember to check ray.yaml before use
     gpu_count = torch.cuda.device_count()
     iql.fit(
         env,
         model,
-        stop=config.mpe['stop_condition'],
+        stop=config['stop_condition'],
         local_mode=gpu_count == 0,
         num_gpus=gpu_count,
         num_workers=1,

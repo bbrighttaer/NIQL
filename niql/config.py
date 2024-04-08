@@ -1,5 +1,5 @@
 FINGERPRINT_SIZE = 2
-mpe = {
+MPE = {
     'algo_parameters': {
         'algo_args': {
             'batch_episode': 128,
@@ -20,5 +20,32 @@ mpe = {
     'stop_condition': {
         'episode_reward_mean': 2000,
         'timesteps_total': 3861200,
+    }
+}
+
+COOP_MATRIX = {
+    'algo_parameters': {
+        'algo_args': {
+            'batch_episode': 32,
+            'lr': 0.0005,
+            'rollout_fragment_length': 1,
+            'buffer_size': 500,
+            'target_network_update_freq': 100,
+            'final_epsilon': 1.0,
+            'epsilon_timesteps': 5000,
+            'optimizer': 'rmsprop',  # "adam"
+            'reward_standardize': True,
+            'gamma': 0.99
+
+        }
+    },
+    'model_preference': {
+        'core_arch': 'mlp',
+        'hidden_layer_dims': [64],
+        'custom_model': 'MatrixGameQMLP',
+    },
+    'stop_condition': {
+        'episode_reward_mean': 2000,
+        'timesteps_total': 10000,
     }
 }

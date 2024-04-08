@@ -35,8 +35,8 @@ class IQLPolicy(Policy):
         super().__init__(obs_space, action_space, config)
         self.n_agents = len(obs_space.original_space)
         config["model"]["n_agents"] = self.n_agents
-        self.use_fingerprint = config["use_fingerprint"]
-        self.info_sharing = config["info_sharing"]
+        self.use_fingerprint = config.get("use_fingerprint", False)
+        self.info_sharing = config.get("info_sharing", False)
         self.n_actions = action_space.n
         self.h_size = config["model"]["lstm_cell_size"]
         self.has_env_global_state = False
@@ -160,9 +160,13 @@ class IQLPolicy(Policy):
             # Update our global timestep by the batch size.
             self.global_timestep += len(obs_batch[SampleBatch.CUR_OBS])
 
-            results = convert_to_non_torch_type((actions, state_out, {}))
+            results = convert_to_non_torch_type((actions, state_out, {'q-values': dist_inputs.detach().numpy().tolist()}))
 
         return results
+
+    def compute_single_action(self, *args, **kwargs) -> \
+            Tuple[TensorStructType, List[TensorType], Dict[str, TensorType]]:
+        return super().compute_single_action(*args, **kwargs)
 
     @override(Policy)
     def postprocess_trajectory(

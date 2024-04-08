@@ -23,7 +23,8 @@ def before_learn_on_batch(batch, *args):
 
 
 def run_iql(model_class, exp, run_config, env, stop, restore):
-    ModelCatalog.register_custom_model("IQL_Q_Model", model_class)
+    model_name = "IQL_Q_Model"
+    ModelCatalog.register_custom_model(model_name, model_class)
 
     if exp["use_fingerprint"]:
         # new environment name
@@ -78,6 +79,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
         "model": {
             "max_seq_len": episode_limit,  # dynamic
             "custom_model_config": back_up_config,
+            "custom_model": model_name,
         },
     }
 
@@ -111,6 +113,8 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     IQL_Config["obs_space"] = space_obs
     action_space = env["space_act"]
     IQL_Config["act_space"] = Tuple([action_space])
+    if "gamma" in _param:
+        IQL_Config["gamma"] = _param["gamma"]
 
     # create trainer
     trainer = IQLTrainer.with_updates(
