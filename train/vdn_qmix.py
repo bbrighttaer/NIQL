@@ -2,6 +2,7 @@ import logging
 import os
 import random
 from argparse import ArgumentParser
+from functools import partial
 
 import numpy as np
 import ray
@@ -109,31 +110,29 @@ if __name__ == '__main__':
         ray.init(local_mode=True, num_gpus=gpu_count)
         agent, pmap = results.trainer, results.pmap
         env_instance, env_info = env
+        policy = agent.get_policy(DEFAULT_POLICY_ID)
+        # override the compute actions method
+        policy.compute_actions = partial(utils.vdn_qmix_custom_compute_actions, policy)
 
         # Inference
         for _ in range(1):
             obs = env_instance.reset()
             done = {"__all__": False}
-            states = {
-                actor_id: agent.get_policy(DEFAULT_POLICY_ID).get_initial_state()
-                for actor_id in obs
-            }
+            states = [policy.get_initial_state() for actor_id in obs]
 
             step = 0
             with torch.no_grad():
                 while not done["__all__"]:
-                    action_dict = {}
                     agent_obs = []
                     for agent_id in obs.keys():
-                        policy = agent.get_policy(DEFAULT_POLICY_ID)
                         agent_obs += [0, 0, 0] if step == 0 else [0, 0, 1]  # obs[agent_id]["obs"]
-                    action_dict[agent_id], states[agent_id], info = policy.compute_single_action(
+                    actions, states, info = policy.compute_single_action(
                         np.array(agent_obs).reshape(1, -1),
-                        list(states.values()),
+                        states,
                         explore=False,
                     )
-                    print(f'state={step}, agent={agent_id}, q-values={info["q-values"]}')
-
+                    print(f'state={step}, agent={agent_id}, info={info}')
+                    action_dict = {agt_id: action for agt_id, action in zip(obs, actions)}
                     obs, reward, done, info = env_instance.step(action_dict)
                     step += 1
 

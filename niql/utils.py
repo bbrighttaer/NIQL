@@ -1,6 +1,7 @@
 import copy
-from typing import Any, Callable, Dict
+from typing import Callable
 
+import torch
 from gym.spaces import Tuple as GymTuple
 from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
@@ -11,7 +12,10 @@ from ray import tune
 from ray.rllib.agents import Trainer
 from ray.rllib.agents.dqn import DEFAULT_CONFIG as IQL_Config
 from ray.rllib.agents.qmix.qmix import DEFAULT_CONFIG as JointQ_Config
-from ray.rllib.models import ModelCatalog
+from ray.rllib.agents.qmix.qmix_policy import _mac
+from ray.rllib.execution.replay_buffer import *
+from ray.rllib.models.catalog import ModelCatalog
+from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.tune import register_env
 from ray.util.ml_utils.dict import merge_dicts
 
@@ -335,3 +339,56 @@ def load_joint_q_checkpoint(model: Any, exp: Dict, run: Dict, env: Dict,
     chkpt = Checkpoint(run["env"], map_name, trainer, pmap)
 
     return chkpt
+
+
+def vdn_qmix_custom_compute_actions(policy,
+                                    obs_batch,
+                                    state_batches=None,
+                                    prev_action_batch=None,
+                                    prev_reward_batch=None,
+                                    info_batch=None,
+                                    episodes=None,
+                                    explore=None,
+                                    timestep=None,
+                                    **kwargs):
+    explore = explore if explore is not None else policy.config["explore"]
+    obs_batch, action_mask, _ = policy._unpack_observation(obs_batch)
+    # We need to ensure we do not use the env global state
+    # to compute actions
+
+    # Compute actions
+    with torch.no_grad():
+        obs_batch = torch.as_tensor(obs_batch, dtype=torch.float, device=policy.device)
+        q_values, hiddens = _mac(
+            policy.model,
+            obs_batch, [
+                torch.as_tensor(
+                    np.array(s), dtype=torch.float, device=policy.device)
+                for s in state_batches
+            ])
+        avail = torch.as_tensor(action_mask, dtype=torch.float, device=policy.device)
+        masked_q_values = q_values.clone()
+        masked_q_values[avail == 0.0] = -float("inf")
+        masked_q_values_folded = torch.reshape(masked_q_values, [-1] + list(masked_q_values.shape)[2:])
+        actions, _ = policy.exploration.get_exploration_action(
+            action_distribution=TorchCategorical(masked_q_values_folded),
+            timestep=timestep,
+            explore=explore)
+        actions = torch.reshape(
+            actions,
+            list(masked_q_values.shape)[:-1]).cpu().numpy()
+        hiddens = [s.cpu().numpy() for s in hiddens]
+
+        # compute q-value through mixer
+        state = obs_batch
+        agent_1_q_val = torch.squeeze(q_values[:, 0, :])[0]
+        agent_2_q_val = torch.squeeze(q_values[:, 1, :])[0]
+        chosen_action_qvals = torch.tensor([agent_1_q_val, agent_2_q_val], dtype=torch.float)
+        chosen_action_qvals = chosen_action_qvals.view(-1, 1, 2)
+        q_tot = policy.mixer(chosen_action_qvals, state)
+
+    info = {
+        'q-values': [[agent_1_q_val.item(), agent_2_q_val.item()]],
+        'q_tot': [q_tot.squeeze().item()],
+    }
+    return tuple(actions.transpose([1, 0])), hiddens, info
