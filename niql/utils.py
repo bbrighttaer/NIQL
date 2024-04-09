@@ -1,8 +1,22 @@
-from typing import List, Any
+import copy
+from typing import Any, Callable, Dict
 
+from gym.spaces import Tuple as GymTuple
+from marllib.envs.base_env import ENV_REGISTRY
+from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
+from marllib.marl.algos.core.VD.iql_vdn_qmix import JointQTrainer
+from marllib.marl.algos.scripts.coma import restore_model
+from marllib.marl.algos.utils.setup_utils import AlgVar
 from ray import tune
-from ray.rllib.evaluation.worker_set import WorkerSet
-from ray.rllib.utils.typing import PolicyID
+from ray.rllib.agents import Trainer
+from ray.rllib.agents.dqn import DEFAULT_CONFIG as IQL_Config
+from ray.rllib.agents.qmix.qmix import DEFAULT_CONFIG as JointQ_Config
+from ray.rllib.models import ModelCatalog
+from ray.tune import register_env
+from ray.util.ml_utils.dict import merge_dicts
+
+from niql.algo import IQLTrainer
+from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 
 
 def determine_multiagent_policy_mapping(exp_info, env_info):
@@ -55,18 +69,269 @@ def determine_multiagent_policy_mapping(exp_info, env_info):
     return policies, policy_mapping_fn
 
 
-class TrainingIterationNumberUpdater:
+# -----------------------------------------------------------------------------------------------
+# Adapted from Adapted from https://github.com/Morphlng/MARLlib/blob/main/examples/eval.py
+class dotdict(dict):
+    """dot.notation access to dictionary attributes"""
 
-    def __init__(self,
-                 workers: WorkerSet,
-                 by_steps_trained: bool = False,
-                 policies: List[PolicyID] = frozenset([])):
-        self.workers = workers
-        self.local_worker = workers.local_worker()
-        self.policies = policies
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
 
-    def __call__(self, _: Any) -> None:
-        def update(policy, p_id):
-            if hasattr(policy, 'update_training_iter_number'):
-                policy.update_training_iter_number()
-        self.workers.local_worker().foreach_trainable_policy(update)
+
+class Checkpoint:
+    def __init__(self, env_name: str, map_name: str, trainer: Trainer, pmap: Callable):
+        self.env_name = env_name
+        self.map_name = map_name
+        self.trainer = trainer
+        self.pmap = pmap
+
+
+class NullLogger:
+    """Logger for RLlib to disable logging"""
+
+    def __init__(self, config=None):
+        self.config = config
+        self.logdir = ""
+
+    def _init(self):
+        pass
+
+    def on_result(self, result):
+        pass
+
+    def update_config(self, config):
+        pass
+
+    def close(self):
+        pass
+
+    def flush(self):
+        pass
+
+
+# ----------------------------------------------------------------------------------------------
+
+def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Checkpoint:
+    """
+    Helper function to retrieve the ray trainer from which the actual policies are accessed.
+    """
+    model_name = "IQL_Q_Model"
+    ModelCatalog.register_custom_model(model_name, model_class)
+
+    if exp["use_fingerprint"]:
+        # new environment name
+        env_reg_name = "fp_" + run_config["env"]
+        run_config["env"] = env_reg_name
+
+        def create_env(*arg, **kwargs):
+            env_class = ENV_REGISTRY.get(exp["env"]) or COOP_ENV_REGISTRY[exp["env"]]
+            return create_fingerprint_env_wrapper_class(env_class)(exp["env_args"])
+
+        # add wrapped environment to envs list
+        register_env(env_reg_name, create_env)
+
+        # get new environment information
+        wrapped_env = create_env()
+        env_info = wrapped_env.get_env_info()
+        wrapped_env.close()
+
+        # update env information
+        env.update(env_info)
+
+        # update multi-agent policy mapping so observation space can match new updated environment info
+        policies, policy_mapping_fn = determine_multiagent_policy_mapping(exp, env)
+        run_config["multiagent"] = {
+            "policies": policies,
+            "policy_mapping_fn": policy_mapping_fn
+        }
+
+    _param = AlgVar(exp)
+
+    algorithm = exp["algorithm"]
+    episode_limit = env["episode_limit"]
+    train_batch_episode = _param["batch_episode"]
+    lr = _param["lr"]
+    buffer_size = _param["buffer_size"]
+    target_network_update_frequency = _param["target_network_update_freq"]
+    final_epsilon = _param["final_epsilon"]
+    epsilon_timesteps = _param["epsilon_timesteps"]
+    reward_standardize = _param["reward_standardize"]
+    optimizer = _param["optimizer"]
+    back_up_config = merge_dicts(exp, env)
+    back_up_config.pop("algo_args")  # clean for grid_search
+
+    if run_config["multiagent"] is not None:
+        run_config["multiagent"].update({
+            "policy_map_capacity": 100,
+            "policy_map_cache": None,
+            "policies_to_train": None,
+            "observation_fn": None,
+            "replay_mode": "independent",
+            "count_steps_by": "env_steps",
+        })
+
+    mixer_dict = {
+        "qmix": "qmix",
+        "vdn": "vdn",
+        "iql": None
+    }
+
+    back_up_config["num_agents"] = 1  # one agent one model IQL
+    config = {
+        "model": {
+            "max_seq_len": episode_limit,  # dynamic
+            "custom_model_config": back_up_config,
+            "custom_model": model_name,
+            "lstm_cell_size": None,
+        },
+    }
+
+    config.update(run_config)
+
+    IQL_Config.update(
+        {
+            "rollout_fragment_length": 1,
+            "buffer_size": buffer_size * episode_limit,  # in timesteps
+            "train_batch_size": train_batch_episode,  # in sequence
+            "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps
+            "learning_starts": episode_limit * train_batch_episode,
+            "lr": lr if restore is None else 1e-10,
+            "exploration_config": {
+                "type": "EpsilonGreedy",
+                "initial_epsilon": 1.0,
+                "final_epsilon": final_epsilon,
+                "epsilon_timesteps": epsilon_timesteps,
+            },
+            "mixer": mixer_dict[algorithm]
+        })
+
+    IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
+    IQL_Config["optimizer"] = optimizer
+    IQL_Config["training_intensity"] = None
+    # JointQ_Config['before_learn_on_batch'] = before_learn_on_batch
+    IQL_Config["info_sharing"] = exp["info_sharing"]
+    IQL_Config["use_fingerprint"] = exp["use_fingerprint"]
+    space_obs = env["space_obs"]["obs"]
+    setattr(space_obs, 'original_space', copy.deepcopy(space_obs))
+    IQL_Config["obs_space"] = space_obs
+    action_space = env["space_act"]
+    IQL_Config["act_space"] = GymTuple([action_space])
+    if "gamma" in _param:
+        IQL_Config["gamma"] = _param["gamma"]
+
+    # create trainer
+    IQL_Config.update(config)
+    model_path = restore_model(restore, exp)
+    trainer_class = IQLTrainer.with_updates(
+        name=algorithm.upper(),
+        default_config=IQL_Config,
+    )
+    trainer = trainer_class(logger_creator=lambda c: NullLogger(c))
+    trainer.restore(model_path)
+
+    map_name = exp["env_args"]["map_name"]
+    pmap = run_config["multiagent"]["policy_mapping_fn"]
+    chkpt = Checkpoint(run_config["env"], map_name, trainer, pmap)
+    return chkpt
+
+
+def load_joint_q_checkpoint(model: Any, exp: Dict, run: Dict, env: Dict,
+                            stop: Dict, restore: Dict) -> Checkpoint:
+    """ This retrieves the trainer for the IQL, VDN, and QMIX algorithm.
+    Adapted from Marllib.
+
+    Args:
+        :params model (str): The name of the model class to register.
+        :params exp (dict): A dictionary containing all the learning settings.
+        :params run (dict): A dictionary containing all the environment-related settings.
+        :params env (dict): A dictionary specifying the condition for stopping the training.
+        :params restore (bool): A flag indicating whether to restore training/rendering or not.
+
+    Returns:
+        ExperimentAnalysis: Object for experiment analysis.
+
+    Raises:
+        TuneError: Any trials failed and `raise_on_failed_trial` is True.
+    """
+    model_name = "Joint_Q_Model"
+    ModelCatalog.register_custom_model(model_name, model)
+
+    _param = AlgVar(exp)
+
+    algorithm = exp["algorithm"]
+    episode_limit = env["episode_limit"]
+    train_batch_episode = _param["batch_episode"]
+    lr = _param["lr"]
+    buffer_size = _param["buffer_size"]
+    target_network_update_frequency = _param["target_network_update_freq"]
+    final_epsilon = _param["final_epsilon"]
+    epsilon_timesteps = _param["epsilon_timesteps"]
+    reward_standardize = _param["reward_standardize"]
+    optimizer = _param["optimizer"]
+    back_up_config = merge_dicts(exp, env)
+    back_up_config.pop("algo_args")  # clean for grid_search
+
+    if run["multiagent"] is not None:
+        run["multiagent"].update({
+            "policy_map_capacity": 100,
+            "policy_map_cache": None,
+            "policies_to_train": None,
+            "observation_fn": None,
+            "replay_mode": "independent",
+            "count_steps_by": "env_steps",
+        })
+
+    mixer_dict = {
+        "qmix": "qmix",
+        "vdn": "vdn",
+        "iql": None
+    }
+
+    config = {
+        "model": {
+            "max_seq_len": episode_limit,  # dynamic
+            "custom_model_config": back_up_config,
+            "custom_model": model_name,
+            "lstm_cell_size": None,
+        },
+    }
+
+    config.update(run)
+
+    JointQ_Config.update(
+        {
+            "rollout_fragment_length": 1,
+            "buffer_size": buffer_size * episode_limit,  # in timesteps
+            "train_batch_size": train_batch_episode,  # in sequence
+            "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps
+            "learning_starts": episode_limit * train_batch_episode,
+            "lr": lr if restore is None else 1e-10,
+            "exploration_config": {
+                "type": "EpsilonGreedy",
+                "initial_epsilon": 1.0,
+                "final_epsilon": final_epsilon,
+                "epsilon_timesteps": epsilon_timesteps,
+            },
+            "mixer": mixer_dict[algorithm]
+        })
+
+    JointQ_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
+    JointQ_Config["optimizer"] = optimizer
+    JointQ_Config["training_intensity"] = None
+    JointQ_Config["env"] = run["env"]
+    JointQ_Config.update(config)
+
+    JQTrainer = JointQTrainer.with_updates(
+        name=algorithm.upper(),
+        default_config=JointQ_Config
+    )
+    trainer = JQTrainer(config=JointQ_Config, logger_creator=lambda c: NullLogger(c))
+    model_path = restore_model(restore, exp)
+    trainer.restore(model_path)
+
+    map_name = exp["env_args"]["map_name"]
+    pmap = run["multiagent"]["policy_mapping_fn"]
+
+    chkpt = Checkpoint(run["env"], map_name, trainer, pmap)
+
+    return chkpt
