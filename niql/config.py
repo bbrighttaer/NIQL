@@ -26,15 +26,15 @@ MPE = {
 COOP_MATRIX = {
     'algo_parameters': {
         'algo_args': {
-            'batch_episode': 32,
+            'batch_episode': 128,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
-            'buffer_size': 500,
+            'buffer_size': 1000,
             'target_network_update_freq': 100,
             'final_epsilon': 1.0,
-            'epsilon_timesteps': 5000,
+            'epsilon_timesteps': 20000,
             'optimizer': 'rmsprop',  # "adam"
-            'reward_standardize': True,
+            'reward_standardize': False,
             'gamma': 0.99
 
         }
@@ -46,6 +46,6 @@ COOP_MATRIX = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 10000,
+        'timesteps_total': 20000,
     }
 }

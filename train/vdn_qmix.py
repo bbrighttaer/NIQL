@@ -37,9 +37,16 @@ if __name__ == '__main__':
         choices=['mlp', 'gru', 'lstm'],
         help='The core architecture of the model',
     )
+    parser.add_argument(
+        '-e', '--exec_mode',
+        default='train',
+        type=str,
+        choices=['train', 'eval', 'render'],
+        help='Execution mode',
+    )
     args = parser.parse_args()
 
-    mode = 'eval'
+    mode = args.exec_mode
 
     # get env
     env = envs.make_matrix_game_env()
@@ -81,7 +88,7 @@ if __name__ == '__main__':
             checkpoint_freq=10,
         )
     else:
-        base = 'exp_results/vdn_mlp_all_scenario/VDN_grouped_CoopMatrixGame_all_scenario_c2351_00000_0_2024-04-09_20-27-25'
+        base = 'exp_results/qmix_mlp_all_scenario/QMIX_grouped_CoopMatrixGame_all_scenario_7eaec_00000_0_2024-04-10_18-51-17'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
@@ -123,15 +130,13 @@ if __name__ == '__main__':
             step = 0
             with torch.no_grad():
                 while not done["__all__"]:
-                    agent_obs = []
-                    for agent_id in obs.keys():
-                        agent_obs += [0, 0, 0] if step == 0 else [0, 0, 1]  # obs[agent_id]["obs"]
+                    agent_obs = [0, 0, 1] * 2
                     actions, states, info = policy.compute_single_action(
                         np.array(agent_obs).reshape(1, -1),
                         states,
                         explore=False,
                     )
-                    print(f'state={step}, agent={agent_id}, info={info}')
+                    print(f'state={step}, info={info}, agent_obs={agent_obs}')
                     action_dict = {agt_id: action for agt_id, action in zip(obs, actions)}
                     obs, reward, done, info = env_instance.step(action_dict)
                     step += 1

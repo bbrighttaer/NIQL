@@ -46,9 +46,17 @@ if __name__ == '__main__':
         help='If specified, fingerprints are added to observations (see https://arxiv.org/abs/1702.08887).'
     )
 
+    parser.add_argument(
+        '-e', '--exec_mode',
+        default='train',
+        type=str,
+        choices=['train', 'eval', 'render'],
+        help='Execution mode',
+    )
+
     args = parser.parse_args()
 
-    mode = 'eval'
+    mode = args.exec_mode
 
     # get env
     env = envs.make_matrix_game_env()
@@ -89,7 +97,7 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/iql_mlp_all_scenario/IQL_CoopMatrixGame_all_scenario_8c0d4_00000_0_2024-04-09_20-40-13'
+        base = 'exp_results/iql_mlp_all_scenario/IQL_CoopMatrixGame_all_scenario_f1fff_00000_0_2024-04-10_19-01-40'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
@@ -133,9 +141,10 @@ if __name__ == '__main__':
             with torch.no_grad():
                 while not done["__all__"]:
                     action_dict = {}
+                    cur_state = [0, 0, 1]
                     for agent_id in obs.keys():
                         policy = agent.get_policy(pmap(agent_id))
-                        agent_obs = [[0, 0, 0]] if step == 0 else [[0, 0, 1]]  # obs[agent_id]["obs"]
+                        agent_obs = [cur_state]  # obs[agent_id]["obs"]
                         action_dict[agent_id], states[agent_id], info = policy.compute_single_action(
                             agent_obs,
                             states[agent_id],

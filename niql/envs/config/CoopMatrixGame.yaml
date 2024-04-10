@@ -4,7 +4,7 @@ env_args:
   map_name: "all_scenario"
   continuous_actions: False,
   monotonic_payoff: True
-  linear_payoff: True
+  linear_payoff: False
 
 mask_flag: False
 global_state_flag: False
