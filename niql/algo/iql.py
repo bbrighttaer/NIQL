@@ -46,6 +46,7 @@ class IQLPolicy(Policy):
         self.env_global_state_shape = (self.obs_size, self.n_agents)
         config["model"]["full_obs_space"] = obs_space
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
+        self.q_values = []
 
         # models
         self.model = ModelCatalog.get_model_v2(
@@ -160,7 +161,10 @@ class IQLPolicy(Policy):
             # Update our global timestep by the batch size.
             self.global_timestep += len(obs_batch[SampleBatch.CUR_OBS])
 
-            results = convert_to_non_torch_type((actions, state_out, {'q-values': dist_inputs.detach().numpy().tolist()}))
+            # store q values selected in this time step for callbacks
+            self.q_values = dist_inputs.squeeze().detach().numpy().tolist()
+
+            results = convert_to_non_torch_type((actions, state_out, {'q-values': [self.q_values]}))
 
         return results
 

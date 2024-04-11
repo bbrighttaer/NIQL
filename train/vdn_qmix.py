@@ -11,12 +11,11 @@ from marllib import marl
 from ray.rllib.policy.sample_batch import DEFAULT_POLICY_ID
 from niql.models import *  # noqa
 
-from niql import envs, config, utils, scripts
+from niql import envs, config, utils, scripts, seed
 
 logger = logging.getLogger(__name__)
 
 os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
-seed = 321
 random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
@@ -88,7 +87,7 @@ if __name__ == '__main__':
             checkpoint_freq=10,
         )
     else:
-        base = 'exp_results/qmix_mlp_all_scenario/QMIX_grouped_CoopMatrixGame_all_scenario_7eaec_00000_0_2024-04-10_18-51-17'
+        base = 'exp_results/qmix_mlp_all_scenario_ns/QMIX_grouped_CoopMatrixGame_all_scenario_857fd_00000_0_2024-04-11_20-30-31'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path

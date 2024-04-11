@@ -381,7 +381,7 @@ def vdn_qmix_custom_compute_actions(policy,
 
         # compute q-value through mixer
         state = obs_batch
-        agent_1_q_val = torch.squeeze(q_values[:, 0, :])[0]
+        agent_1_q_val = torch.squeeze(q_values[:, 0, :])[1]
         agent_2_q_val = torch.squeeze(q_values[:, 1, :])[0]
         chosen_action_qvals = torch.tensor([agent_1_q_val, agent_2_q_val], dtype=torch.float)
         chosen_action_qvals = chosen_action_qvals.view(-1, 1, 2)

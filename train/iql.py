@@ -8,11 +8,11 @@ import ray
 import torch
 from marllib import marl
 
-from niql import envs, scripts, config, utils
+from niql import envs, scripts, config, utils, seed
 from niql.models import *  # noqa
 
 os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
-seed = 321
+
 random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
@@ -97,7 +97,7 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/iql_mlp_all_scenario/IQL_CoopMatrixGame_all_scenario_f1fff_00000_0_2024-04-10_19-01-40'
+        base = 'exp_results/iql_mlp_all_scenario/IQL_CoopMatrixGame_all_scenario_c383e_00000_0_2024-04-11_18-30-33'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path

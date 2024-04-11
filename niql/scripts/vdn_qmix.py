@@ -34,6 +34,8 @@ from ray.tune import CLIReporter
 from ray.tune.analysis import ExperimentAnalysis
 from ray.tune.utils import merge_dicts
 
+from niql.algo.vdn_qmix import JointQPolicy
+
 
 def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
                 stop: Dict, restore: Dict) -> ExperimentAnalysis:
@@ -106,19 +108,23 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
     JointQ_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
     JointQ_Config["optimizer"] = optimizer
     JointQ_Config["training_intensity"] = None
+    JointQ_Config["gamma"] = _param.get("gamma", JointQ_Config["gamma"])
+    JointQ_Config["callbacks"] = _param.get("callbacks", JointQ_Config["callbacks"])
 
     JQTrainer = JointQTrainer.with_updates(
         name=algorithm.upper(),
+        default_policy=JointQPolicy,
         default_config=JointQ_Config
     )
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
-    RUNNING_NAME = '_'.join([algorithm, arch, map_name])
+    param_sharing = 'ns' if exp['model_arch_args']['custom_model'] == 'MatrixGameSplitQMLP' else ''
+    running_name = '_'.join([algorithm, arch, map_name] + ([param_sharing] if param_sharing else []))
     model_path = restore_model(restore, exp)
 
     results = tune.run(JQTrainer,
-                       name=RUNNING_NAME,
+                       name=running_name,
                        checkpoint_at_end=exp['checkpoint_end'],
                        checkpoint_freq=exp['checkpoint_freq'],
                        restore=model_path,

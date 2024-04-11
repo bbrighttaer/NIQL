@@ -113,8 +113,8 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     IQL_Config["obs_space"] = space_obs
     action_space = env["space_act"]
     IQL_Config["act_space"] = Tuple([action_space])
-    if "gamma" in _param:
-        IQL_Config["gamma"] = _param["gamma"]
+    IQL_Config["gamma"] = _param.get("gamma", IQL_Config["gamma"])
+    IQL_Config["callbacks"] = _param.get("callbacks", IQL_Config["callbacks"])
 
     # create trainer
     trainer = IQLTrainer.with_updates(
@@ -124,7 +124,8 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
-    running_name = '_'.join([algorithm, arch, map_name])
+    param_sharing = 'ns' if exp['model_arch_args']['custom_model'] == 'MatrixGameSplitQMLP' else ''
+    running_name = '_'.join([algorithm, arch, map_name] + ([param_sharing] if param_sharing else []))
     model_path = restore_model(restore, exp)
 
     results = tune.run(

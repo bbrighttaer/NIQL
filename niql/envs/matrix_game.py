@@ -53,6 +53,8 @@ class MultiAgentCoopMatrixGame(MultiAgentEnv):
         # Payoff matrix for game 2
         self.payoff2 = _get_payoff2(env_config["monotonic_payoff"], env_config["linear_payoff"])
         self.current_game = 0  # Current game being played
+        self.seed(321)
+
 
     def reset(self):
         self.step_count = 0
