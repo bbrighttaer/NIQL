@@ -26,7 +26,7 @@ if __name__ == '__main__':
         '-a', '--algo',
         type=str,
         default='vdn',
-        choices=['vdn', 'qmix'],
+        choices=['vdn', 'qmix', 'iql'],
         help='Select which CTDE algorithm to run.',
     )
     parser.add_argument(
@@ -52,9 +52,12 @@ if __name__ == '__main__':
 
     # initialise algorithm with hyperparameters
     if args.algo == 'qmix':
-        algo = marl.algos.qmix(hyperparam_source="mpe")
+        algo = marl.algos.qmix
+    elif args.algo == 'vdn':
+        algo = marl.algos.vdn
     else:
-        algo = marl.algos.vdn(hyperparam_source="mpe")
+        algo = marl.algos.iql
+    algo = algo(hyperparam_source="mpe")
     exp_config = config.COOP_MATRIX
     algo.algo_parameters = exp_config['algo_parameters']
 
@@ -87,10 +90,10 @@ if __name__ == '__main__':
             checkpoint_freq=10,
         )
     else:
-        base = 'exp_results/qmix_mlp_all_scenario_ns/QMIX_grouped_CoopMatrixGame_all_scenario_857fd_00000_0_2024-04-11_20-30-31'
+        base = 'exp_results/iql_ps_mlp_all_scenario_ns/IQL_grouped_CoopMatrixGame_all_scenario_314c3_00000_0_2024-04-12_11-30-06'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
-            'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
+            'model_path': f'{base}/checkpoint_000020/checkpoint-20',  # checkpoint path
         }
 
         # register execution script

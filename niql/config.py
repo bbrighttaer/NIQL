@@ -44,8 +44,8 @@ COOP_MATRIX = {
     'model_preference': {
         'core_arch': 'mlp',
         'hidden_layer_dims': [64],
-        # 'custom_model': 'MatrixGameQMLP',
-        'custom_model': 'MatrixGameSplitQMLP'
+        'custom_model': 'MatrixGameQMLP',
+        # 'custom_model': 'MatrixGameSplitQMLP'
     },
     'stop_condition': {
         'episode_reward_mean': 2000,

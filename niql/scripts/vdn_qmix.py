@@ -120,6 +120,8 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
     param_sharing = 'ns' if exp['model_arch_args']['custom_model'] == 'MatrixGameSplitQMLP' else ''
+    if algorithm == 'iql':
+        algorithm += '_ps'
     running_name = '_'.join([algorithm, arch, map_name] + ([param_sharing] if param_sharing else []))
     model_path = restore_model(restore, exp)
 
