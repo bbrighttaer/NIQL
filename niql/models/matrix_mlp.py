@@ -65,7 +65,8 @@ class MatrixGameQMLP(TorchModelV2, nn.Module):
         if self.custom_config["global_state_flag"]:
             state_dim = self.custom_config["space_obs"]["state"].shape
         else:
-            state_dim = self.custom_config["space_obs"]["obs"].shape
+            # state_dim = self.custom_config["space_obs"]["obs"].shape
+            state_dim = self.full_obs_space.shape
         self.raw_state_dim = state_dim
 
     @override(ModelV2)
