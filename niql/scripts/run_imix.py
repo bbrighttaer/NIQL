@@ -1,4 +1,5 @@
 import copy
+from typing import Dict
 
 from gym.spaces import Tuple
 from marllib.envs.base_env import ENV_REGISTRY
@@ -8,19 +9,22 @@ from marllib.marl.algos.utils.log_dir_util import available_local_dir
 from marllib.marl.algos.utils.setup_utils import AlgVar
 from ray import tune
 from ray.rllib.agents.dqn import DEFAULT_CONFIG as IQL_Config
+from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.models import ModelCatalog
+from ray.rllib.policy.sample_batch import MultiAgentBatch
 from ray.tune import CLIReporter, register_env
 from ray.util.ml_utils.dict import merge_dicts
 
 from niql.algo import IQLTrainer, IMIX
 from niql.callbacks import ObservationCommWrapper
-from niql.comm.in_process import InterAgentComm
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 from niql.utils import determine_multiagent_policy_mapping
 
 
-def before_learn_on_batch(batch, *args):
-    # print('before_learn_on_batch')
+def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, policy_map: dict):
+    for policy_id, agent_batch in batch.policy_batches.items():
+        neighbor_policies = {p_id: p for p_id, p in policy_map.items() if p_id != policy_id}
+        agent_batch['neighbour_policies'] = neighbor_policies
     return batch
 
 
@@ -82,7 +86,7 @@ def run_imix(model_class, exp, run_config, env, stop, restore):
     config.update(run_config)
 
     # add observation function
-    config["multiagent"]["observation_fn"] = ObservationCommWrapper(config["multiagent"]["policy_mapping_fn"])
+    # config["multiagent"]["observation_fn"] = ObservationCommWrapper(config["multiagent"]["policy_mapping_fn"])
 
     IQL_Config.update(
         {
@@ -105,7 +109,7 @@ def run_imix(model_class, exp, run_config, env, stop, restore):
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
     IQL_Config["optimizer"] = optimizer
     IQL_Config["training_intensity"] = None
-    # JointQ_Config['before_learn_on_batch'] = before_learn_on_batch
+    IQL_Config['before_learn_on_batch'] = before_learn_on_batch
     IQL_Config["info_sharing"] = exp["info_sharing"]
     IQL_Config["use_fingerprint"] = exp["use_fingerprint"]
     space_obs = env["space_obs"]["obs"]

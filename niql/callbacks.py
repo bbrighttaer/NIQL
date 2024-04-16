@@ -1,6 +1,7 @@
 from copy import deepcopy
 from typing import Dict, Optional
 
+from ray.rllib import SampleBatch
 from ray.rllib.agents.callbacks import DefaultCallbacks
 from ray.rllib.env import BaseEnv
 from ray.rllib.evaluation import MultiAgentEpisode, RolloutWorker
@@ -70,6 +71,11 @@ class NIQLCallbacks(DefaultCallbacks):
                        **kwargs) -> None:
         for key, value in episode.user_data["q_values"].items():
             episode.hist_data[key] = episode.user_data["q_values"][key]
+
+    def on_learn_on_batch(self, *, policy: Policy, train_batch: SampleBatch,
+                          result: dict, **kwargs) -> None:
+        print('dfsa')
+        print('asdfa')
 
 
 class ObservationCommWrapper(ObservationFunction):

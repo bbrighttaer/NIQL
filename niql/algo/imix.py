@@ -67,9 +67,8 @@ class IMIX(Policy):
         self.q_values = []
 
         # models
-        obs_space = expand_obs_space(config['obs_space'], self.max_neighbours)
         self.model = ModelCatalog.get_model_v2(
-            obs_space,
+            config['obs_space'],
             action_space,
             self.n_actions,
             config["model"],
@@ -79,7 +78,7 @@ class IMIX(Policy):
         ).to(self.device)
 
         self.target_model = ModelCatalog.get_model_v2(
-            obs_space,
+            config['obs_space'],
             action_space,
             self.n_actions,
             config["model"],
@@ -128,7 +127,18 @@ class IMIX(Policy):
             other_agent_batches: Optional[Dict[AgentID, Tuple[
                 "Policy", SampleBatch]]] = None,
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
-        print('aha')
+        # observation sharing
+        sample_batch = sample_batch.copy()
+        for n_policy, n_data in other_agent_batches.values():
+            n_data = n_data.copy()
+            sample_batch[SampleBatch.OBS] = np.concatenate([
+                sample_batch[SampleBatch.OBS],
+                n_data[SampleBatch.OBS],
+            ], axis=1)
+            sample_batch[SampleBatch.NEXT_OBS] = np.concatenate([
+                sample_batch[SampleBatch.NEXT_OBS],
+                n_data[SampleBatch.NEXT_OBS],
+            ], axis=1)
         return sample_batch
 
     @override(Policy)
@@ -143,30 +153,6 @@ class IMIX(Policy):
             explore: Optional[bool] = None,
             timestep: Optional[int] = None,
             **kwargs) -> Tuple[TensorType, List[TensorType], Dict[str, TensorType]]:
-        assert self.policy_id is not None and self.comm is not None, "policy_id and comm channel cannot be null"
-
-        # receive messages
-        msgs = []
-        while True:
-            # get message from mailbox
-            message = self.comm.get_message(self.policy_id)
-
-            # retrieve only observation messages
-            if message.msg_type == CommMsg.OBSERVATION:
-                n_obs = message.msg["obs"]
-                if isinstance(n_obs, list):
-                    n_obs = np.array(n_obs).reshape(*obs_batch.shape)
-                msgs.append(n_obs)
-            else:
-                self.comm.post_message(self.policy_id, message)
-
-            # stop iteration if all messages have been received
-            if len(msgs) == self.max_neighbours:
-                break
-
-        # concat received observations
-        obs_batch = np.concatenate([obs_batch] + msgs, axis=1)
-
         explore = explore if explore is not None else self.config["explore"]
         timestep = timestep if timestep is not None else self.global_timestep
 
