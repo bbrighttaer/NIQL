@@ -20,16 +20,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from marllib.marl.algos.utils.episode_replay_buffer import EpisodeBasedReplayBuffer
 from ray.rllib.agents.trainer import Trainer
 from ray.rllib.evaluation.worker_set import WorkerSet
-from ray.util.iter import LocalIterator
-from ray.rllib.execution.rollout_ops import ParallelRollouts
-from ray.rllib.execution.replay_ops import Replay, StoreToReplayBuffer
-from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.execution.concurrency_ops import Concurrently
 from ray.rllib.execution.metric_ops import StandardMetricsReporting
+from ray.rllib.execution.replay_ops import Replay, StoreToReplayBuffer
+from ray.rllib.execution.rollout_ops import ParallelRollouts
+from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.utils.typing import TrainerConfigDict
-from marllib.marl.algos.utils.episode_replay_buffer import EpisodeBasedReplayBuffer
+from ray.util.iter import LocalIterator
+
+from niql.algo.consensus import ConsensusUpdate
 
 
 def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
@@ -66,11 +68,17 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     train_step_op = TrainOneStep(workers)
     policy_map = workers.local_worker().policy_map
 
+    # add callback after learning on batch
+    # workers.local_worker().learn_on_batch = notify_wrap(
+    #     workers.local_worker().learn_on_batch,
+    #
+    # )
+
     replay_op = Replay(local_buffer=local_replay_buffer) \
         .for_each(lambda x: post_fn(x, workers, config, policy_map)) \
         .for_each(train_step_op) \
-        .for_each(UpdateTargetNetwork(
-            workers, config["target_network_update_freq"]))
+        .for_each(UpdateTargetNetwork(workers, config["target_network_update_freq"])) \
+        .for_each(ConsensusUpdate(workers, config.get("consensus_update_freq", -1)))
 
     # Alternate deterministically between (1) and (2). Only return the output
     # of (2) since training metrics are not available until (2) runs.

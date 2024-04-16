@@ -44,6 +44,7 @@ COOP_MATRIX = {
     'model_preference': {
         'core_arch': 'mlp',
         'hidden_layer_dims': [64],
+        'mixer_embedding': 256,
         'custom_model': 'MatrixGameQMLP',
         # 'custom_model': 'MatrixGameSplitQMLP'
     },

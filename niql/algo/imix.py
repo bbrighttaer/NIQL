@@ -1,15 +1,13 @@
 import functools
 import logging
-from copy import deepcopy
 from typing import Union, List, Optional, Dict, Tuple
-from uuid import uuid4
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
-from ray.rllib.utils.torch_ops import huber_loss
+from gym import spaces
 from marllib.marl import JointQRNN
+from marllib.marl.models import QMixer, VDNMixer
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
 from ray.rllib.models import ModelCatalog
@@ -17,14 +15,17 @@ from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.utils import override
+from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type
+from ray.rllib.utils.torch_ops import huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
-from gym import spaces
 
-from niql.comm import CommMsg
 from niql.config import FINGERPRINT_SIZE
 
 logger = logging.getLogger(__name__)
+
+NEIGHBOURS_OBS = 'neighbours_obs'
+NEIGHBOURS_NEXT_OBS = 'neighbours_next_obs'
 
 
 def get_size(obs_space):
@@ -67,8 +68,9 @@ class IMIX(Policy):
         self.q_values = []
 
         # models
+        obs_space = config['obs_space']
         self.model = ModelCatalog.get_model_v2(
-            config['obs_space'],
+            obs_space,
             action_space,
             self.n_actions,
             config["model"],
@@ -78,7 +80,7 @@ class IMIX(Policy):
         ).to(self.device)
 
         self.target_model = ModelCatalog.get_model_v2(
-            config['obs_space'],
+            obs_space,
             action_space,
             self.n_actions,
             config["model"],
@@ -95,8 +97,24 @@ class IMIX(Policy):
         self._training_iteration_num = 0
         self._global_update_count = 0
 
+        # Setup the mixer network.
+        custom_config = config["model"]["custom_model_config"]
+        custom_config["num_agents"] = self.max_neighbours + 1
+        state_dim = custom_config["space_obs"]["obs"].shape
+        if config["mixer"] is None:  # "iql"
+            self.mixer = None
+            self.target_mixer = None
+        elif config["mixer"] == "qmix":
+            self.mixer = QMixer(custom_config, state_dim).to(self.device)
+            self.target_mixer = QMixer(custom_config, state_dim).to(self.device)
+        elif config["mixer"] == "vdn":
+            self.mixer = VDNMixer().to(self.device)
+            self.target_mixer = VDNMixer().to(self.device)
+
         # optimizer
-        self.params = self.model.parameters()
+        self.params = list(self.model.parameters())
+        if self.mixer:
+            self.params += list(self.mixer.parameters())
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
             self.optimiser = RMSprop(
@@ -129,16 +147,14 @@ class IMIX(Policy):
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
         # observation sharing
         sample_batch = sample_batch.copy()
+        shared_data_obs = []
+        shared_data_next_obs = []
         for n_policy, n_data in other_agent_batches.values():
             n_data = n_data.copy()
-            sample_batch[SampleBatch.OBS] = np.concatenate([
-                sample_batch[SampleBatch.OBS],
-                n_data[SampleBatch.OBS],
-            ], axis=1)
-            sample_batch[SampleBatch.NEXT_OBS] = np.concatenate([
-                sample_batch[SampleBatch.NEXT_OBS],
-                n_data[SampleBatch.NEXT_OBS],
-            ], axis=1)
+            shared_data_obs.append(n_data[SampleBatch.OBS])
+            shared_data_next_obs.append(n_data[SampleBatch.NEXT_OBS])
+        sample_batch[NEIGHBOURS_OBS] = np.concatenate(shared_data_obs, axis=1)
+        sample_batch[NEIGHBOURS_NEXT_OBS] = np.concatenate(shared_data_next_obs, axis=1)
         return sample_batch
 
     @override(Policy)
@@ -255,13 +271,22 @@ class IMIX(Policy):
     @override(Policy)
     def set_weights(self, weights):
         self.model.load_state_dict(self._device_dict(weights["model"]))
-        self.target_model.load_state_dict(self._device_dict(weights["target_model"]))
+        self.target_model.load_state_dict(
+            self._device_dict(weights["target_model"]))
+        if weights["mixer"] is not None:
+            self.mixer.load_state_dict(self._device_dict(weights["mixer"]))
+            self.target_mixer.load_state_dict(
+                self._device_dict(weights["target_mixer"]))
 
     @override(Policy)
     def get_weights(self):
         return {
             "model": self._cpu_dict(self.model.state_dict()),
             "target_model": self._cpu_dict(self.target_model.state_dict()),
+            "mixer": self._cpu_dict(self.mixer.state_dict())
+            if self.mixer else None,
+            "target_mixer": self._cpu_dict(self.target_mixer.state_dict())
+            if self.mixer else None,
         }
 
     @override(Policy)
@@ -279,6 +304,8 @@ class IMIX(Policy):
 
     def update_target(self):
         self.target_model.load_state_dict(self.model.state_dict())
+        if self.mixer is not None:
+            self.target_mixer.load_state_dict(self.mixer.state_dict())
         logger.debug("Updated target networks")
 
     def on_global_var_update(self, global_vars: Dict[str, TensorType]) -> None:
@@ -287,6 +314,8 @@ class IMIX(Policy):
             self._training_iteration_num += 1
 
     def compute_q_losses(self, train_batch: SampleBatch) -> TensorType:
+        assert self.mixer is not None, "Mixer is required"
+
         # batch preprocessing ops
         obs = self.convert_batch_to_tensor({
             SampleBatch.OBS: train_batch[SampleBatch.OBS]
@@ -294,6 +323,7 @@ class IMIX(Policy):
         next_obs = self.convert_batch_to_tensor({
             SampleBatch.OBS: train_batch[SampleBatch.NEXT_OBS]
         })
+        neighbour_policies = train_batch['neighbour_policies']
         train_batch.set_get_interceptor(
             functools.partial(convert_to_torch_tensor, device=self.device)
         )
@@ -320,29 +350,56 @@ class IMIX(Policy):
 
         # q scores for actions which we know were selected in the given state.
         one_hot_selection = F.one_hot(train_batch[SampleBatch.ACTIONS].long(), num_classes=self.action_space.n)
-        qt_selected = torch.sum(qt * one_hot_selection, dim=1)
+        qt_selected = torch.sum(qt * one_hot_selection, dim=1, keepdim=True)
 
         # compute estimate of the best possible value starting from state at t + 1
         dones = train_batch[SampleBatch.DONES].float()
         qt_prime_best_one_hot_selection = F.one_hot(torch.argmax(qt_prime, 1), self.action_space.n)
-        qt_prime_best = torch.sum(qt_prime * qt_prime_best_one_hot_selection, 1)
-        qt_prime_best_masked = (1.0 - dones) * qt_prime_best
+        qt_prime_best = torch.sum(qt_prime * qt_prime_best_one_hot_selection, dim=1, keepdim=True)
+        qt_prime_best_masked = (1.0 - dones.view(-1, 1)) * qt_prime_best
+
+        all_qt_selected = [qt_selected]
+        all_qt_prime_best = [qt_prime_best_masked]
+
+        # neighbours
+        with torch.no_grad():
+            for policy_id, n_policy in neighbour_policies.items():
+                n_qt, _ = n_policy.model(obs, state_batches_h, seq_lens)
+                n_qt = torch.sum(n_qt.detach() * one_hot_selection, dim=1, keepdim=True)
+                all_qt_selected.append(n_qt)
+
+                n_qt_prime, _ = n_policy.model(next_obs, state_batches_h, seq_lens)
+                n_qt_prime_best_one_hot_selection = F.one_hot(torch.argmax(n_qt_prime, 1), self.action_space.n)
+                n_qt_prime_best = torch.sum(n_qt_prime * n_qt_prime_best_one_hot_selection, dim=1, keepdim=True)
+                n_qt_prime_best_masked = (1.0 - dones.view(-1, 1)) * n_qt_prime_best
+                all_qt_prime_best.append(n_qt_prime_best_masked)
+
+        # prepare for mixing
+        chosen_action_qvals = torch.cat(all_qt_selected, dim=1)
+        target_max_qvals = torch.cat(all_qt_prime_best, dim=1)
+        state = torch.cat([train_batch[SampleBatch.OBS], train_batch[NEIGHBOURS_OBS]], dim=1)
+        next_state = torch.cat([train_batch[SampleBatch.NEXT_OBS], train_batch[NEIGHBOURS_NEXT_OBS]], dim=1)
+
+        # nonlinear mixing
+        chosen_action_qvals = self.mixer(chosen_action_qvals, state).squeeze()
+        target_max_qvals = self.target_mixer(target_max_qvals, next_state).squeeze()
 
         # compute RHS of bellman equation
-        qt_target = train_batch[SampleBatch.REWARDS] + self.config["gamma"] * qt_prime_best_masked
+        qt_target = train_batch[SampleBatch.REWARDS] + self.config["gamma"] * target_max_qvals
 
         # Compute the error (Square/Huber).
-        td_error = qt_selected - qt_target.detach()
+        td_error = chosen_action_qvals - qt_target.detach()
         loss = torch.mean(huber_loss(td_error))
 
         # Store values for stats function in model (tower), such that for
         # multi-GPU, we do not override them during the parallel loss phase.
         self.model.tower_stats["loss"] = loss
+
         # TD-error tensor in final stats
         # will be concatenated and retrieved for each individual batch item.
         self.model.tower_stats["td_error"] = td_error
 
-        return loss, td_error.abs().sum().item(), qt_selected.mean().item(), qt_target.mean().item()
+        return loss, td_error.abs().sum().item(), chosen_action_qvals.mean().item(), target_max_qvals.mean().item()
 
     def convert_batch_to_tensor(self, data_dict):
         obs_batch = SampleBatch(data_dict)
@@ -376,3 +433,13 @@ class IMIX(Policy):
         sample_batch[SampleBatch.OBS] = obs
         sample_batch[SampleBatch.NEXT_OBS] = next_obs
         return sample_batch
+
+    def start_consensus(self, self_policy_id: str, neighbour_policies: Dict[str, Policy]):
+        """
+        Simulates consensus communication between agents.
+
+        :param self_policy_id: ID of current policy
+        :param neighbour_policies: Neighbour policies.
+        :return:
+        """
+        print('start_consensus')

@@ -401,3 +401,11 @@ def vdn_qmix_custom_compute_actions(policy,
                 'agent_2_q_val': [agent_2_q_val.detach().numpy().tolist()],
             }
     return tuple(actions.transpose([1, 0])), hiddens, info
+
+
+def notify_wrap(f, cb):
+    def wrapped(*args, **kwargs):
+        f(*args, **kwargs)
+        cb(*args, **kwargs)
+
+    return wrapped

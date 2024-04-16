@@ -72,10 +72,9 @@ class NIQLCallbacks(DefaultCallbacks):
         for key, value in episode.user_data["q_values"].items():
             episode.hist_data[key] = episode.user_data["q_values"][key]
 
-    def on_learn_on_batch(self, *, policy: Policy, train_batch: SampleBatch,
-                          result: dict, **kwargs) -> None:
-        print('dfsa')
-        print('asdfa')
+    def on_train_result(self, *, trainer, result: dict, **kwargs) -> None:
+        super().on_train_result(trainer=trainer, result=result, **kwargs)
+        print('dsds')
 
 
 class ObservationCommWrapper(ObservationFunction):
