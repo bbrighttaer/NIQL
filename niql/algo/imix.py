@@ -442,4 +442,17 @@ class IMIX(Policy):
         :param neighbour_policies: Neighbour policies.
         :return:
         """
-        print('start_consensus')
+        # neighbour weights may be determined based on dynamic graph
+        c_wt = 1 / (1 + len(neighbour_policies))
+        n_weights = {
+            n_id: c_wt for n_id in neighbour_policies
+        }
+        self_weight = 1 - sum(n_weights.values())
+        weights = self.mixer.state_dict()
+        for layer_i, l_wts_i in weights.items():
+            new_wts = self_weight * l_wts_i
+            for n_id, n_policy in neighbour_policies.items():
+                n_mixer_wts = n_policy.mixer.state_dict()
+                new_wts += n_weights[n_id] * n_mixer_wts[layer_i]
+            weights[layer_i] = new_wts
+        self.mixer.load_state_dict(weights)
