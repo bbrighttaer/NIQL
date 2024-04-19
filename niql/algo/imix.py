@@ -1,6 +1,6 @@
 import functools
 import logging
-from typing import Union, List, Optional, Dict, Tuple
+from typing import Union, List, Optional, Dict, Tuple, Any
 
 import numpy as np
 import torch
@@ -20,6 +20,7 @@ from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_to
 from ray.rllib.utils.torch_ops import huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
+from niql.comm import CommMsg
 from niql.config import FINGERPRINT_SIZE
 
 logger = logging.getLogger(__name__)
@@ -176,6 +177,9 @@ class IMIX(Policy):
         if self.model:
             self.model.eval()
 
+        if self.mixer:
+            self.mixer.eval()
+
         with torch.no_grad():
             seq_lens = torch.ones(len(obs_batch), dtype=torch.int32)
             obs_batch = SampleBatch({
@@ -228,6 +232,9 @@ class IMIX(Policy):
         # Set Model to train mode.
         if self.model:
             self.model.train()
+
+        if self.mixer:
+            self.mixer.train()
 
         # Callback handling.
         learn_stats = {}
@@ -370,7 +377,7 @@ class IMIX(Policy):
 
                 n_qt_prime, _ = n_policy.model(next_obs, state_batches_h, seq_lens)
                 n_qt_prime_best_one_hot_selection = F.one_hot(torch.argmax(n_qt_prime, 1), self.action_space.n)
-                n_qt_prime_best = torch.sum(n_qt_prime * n_qt_prime_best_one_hot_selection, dim=1, keepdim=True)
+                n_qt_prime_best = torch.sum(n_qt_prime.detach() * n_qt_prime_best_one_hot_selection, dim=1, keepdim=True)
                 n_qt_prime_best_masked = (1.0 - dones.view(-1, 1)) * n_qt_prime_best
                 all_qt_prime_best.append(n_qt_prime_best_masked)
 
@@ -456,3 +463,50 @@ class IMIX(Policy):
                 new_wts += n_weights[n_id] * n_mixer_wts[layer_i]
             weights[layer_i] = new_wts
         self.mixer.load_state_dict(weights)
+
+    def compute_eval_actions(
+            self,
+            obs_batch,
+            state_batches,
+            n_obs,
+            n_policy,
+    ) -> Dict[str, Any]:
+        """
+        Method for analysing matrix game.
+
+        :param obs_batch:
+        :param state_batches:
+        :return:
+        """
+        assert self.mixer is not None, "mixer is cannot be null"
+
+        # switch to eval mode.
+        self.model.eval()
+        self.mixer.eval()
+
+        seq_lens = torch.ones(len(obs_batch), dtype=torch.int32)
+        state_batches = [
+            convert_to_torch_tensor(s, self.device) for s in (state_batches or [])
+        ]
+        # batch preprocessing ops
+        obs_batch = self.convert_batch_to_tensor({
+            SampleBatch.OBS: obs_batch
+        })
+        obs_batch.set_get_interceptor(
+            functools.partial(convert_to_torch_tensor, device=self.device)
+        )
+        n_obs = convert_to_torch_tensor(n_obs, device=self.device)
+
+        # predict q-vals
+        q_vals_out, _ = self.model(obs_batch, state_batches, seq_lens)
+        n_q_vals_out, _ = n_policy.model(obs_batch, state_batches, seq_lens)
+
+        # nonlinear mixing
+        tensor = torch.tensor([q_vals_out.squeeze()[0], n_q_vals_out.squeeze()[0]]).view(1, -1)
+        state = torch.cat([obs_batch[SampleBatch.OBS], n_obs], dim=1).float()
+        q_tot = self.mixer(tensor, state).squeeze()
+
+        return {
+            "q_values": q_vals_out.squeeze().detach().numpy().tolist(),
+            "q_tot": q_tot.squeeze().item()
+        }

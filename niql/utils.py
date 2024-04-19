@@ -19,7 +19,7 @@ from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.tune import register_env
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import IQLTrainer
+from niql.algo import IQLTrainer, IMIXTrainer
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 
 
@@ -174,23 +174,13 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
             "count_steps_by": "env_steps",
         })
 
-    mixer_dict = {
-        "qmix": "qmix",
-        "vdn": "vdn",
-        "iql": None
-    }
-
     back_up_config["num_agents"] = 1  # one agent one model IQL
-    config = {
-        "model": {
-            "max_seq_len": episode_limit,  # dynamic
-            "custom_model_config": back_up_config,
-            "custom_model": model_name,
-            "lstm_cell_size": None,
-        },
+    model_config = {
+        "max_seq_len": episode_limit,  # dynamic
+        "custom_model_config": back_up_config,
+        "custom_model": model_name,
+        "lstm_cell_size": None,
     }
-
-    config.update(run_config)
 
     IQL_Config.update(
         {
@@ -206,7 +196,8 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
                 "final_epsilon": final_epsilon,
                 "epsilon_timesteps": epsilon_timesteps,
             },
-            "mixer": mixer_dict[algorithm]
+            "mixer": exp["algo_args"]["mixer"] if algorithm == 'imix' else algorithm,
+            "max_neighbours": env["num_agents"] - 1,
         })
 
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
@@ -224,13 +215,20 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
         IQL_Config["gamma"] = _param["gamma"]
 
     # create trainer
-    IQL_Config.update(config)
+    IQL_Config.update(run_config)
+    IQL_Config["model"].update(model_config)
     model_path = restore_model(restore, exp)
-    trainer_class = IQLTrainer.with_updates(
-        name=algorithm.upper(),
-        default_config=IQL_Config,
-    )
-    trainer = trainer_class(logger_creator=lambda c: NullLogger(c))
+    if algorithm == 'imix':
+        trainer_class = IMIXTrainer.with_updates(
+            name=algorithm.upper(),
+            default_config=IQL_Config,
+        )
+    else:
+        trainer_class = IQLTrainer.with_updates(
+            name=algorithm.upper(),
+            default_config=IQL_Config,
+        )
+    trainer = trainer_class(config=IQL_Config, logger_creator=lambda c: NullLogger(c))
     trainer.restore(model_path)
 
     map_name = exp["env_args"]["map_name"]

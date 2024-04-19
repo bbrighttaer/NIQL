@@ -25,3 +25,10 @@ class InterAgentComm:
             return self._mailbox[agent].get_nowait()
         except:
             return None
+
+    def get_policy(self, policy_id):
+        return self._policies.get(policy_id)
+
+    @property
+    def policies(self):
+        return self._policies

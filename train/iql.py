@@ -103,13 +103,6 @@ if __name__ == '__main__':
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
         }
 
-        # register new algorithm
-        marl.algos.register_algo(
-            algo_name="iql",
-            style="il",
-            script=scripts.run_iql if mode == 'train' else utils.load_iql_checkpoint,
-        )
-
         results = iql.fit(
             env,
             model,

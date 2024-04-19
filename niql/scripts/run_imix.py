@@ -15,8 +15,7 @@ from ray.rllib.policy.sample_batch import MultiAgentBatch
 from ray.tune import CLIReporter, register_env
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import IQLTrainer, IMIX
-from niql.callbacks import ObservationCommWrapper
+from niql.algo import IMIXTrainer
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 from niql.utils import determine_multiagent_policy_mapping
 
@@ -121,10 +120,9 @@ def run_imix(model_class, exp, run_config, env, stop, restore):
     IQL_Config["callbacks"] = _param.get("callbacks", IQL_Config["callbacks"])
 
     # create trainer
-    trainer = IQLTrainer.with_updates(
+    trainer = IMIXTrainer.with_updates(
         name=algorithm.upper(),
         default_config=IQL_Config,
-        get_policy_class=lambda c: IMIX,
     )
 
     map_name = exp["env_args"]["map_name"]

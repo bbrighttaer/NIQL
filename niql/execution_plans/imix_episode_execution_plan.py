@@ -34,7 +34,7 @@ from ray.util.iter import LocalIterator
 from niql.algo.consensus import ConsensusUpdate
 
 
-def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
+def imix_episode_execution_plan(trainer: Trainer, workers: WorkerSet,
                            config: TrainerConfigDict, **kwargs) -> LocalIterator[dict]:
     # A copy of the DQN algorithm execution_plan.
     # Modified to be compatiable with joint Q learning.

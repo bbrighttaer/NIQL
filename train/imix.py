@@ -68,7 +68,7 @@ if __name__ == '__main__':
     marl.algos.register_algo(
         algo_name="imix",
         style="il",
-        script=scripts.run_imix  # if mode == 'train' else utils.load_iql_checkpoint,
+        script=scripts.run_imix if mode == 'train' else utils.load_iql_checkpoint,
     )
 
     # initialize algorithm
@@ -98,18 +98,11 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/iql_mlp_all_scenario/IQL_CoopMatrixGame_all_scenario_c383e_00000_0_2024-04-11_18-30-33'
+        base = 'exp_results/imix_mlp_all_scenario/IMIX_CoopMatrixGame_all_scenario_101a9_00000_0_2024-04-19_16-00-02'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
         }
-
-        # register new algorithm
-        marl.algos.register_algo(
-            algo_name="iql",
-            style="il",
-            script=scripts.run_iql if mode == 'train' else utils.load_iql_checkpoint,
-        )
 
         results = imix.fit(
             env,
@@ -137,24 +130,28 @@ if __name__ == '__main__':
                 actor_id: agent.get_policy(pmap(actor_id)).get_initial_state()
                 for actor_id in obs
             }
+            neighbour_lookup = {}
+            for actor_id in obs:
+                for n_id in obs:
+                    if actor_id != n_id:
+                        neighbour_lookup[actor_id] = n_id
 
             step = 0
             with torch.no_grad():
-                while not done["__all__"]:
-                    action_dict = {}
-                    cur_state = [0, 0, 1]
-                    for agent_id in obs.keys():
-                        policy = agent.get_policy(pmap(agent_id))
-                        agent_obs = [cur_state]  # obs[agent_id]["obs"]
-                        action_dict[agent_id], states[agent_id], info = policy.compute_single_action(
-                            agent_obs,
-                            states[agent_id],
-                            explore=False,
-                        )
-                        print(f'state={step}, agent={agent_id}, q-values={info["q-values"]}')
+                action_dict = {}
+                cur_state = np.array([[0, 0, 1]])
+                for agent_id in obs.keys():
+                    policy = agent.get_policy(pmap(agent_id))
+                    n_policy = agent.get_policy(pmap(neighbour_lookup[agent_id]))
+                    info = policy.compute_eval_actions(
+                        cur_state,
+                        states[agent_id],
+                        cur_state,
+                        n_policy,
+                    )
+                    print(f'state={step}, agent={agent_id}, q-values={info["q_values"]}, q_tot: {info["q_tot"]}')
 
-                    obs, reward, done, info = env_instance.step(action_dict)
-                    step += 1
+                step += 1
 
         env_instance.close()
         ray.shutdown()
