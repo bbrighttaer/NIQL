@@ -66,25 +66,25 @@ if __name__ == '__main__':
 
     # register new algorithm
     marl.algos.register_algo(
-        algo_name="iql",
+        algo_name="bql",
         style="il",
-        script=scripts.run_iql if mode == 'train' else utils.load_iql_checkpoint,
+        script=scripts.run_bql if mode == 'train' else utils.load_iql_checkpoint,
     )
 
     # initialize algorithm
-    iql = marl.algos.iql(hyperparam_source="mpe")
-    iql.algo_parameters = exp_config['algo_parameters']
+    bql = marl.algos.bql  # (hyperparam_source="mpe")
+    bql.algo_parameters = exp_config['algo_parameters']
 
     # build agent model based on env + algorithms + user preference if checked available
     model_config = exp_config['model_preference']
     model_config.update({'core_arch': args.model_arch})
-    model = marl.build_model(env, iql, model_preference=exp_config['model_preference'])
+    model = marl.build_model(env, bql, model_preference=exp_config['model_preference'])
     if model_config.get('custom_model'):
         model = (eval(model_config['custom_model']), model[1])
 
     if mode == 'train':
         # start learning + extra experiment settings if needed. remember to check ray.yaml before use
-        iql.fit(
+        bql.fit(
             env,
             model,
             stop=exp_config['stop_condition'],
@@ -97,13 +97,13 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/iql_mlp_all_scenario/IQL_CoopMatrixGame_all_scenario_08779_00000_0_2024-04-21_02-42-53'
+        base = 'exp_results/bql_mlp_all_scenario/BQL_CoopMatrixGame_all_scenario_f966b_00000_0_2024-04-21_15-28-24'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
         }
 
-        results = iql.fit(
+        results = bql.fit(
             env,
             model,
             stop=exp_config['stop_condition'],

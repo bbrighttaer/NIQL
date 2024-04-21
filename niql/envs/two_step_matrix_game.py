@@ -32,7 +32,7 @@ def _get_payoff2(is_monotonic: bool, is_linear: bool) -> np.array:
         ])
 
 
-class MultiAgentCoopMatrixGame(MultiAgentEnv):
+class TwoStepMultiAgentCoopMatrixGame(MultiAgentEnv):
     """
     Implements a simple two-step cooperative matrix game following https://arxiv.org/abs/1803.11485
     """
@@ -93,12 +93,12 @@ class MultiAgentCoopMatrixGame(MultiAgentEnv):
             if self.current_game == 0:
                 payoffs = [
                     self.payoff1[actions["agent_0"]][actions["agent_1"]],
-                    self.payoff1[actions["agent_1"]][actions["agent_0"]],
+                    self.payoff1[actions["agent_0"]][actions["agent_1"]],
                 ]
             else:
                 payoffs = [
                     self.payoff2[actions["agent_0"]][actions["agent_1"]],
-                    self.payoff2[actions["agent_1"]][actions["agent_0"]],
+                    self.payoff2[actions["agent_0"]][actions["agent_1"]],
                 ]
 
             # Observations after taking actions
@@ -114,7 +114,7 @@ class MultiAgentCoopMatrixGame(MultiAgentEnv):
             return obs, rewards, {"__all__": True}, info
 
     def render(self, mode='human'):
-        print("This is a 2-step multi-agent cooperative matrix game.")
+        print("This is a two-step multi-agent cooperative matrix game.")
         time.sleep(0.05)
         return True
 

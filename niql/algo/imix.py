@@ -353,7 +353,7 @@ class IMIX(Policy):
 
         # compute q-vals
         qt, _ = self.model(obs, state_batches_h, seq_lens)
-        qt_prime, _ = self.model(next_obs, state_batches_h, seq_lens)
+        qt_prime, _ = self.target_model(next_obs, state_batches_h, seq_lens)
 
         # q scores for actions which we know were selected in the given state.
         one_hot_selection = F.one_hot(train_batch[SampleBatch.ACTIONS].long(), num_classes=self.action_space.n)

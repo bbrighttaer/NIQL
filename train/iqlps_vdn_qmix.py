@@ -48,7 +48,7 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_matrix_game_env()
+    env = envs.make_two_step_matrix_game_env()
 
     # initialise algorithm with hyperparameters
     if args.algo == 'qmix':

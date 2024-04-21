@@ -19,7 +19,7 @@ from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.tune import register_env
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import IQLTrainer, IMIXTrainer
+from niql.algo import IQLTrainer, IMIXTrainer, BPQTrainer
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 
 
@@ -211,6 +211,8 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
     IQL_Config["obs_space"] = space_obs
     action_space = env["space_act"]
     IQL_Config["act_space"] = GymTuple([action_space])
+    IQL_Config["lambda"] = _param["lambda"]
+    IQL_Config["tau"] = _param["tau"]
     if "gamma" in _param:
         IQL_Config["gamma"] = _param["gamma"]
 
@@ -220,6 +222,11 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
     model_path = restore_model(restore, exp)
     if algorithm == 'imix':
         trainer_class = IMIXTrainer.with_updates(
+            name=algorithm.upper(),
+            default_config=IQL_Config,
+        )
+    elif algorithm == 'bql':
+        trainer_class = BPQTrainer.with_updates(
             name=algorithm.upper(),
             default_config=IQL_Config,
         )

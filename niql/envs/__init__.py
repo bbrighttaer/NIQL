@@ -3,7 +3,8 @@ from marllib import marl
 from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 
-from .matrix_game import MultiAgentCoopMatrixGame
+from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
+from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
 from .mpe_simple import MPESimple
 from .utils import make_local_env
 
@@ -36,10 +37,24 @@ def make_mpe_simple_env(**kwargs):
     return env
 
 
-def make_matrix_game_env(**kwargs):
+def make_two_step_matrix_game_env(**kwargs):
     # register new env
-    ENV_REGISTRY["CoopMatrixGame"] = MultiAgentCoopMatrixGame
-    COOP_ENV_REGISTRY["CoopMatrixGame"] = MultiAgentCoopMatrixGame
+    ENV_REGISTRY["CoopMatrixGame"] = TwoStepMultiAgentCoopMatrixGame
+    COOP_ENV_REGISTRY["CoopMatrixGame"] = TwoStepMultiAgentCoopMatrixGame
+
+    # choose environment + scenario
+    env = make_local_env(
+        environment_name="CoopMatrixGame",
+        map_name="all_scenario",
+        **kwargs,
+    )
+    return env
+
+
+def make_one_step_matrix_game_env(**kwargs):
+    # register new env
+    ENV_REGISTRY["CoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
+    COOP_ENV_REGISTRY["CoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
 
     # choose environment + scenario
     env = make_local_env(

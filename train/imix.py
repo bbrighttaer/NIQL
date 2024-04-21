@@ -59,7 +59,7 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_matrix_game_env()
+    env = envs.make_two_step_matrix_game_env()
 
     exp_config = config.COOP_MATRIX
     gpu_count = torch.cuda.device_count()
@@ -98,7 +98,7 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/imix_mlp_all_scenario/IMIX_CoopMatrixGame_all_scenario_101a9_00000_0_2024-04-19_16-00-02'
+        base = 'exp_results/imix_mlp_all_scenario/IMIX_CoopMatrixGame_all_scenario_b2116_00000_0_2024-04-20_23-05-43'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
