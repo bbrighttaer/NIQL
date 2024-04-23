@@ -44,14 +44,14 @@ COOP_MATRIX = {
         }
     },
     'model_preference': {
-        'core_arch': 'gru',  # mlp | gru | lstm
+        'core_arch': 'mlp',  # mlp | gru | lstm
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
-        'encode_layer': '128',  # for RNN model
-        'hidden_state_size': 256,  # for RNN model
+        'encode_layer': '32',  # for RNN model
+        'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
-        'custom_model': 'DRQNModel',
-        # 'custom_model': 'MatrixGameQMLP',
+        # 'custom_model': 'DRQNModel',
+        'custom_model': 'MatrixGameQMLP',
         # 'custom_model': 'MatrixGameSplitQMLP'
     },
     'stop_condition': {
