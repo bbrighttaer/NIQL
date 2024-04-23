@@ -71,12 +71,12 @@ def make_two_step_matrix_game_env(**kwargs):
 
 def make_one_step_matrix_game_env(**kwargs):
     # register new env
-    ENV_REGISTRY["OneCoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
-    COOP_ENV_REGISTRY["OneCoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
+    ENV_REGISTRY["OneStepCoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
+    COOP_ENV_REGISTRY["OneStepCoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
 
     # choose environment + scenario
     env = make_local_env(
-        environment_name="OneCoopMatrixGame",
+        environment_name="OneStepCoopMatrixGame",
         map_name="all_scenario",
         **kwargs,
     )
