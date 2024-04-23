@@ -1,0 +1,14 @@
+env: PredatorPrey
+
+env_args:
+  map_name: "all_scenario"
+  grid_shape: [5,5]
+  n_agents: 2
+  n_preys: 1
+  full_observable: False
+  max_steps: 100
+
+mask_flag: False
+global_state_flag: False
+opp_action_in_cc: True
+agent_level_batch_update: False

@@ -6,6 +6,7 @@ from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
 from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
 from .mpe_simple import MPESimple
+from .predator_prey import PredatorPrey
 from .utils import make_local_env
 
 
@@ -59,6 +60,20 @@ def make_one_step_matrix_game_env(**kwargs):
     # choose environment + scenario
     env = make_local_env(
         environment_name="OneCoopMatrixGame",
+        map_name="all_scenario",
+        **kwargs,
+    )
+    return env
+
+
+def make_predator_prey_env(**kwargs):
+    # register new env
+    ENV_REGISTRY["PredatorPrey"] = PredatorPrey
+    COOP_ENV_REGISTRY["PredatorPrey"] = PredatorPrey
+
+    # choose environment + scenario
+    env = make_local_env(
+        environment_name="PredatorPrey",
         map_name="all_scenario",
         **kwargs,
     )
