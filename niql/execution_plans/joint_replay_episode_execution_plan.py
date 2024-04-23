@@ -49,7 +49,8 @@ def joint_episode_execution_plan(trainer: Trainer, workers: WorkerSet,
         replay_batch_size=config["train_batch_size"],
         replay_sequence_length=config.get("replay_sequence_length", 1),
         replay_burn_in=config.get("burn_in", 0),
-        replay_zero_init_states=config.get("zero_init_states", True)
+        replay_zero_init_states=config.get("zero_init_states", True),
+        enable_joint_buffer=config["enable_joint_buffer"],
     )
     # Assign to Trainer, so we can store the LocalReplayBuffer's
     # data when we save checkpoints.

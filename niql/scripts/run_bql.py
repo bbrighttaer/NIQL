@@ -80,6 +80,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     # BQL_Config["callbacks"] = _param.get("callbacks", BQL_Config["callbacks"])
     BQL_Config["lambda"] = _param["lambda"]
     BQL_Config["tau"] = _param["tau"]
+    BQL_Config["enable_joint_buffer"] = _param["enable_joint_buffer"]
 
     # create trainer
     trainer = BPQTrainer.with_updates(

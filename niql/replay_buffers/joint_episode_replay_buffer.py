@@ -20,6 +20,7 @@ class JointEpisodeReplayBuffer(EpisodeBasedReplayBuffer):
             replay_sequence_length: int = 1,
             replay_burn_in: int = 0,
             replay_zero_init_states: bool = True,
+            enable_joint_buffer=True,
             buffer_size=DEPRECATED_VALUE,
     ):
         super().__init__(num_shards, learning_starts, capacity, replay_batch_size,
@@ -28,10 +29,11 @@ class JointEpisodeReplayBuffer(EpisodeBasedReplayBuffer):
                          replay_zero_init_states,
                          buffer_size)
 
-        # change experience replay buffer setup to joint for all agents
-        joint_replay_buffer = PrioritizedReplayBuffer(self.capacity, alpha=prioritized_replay_alpha)
+        if enable_joint_buffer:
+            # change experience replay buffer setup to joint for all agents
+            joint_replay_buffer = PrioritizedReplayBuffer(self.capacity, alpha=prioritized_replay_alpha)
 
-        def new_buffer():
-            return joint_replay_buffer
+            def new_buffer():
+                return joint_replay_buffer
 
-        self.replay_buffers = collections.defaultdict(new_buffer)
+            self.replay_buffers = collections.defaultdict(new_buffer)

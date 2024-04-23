@@ -13,15 +13,23 @@ MPE = {
             'epsilon_timesteps': 50000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
+            'gamma': 0.99,
+            'lambda': 0.01,
+            'tau': 0.5,
         }
     },
     'model_preference': {
         "core_arch": "gru",  # mlp | gru | lstm
-        "encode_layer": "128-256",
+        "encode_layer": "128-256",  # for RNN model
+        'hidden_state_size': 256,  # for RNN model
+        'fcnet_activation': 'relu',
+        'custom_model': 'DRQNModel',
+        'hidden_layer_dims': [64],  # for mlp model
+        'mixer_embedding': 256,  # for mixer model
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 3861200,
+        'timesteps_total': 3000000,
     }
 }
 

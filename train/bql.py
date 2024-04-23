@@ -54,14 +54,21 @@ if __name__ == '__main__':
         help='Execution mode',
     )
 
+    parser.add_argument(
+        '-d', '--disable_joint_buffer',
+        action='store_true',
+        default=False,
+        help='If specified, separate experience buffers will be used.',
+    )
+
     args = parser.parse_args()
 
     mode = args.exec_mode
 
     # get env
-    env = envs.make_one_step_matrix_game_env()
+    env = envs.make_mpe_simple_spread_env()
 
-    exp_config = config.COOP_MATRIX
+    exp_config = config.MPE
     gpu_count = torch.cuda.device_count()
 
     # register new algorithm
@@ -74,6 +81,7 @@ if __name__ == '__main__':
     # initialize algorithm
     bql = marl.algos.bql  # (hyperparam_source="mpe")
     bql.algo_parameters = exp_config['algo_parameters']
+    bql.algo_parameters['algo_args']['enable_joint_buffer'] = not args.disable_joint_buffer
 
     # build agent model based on env + algorithms + user preference if checked available
     model_config = exp_config['model_preference']
