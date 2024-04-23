@@ -10,6 +10,7 @@ from .predator_prey import PredatorPrey
 from .utils import make_local_env
 
 
+# ---------------- Cooperative envs ---------------------------------------------
 def make_mpe_simple_spread_env(**kwargs):
     # choose environment + scenario
     env = marl.make_env(
@@ -21,6 +22,22 @@ def make_mpe_simple_spread_env(**kwargs):
     )
     return env
 
+
+def make_predator_prey_env(**kwargs):
+    # register new env
+    ENV_REGISTRY["PredatorPrey"] = PredatorPrey
+    COOP_ENV_REGISTRY["PredatorPrey"] = PredatorPrey
+
+    # choose environment + scenario
+    env = make_local_env(
+        environment_name="PredatorPrey",
+        map_name="all_scenario",
+        **kwargs,
+    )
+    return env
+
+
+# ------------------------- Debug envs ---------------------------------------------
 
 def make_mpe_simple_env(**kwargs):
     # register new env
@@ -66,18 +83,7 @@ def make_one_step_matrix_game_env(**kwargs):
     return env
 
 
-def make_predator_prey_env(**kwargs):
-    # register new env
-    ENV_REGISTRY["PredatorPrey"] = PredatorPrey
-    COOP_ENV_REGISTRY["PredatorPrey"] = PredatorPrey
-
-    # choose environment + scenario
-    env = make_local_env(
-        environment_name="PredatorPrey",
-        map_name="all_scenario",
-        **kwargs,
-    )
-    return env
+# ------------------------------------------------------------------------------------
 
 
 def pad_obs_space(obs_space):
