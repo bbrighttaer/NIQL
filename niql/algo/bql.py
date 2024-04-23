@@ -314,6 +314,7 @@ class BQLPolicy(Policy):
 
         # q scores for actions which we know were selected in the given state.
         one_hot_selection = F.one_hot(train_batch[SampleBatch.ACTIONS].long(), num_classes=self.action_space.n)
+        one_hot_selection = one_hot_selection.to(self.device)
 
         # ----------------------- Auxiliary model objective --------------
         # compute q-vals
@@ -329,7 +330,7 @@ class BQLPolicy(Policy):
 
         # compute RHS of bellman equation
         q_e_target = train_batch[SampleBatch.REWARDS] + self.config["gamma"] * q_best
-        q_e_weight = torch.where(q_e_target > q_e, torch.tensor(1.0), torch.tensor(self.lamda)).to(self.device)
+        q_e_weight = torch.where(q_e_target > q_e, 1.0, self.lamda)
 
         # Compute the error (Square/Huber).
         td_error_q_e = q_e - q_e_target.detach()
@@ -346,9 +347,7 @@ class BQLPolicy(Policy):
         # q_bar_e = torch.sum(q_bar_e * q_bar_e_selected, 1)
         # q_bar_e = (1.0 - dones) * q_bar_e
         # q_bar_e_selected = train_batch[SampleBatch.REWARDS] + self.config["gamma"] * q_bar_e
-        qt_weight = torch.where(
-            q_bar_e_selected > qt_selected, torch.tensor(1.0), torch.tensor(self.lamda)
-        ).to(self.device)
+        qt_weight = torch.where(q_bar_e_selected > qt_selected, 1.0, self.lamda)
         # loss = weight * (qt_selected - q_bar_e_selected.detach()) ** 2
         loss = qt_weight * huber_loss(qt_selected - q_bar_e_selected.detach())
         loss = torch.mean(loss)
