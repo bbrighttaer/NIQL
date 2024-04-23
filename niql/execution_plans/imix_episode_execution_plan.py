@@ -35,8 +35,6 @@ from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.utils.typing import TrainerConfigDict
 from ray.util.iter import LocalIterator
 
-from niql.algo.consensus import ConsensusUpdate
-
 
 def imix_episode_execution_plan(trainer: Trainer, workers: WorkerSet,
                                 config: TrainerConfigDict, **kwargs) -> LocalIterator[dict]:
@@ -77,7 +75,7 @@ def imix_episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     #     workers.local_worker().learn_on_batch,
     #
     # )
-
+    from niql.algo.consensus import ConsensusUpdate
     replay_op = Replay(local_buffer=local_replay_buffer) \
         .for_each(lambda x: post_fn(x, workers, config, policy_map)) \
         .for_each(train_step_op) \
