@@ -339,7 +339,7 @@ class BQLPolicy(Policy):
         # --------------------------- Main model -------------------------
         qt, _ = self.model(obs, state_batches_h, seq_lens)
         qt_selected = torch.sum(qt * one_hot_selection, dim=1)
-        q_bar_e, _ = self.auxiliary_target_model(next_obs, state_batches_h, seq_lens)
+        q_bar_e, _ = self.auxiliary_target_model(obs, state_batches_h, seq_lens)
         q_bar_e_selected = torch.sum(q_bar_e * one_hot_selection, dim=1)
         # q_bar_e_selected = F.one_hot(torch.argmax(q_bar_e, 1), self.action_space.n)
         # q_bar_e = torch.sum(q_bar_e * q_bar_e_selected, 1)
