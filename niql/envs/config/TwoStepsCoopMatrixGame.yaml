@@ -1,4 +1,4 @@
-env: CoopMatrixGame
+env: TwoStepsCoopMatrixGame
 
 env_args:
   map_name: "all_scenario"

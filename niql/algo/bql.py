@@ -5,7 +5,6 @@ from typing import Union, List, Optional, Dict, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
-from marllib.marl import JointQRNN
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
 from ray.rllib.models import ModelCatalog
@@ -16,6 +15,8 @@ from ray.rllib.utils import override
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
+
+from niql.models import DRQNModel
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ class BQLPolicy(Policy):
             config["model"],
             framework="torch",
             name="model",
-            default_model=FullyConnectedNetwork if core_arch == "mlp" else JointQRNN
+            default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
         ).to(self.device)
 
         self.auxiliary_model = ModelCatalog.get_model_v2(
@@ -83,7 +84,7 @@ class BQLPolicy(Policy):
             config["model"],
             framework="torch",
             name="model",
-            default_model=FullyConnectedNetwork if core_arch == "mlp" else JointQRNN
+            default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
         ).to(self.device)
 
         self.auxiliary_target_model = ModelCatalog.get_model_v2(
@@ -93,7 +94,7 @@ class BQLPolicy(Policy):
             config["model"],
             framework="torch",
             name="model",
-            default_model=FullyConnectedNetwork if core_arch == "mlp" else JointQRNN
+            default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
         ).to(self.device)
 
         self.exploration = self._create_exploration()

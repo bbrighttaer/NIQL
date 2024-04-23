@@ -1,0 +1,12 @@
+env: OneStepCoopMatrixGame
+
+env_args:
+  map_name: "all_scenario"
+  continuous_actions: False,
+  monotonic_payoff: True
+  linear_payoff: False
+
+mask_flag: False
+global_state_flag: False
+opp_action_in_cc: True
+agent_level_batch_update: False

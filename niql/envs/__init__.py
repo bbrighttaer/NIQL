@@ -39,12 +39,12 @@ def make_mpe_simple_env(**kwargs):
 
 def make_two_step_matrix_game_env(**kwargs):
     # register new env
-    ENV_REGISTRY["CoopMatrixGame"] = TwoStepMultiAgentCoopMatrixGame
-    COOP_ENV_REGISTRY["CoopMatrixGame"] = TwoStepMultiAgentCoopMatrixGame
+    ENV_REGISTRY["TwoStepsCoopMatrixGame"] = TwoStepMultiAgentCoopMatrixGame
+    COOP_ENV_REGISTRY["TwoStepsCoopMatrixGame"] = TwoStepMultiAgentCoopMatrixGame
 
     # choose environment + scenario
     env = make_local_env(
-        environment_name="CoopMatrixGame",
+        environment_name="TwoStepsCoopMatrixGame",
         map_name="all_scenario",
         **kwargs,
     )
@@ -53,12 +53,12 @@ def make_two_step_matrix_game_env(**kwargs):
 
 def make_one_step_matrix_game_env(**kwargs):
     # register new env
-    ENV_REGISTRY["CoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
-    COOP_ENV_REGISTRY["CoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
+    ENV_REGISTRY["OneCoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
+    COOP_ENV_REGISTRY["OneCoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
 
     # choose environment + scenario
     env = make_local_env(
-        environment_name="CoopMatrixGame",
+        environment_name="OneCoopMatrixGame",
         map_name="all_scenario",
         **kwargs,
     )
