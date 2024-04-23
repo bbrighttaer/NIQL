@@ -14,7 +14,7 @@ policy_mapping_dict = {
 
 class PredatorPrey(MultiAgentEnv):
     """
-    Wrapper around the PredatorPrey environment of ma-gym.
+    Wrapper around the PredatorPrey environment of ma_gym.
     """
 
     def __init__(self, env_config):
@@ -23,11 +23,7 @@ class PredatorPrey(MultiAgentEnv):
         self.env = Env(**env_config)
         self.action_space = self.env.action_space[0]
         observation_space = self.env.observation_space[0]
-        self.observation_space = GymDict({"obs": Box(
-            low=observation_space.low[0],
-            high=observation_space.high[0],
-            shape=observation_space.shape,
-            dtype=observation_space.dtype)})
+        self.observation_space = GymDict({"obs": observation_space})
         self.agents = [f'agent_{i}' for i in range(self.env.n_agents)]
         self.num_agents = self.env.n_agents
         env_config["map_name"] = map_name
@@ -37,18 +33,18 @@ class PredatorPrey(MultiAgentEnv):
         raw_obs = self.env.reset()
         obs = {}
         for agent, r_obs in zip(self.agents, raw_obs):
-            obs[agent] = r_obs
+            obs[agent] = {'obs': r_obs}
         return obs
 
     def step(self, action_dict):
         raw_obs, raw_rew, raw_done, raw_info = self.env.step(action_dict.values())
         obs = {}
         rew = {}
-        done = {}
+        done = {'__all__': bool(sum(raw_done))}
         info = {}
 
         for agent, r_obs, r_rew, r_done in zip(self.agents, raw_obs, raw_rew, raw_done):
-            obs[agent] = r_obs
+            obs[agent] = {'obs': r_obs}
             rew[agent] = r_rew
             done[agent] = r_done
             info[agent] = dict(raw_info)
