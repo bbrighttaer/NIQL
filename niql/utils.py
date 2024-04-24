@@ -19,7 +19,7 @@ from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.tune import register_env
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import IQLTrainer, IMIXTrainer, BPQTrainer
+from niql.algo import IQLTrainer, IMIXTrainer, BQLTrainer
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 
 
@@ -226,7 +226,7 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
             default_config=IQL_Config,
         )
     elif algorithm == 'bql':
-        trainer_class = BPQTrainer.with_updates(
+        trainer_class = BQLTrainer.with_updates(
             name=algorithm.upper(),
             default_config=IQL_Config,
         )

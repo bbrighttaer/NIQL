@@ -7,7 +7,7 @@ from .imix import IMIX
 from .bql import BQLPolicy
 from .dueling_bql import DuelingBQLPolicy
 
-from ..execution_plans import imix_episode_execution_plan, joint_episode_execution_plan
+from ..execution_plans import imix_episode_execution_plan, bql_episode_execution_plan
 
 IQLTrainer = build_trainer(
     name="IQLTrainer",
@@ -23,9 +23,9 @@ IMIXTrainer = build_trainer(
     execution_plan=imix_episode_execution_plan,
 )
 
-BPQTrainer = build_trainer(
-    name="BPQTrainer",
-    get_policy_class=lambda c: BQLPolicy,
+BQLTrainer = build_trainer(
+    name="BQLTrainer",
+    get_policy_class=lambda c: DuelingBQLPolicy,
     default_config=DEFAULT_CONFIG,
-    execution_plan=joint_episode_execution_plan,
+    execution_plan=bql_episode_execution_plan,
 )

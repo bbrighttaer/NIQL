@@ -49,6 +49,7 @@ COOP_MATRIX = {
             'lambda': 0.01,
             'tau': 0.5,
             'callbacks': NIQLCallbacks,
+            'sharing_batch_size': 10,
         }
     },
     'model_preference': {

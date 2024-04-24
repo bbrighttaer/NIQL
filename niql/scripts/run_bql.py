@@ -10,7 +10,8 @@ from ray.rllib.models import ModelCatalog
 from ray.tune import CLIReporter
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import BPQTrainer
+from niql.algo import BQLTrainer, BQLPolicy
+from niql.execution_plans import joint_episode_execution_plan
 
 
 def before_learn_on_batch(batch, *args):
@@ -77,16 +78,23 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     action_space = env["space_act"]
     BQL_Config["act_space"] = Tuple([action_space])
     BQL_Config["gamma"] = _param.get("gamma", BQL_Config["gamma"])
-    # BQL_Config["callbacks"] = _param.get("callbacks", BQL_Config["callbacks"])
+    BQL_Config["callbacks"] = _param.get("callbacks", BQL_Config["callbacks"])
     BQL_Config["lambda"] = _param["lambda"]
     BQL_Config["tau"] = _param["tau"]
     BQL_Config["enable_joint_buffer"] = _param["enable_joint_buffer"]
+    BQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
+    BQL_Config["algorithm"] = algorithm
 
     # create trainer
-    trainer = BPQTrainer.with_updates(
+    trainer = BQLTrainer.with_updates(
         name=algorithm.upper(),
         default_config=BQL_Config,
     )
+    if algorithm.lower() == 'bql':
+        trainer = trainer.with_updates(
+            get_policy_class=lambda c: BQLPolicy,
+            execution_plan=joint_episode_execution_plan,
+        )
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]

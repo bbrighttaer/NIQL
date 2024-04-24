@@ -311,22 +311,7 @@ class DuelingBQLPolicy(Policy):
         train_batch.set_get_interceptor(
             functools.partial(convert_to_torch_tensor, device=self.device)
         )
-
-        # get hidden states for RNN case
-        i = 0
-        state_batches_h = []
-        while "state_in_{}".format(i) in train_batch:
-            state_batches_h.append(train_batch["state_in_{}".format(i)])
-            i += 1
-        if self._is_recurrent:
-            assert state_batches_h
-        i = 0
-        state_batches_h_prime = []
-        while "state_out_{}".format(i) in train_batch:
-            state_batches_h_prime.append(train_batch["state_out_{}".format(i)])
-            i += 1
-        if self._is_recurrent:
-            assert state_batches_h_prime
+        state_batches_h, state_batches_h_prime = self.get_rnn_states(train_batch)
         seq_lens = train_batch.get(SampleBatch.SEQ_LENS)
 
         # q scores for actions which we know were selected in the given state.
@@ -377,3 +362,52 @@ class DuelingBQLPolicy(Policy):
         )
         return obs_batch
 
+    def compute_state_values_from_batch(self, batch: SampleBatch) -> SampleBatch:
+        # data preprocessing
+        obs = self.convert_batch_to_tensor({
+            SampleBatch.OBS: batch[SampleBatch.OBS]
+        })
+        next_obs = self.convert_batch_to_tensor({
+            SampleBatch.OBS: batch[SampleBatch.NEXT_OBS]
+        })
+        batch.set_get_interceptor(
+            functools.partial(convert_to_torch_tensor, device=self.device)
+        )
+        state_batches_h, state_batches_h_prime = self.get_rnn_states(batch)
+        seq_lens = batch.get(SampleBatch.SEQ_LENS)
+
+        # forward propagation
+        self.model.eval()
+        self.dueling_q.eval()
+        output_1, _ = self.model(obs, state_batches_h, seq_lens)
+        (_, values_1), _ = self.dueling_q(SampleBatch({SampleBatch.OBS: output_1}))
+        output_2, _ = self.model(next_obs, state_batches_h_prime, seq_lens)
+        (_, values_2), _ = self.dueling_q(SampleBatch({SampleBatch.OBS: output_2}))
+        states = torch.cat([obs[SampleBatch.OBS], next_obs[SampleBatch.OBS]], dim=0)
+        values = torch.cat([values_1, values_2])
+
+        # constitute a joint sample batch
+        new_batch = SampleBatch({
+            SampleBatch.OBS: states.cpu().detach().numpy(),
+            SampleBatch.VF_PREDS: values.cpu().detach().numpy(),
+        })
+
+        return new_batch
+
+    def get_rnn_states(self, batch):
+        # get hidden states for RNN case
+        i = 0
+        state_batches_h = []
+        while "state_in_{}".format(i) in batch:
+            state_batches_h.append(batch["state_in_{}".format(i)])
+            i += 1
+        if self._is_recurrent:
+            assert state_batches_h
+        i = 0
+        state_batches_h_prime = []
+        while "state_out_{}".format(i) in batch:
+            state_batches_h_prime.append(batch["state_out_{}".format(i)])
+            i += 1
+        if self._is_recurrent:
+            assert state_batches_h_prime
+        return state_batches_h, state_batches_h_prime

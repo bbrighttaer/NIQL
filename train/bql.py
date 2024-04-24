@@ -50,7 +50,14 @@ if __name__ == '__main__':
         '-d', '--disable_joint_buffer',
         action='store_true',
         default=False,
-        help='If specified, separate experience buffers will be used.',
+        help='If specified, separate experience buffers will be used (when using BQL).',
+    )
+
+    parser.add_argument(
+        '-a', '--algo',
+        choices=['bql', 'dbql'],
+        default='bql',
+        help='The algorithm to use.',
     )
 
     args = parser.parse_args()
@@ -58,20 +65,20 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_mpe_simple_spread_env()
+    env = envs.make_one_step_matrix_game_env()
 
-    exp_config = config.MPE
+    exp_config = config.COOP_MATRIX
     gpu_count = torch.cuda.device_count()
 
     # register new algorithm
     marl.algos.register_algo(
-        algo_name="bql",
+        algo_name=args.algo,
         style="il",
         script=scripts.run_bql if mode == 'train' else utils.load_iql_checkpoint,
     )
 
     # initialize algorithm
-    bql = marl.algos.bql  # (hyperparam_source="mpe")
+    bql = marl.algos.dbql if args.algo == "dbql" else marl.algos.bql  # (hyperparam_source="mpe")
     bql.algo_parameters = exp_config['algo_parameters']
     bql.algo_parameters['algo_args']['enable_joint_buffer'] = not args.disable_joint_buffer
 
