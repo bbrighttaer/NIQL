@@ -186,7 +186,7 @@ class BQLPolicy(Policy):
             self.global_timestep += len(obs_batch[SampleBatch.CUR_OBS])
 
             # store q values selected in this time step for callbacks
-            self.q_values = dist_inputs.squeeze().detach().numpy().tolist()
+            self.q_values = dist_inputs.squeeze().cpu().detach().numpy().tolist()
 
             results = convert_to_non_torch_type((actions, state_out, {'q-values': [self.q_values]}))
 
