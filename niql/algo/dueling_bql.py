@@ -16,7 +16,7 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
-from niql.models import DRQNModel
+from niql.models import DRQNModel, DuelingQModel
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def soft_update(target_net, source_net, tau):
     return target_net
 
 
-class BQLPolicy(Policy):
+class DuelingBQLPolicy(Policy):
     """
     Implementation of Best Possible Q-learning
     """
@@ -67,14 +67,25 @@ class BQLPolicy(Policy):
         self.q_values = []
 
         # models
+        dueling_input_dim = 64
         self.model = ModelCatalog.get_model_v2(
-            config['obs_space'],
+            config["obs_space"],
             action_space,
-            self.n_actions,
+            dueling_input_dim,
             config["model"],
             framework="torch",
             name="model",
             default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
+        ).to(self.device)
+
+        self.dueling_q = DuelingQModel(
+            input_dim=dueling_input_dim,
+            n_actions=self.n_actions,
+            obs_space=config["obs_space"],
+            action_space=action_space,
+            model_config=config["model"],
+            name="model",
+            in_activation_fn="relu",
         ).to(self.device)
 
         self.auxiliary_model = ModelCatalog.get_model_v2(
@@ -106,7 +117,8 @@ class BQLPolicy(Policy):
         self._global_update_count = 0
 
         # optimizer
-        self.grad_clip_params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
+        self.grad_clip_params = (list(self.model.parameters()) + list(self.auxiliary_model.parameters())
+                                 + list(self.dueling_q.parameters()))
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
             self.optimiser_e = RMSprop(params=self.auxiliary_model.parameters(), lr=config["lr"])
@@ -116,7 +128,6 @@ class BQLPolicy(Policy):
             from torch.optim import Adam
             self.optimiser_e = Adam(params=self.auxiliary_model.parameters(), lr=config["lr"])
             self.optimiser_i = Adam(params=self.model.parameters(), lr=config["lr"])
-
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -145,8 +156,9 @@ class BQLPolicy(Policy):
         timestep = timestep if timestep is not None else self.global_timestep
 
         # Switch to eval mode.
-        if self.model:
+        if self.model and self.dueling_q:
             self.model.eval()
+            self.dueling_q.eval()
 
         with torch.no_grad():
             seq_lens = torch.ones(len(obs_batch), dtype=torch.int32)
@@ -168,7 +180,11 @@ class BQLPolicy(Policy):
             self.exploration.before_compute_actions(explore=explore, timestep=timestep)
 
             # predict q-vals
-            dist_inputs, state_out = self.model(obs_batch, state_batches, seq_lens)
+            outputs, state_out = self.model(obs_batch, state_batches, seq_lens)
+            out_batch = obs_batch = SampleBatch({
+                SampleBatch.CUR_OBS: outputs
+            })
+            (dist_inputs, _), _ = self.dueling_q(out_batch)
 
             # select action
             action_dist = self.dist_class(dist_inputs, self.model)
@@ -255,6 +271,7 @@ class BQLPolicy(Policy):
     @override(Policy)
     def set_weights(self, weights):
         self.model.load_state_dict(self._device_dict(weights["model"]))
+        self.dueling_q.load_state_dict(self._device_dict(weights["dueling_q"]))
         self.auxiliary_model.load_state_dict(self._device_dict(weights["auxiliary_model"]))
         self.auxiliary_target_model.load_state_dict(self._device_dict(weights["auxiliary_target_model"]))
 
@@ -262,6 +279,7 @@ class BQLPolicy(Policy):
     def get_weights(self):
         return {
             "model": self._cpu_dict(self.model.state_dict()),
+            "dueling_q": self._cpu_dict(self.dueling_q.state_dict()),
             "auxiliary_model": self._cpu_dict(self.auxiliary_model.state_dict()),
             "auxiliary_target_model": self._cpu_dict(self.auxiliary_target_model.state_dict()),
         }
@@ -322,6 +340,7 @@ class BQLPolicy(Policy):
 
         # compute estimate of the best possible value starting from state at t + 1
         q, _ = self.model(next_obs, state_batches_h_prime, seq_lens)
+        (q, vals), _ = self.dueling_q(SampleBatch({SampleBatch.OBS: q}))
         dones = train_batch[SampleBatch.DONES].float()
         q_best_one_hot_selection = F.one_hot(torch.argmax(q, 1), self.action_space.n)
         q_best = torch.sum(q * q_best_one_hot_selection, 1)
@@ -339,15 +358,11 @@ class BQLPolicy(Policy):
 
         # --------------------------- Main model -------------------------
         qt, _ = self.model(obs, state_batches_h, seq_lens)
+        (qt, vals), _ = self.dueling_q(SampleBatch({SampleBatch.OBS: qt}))
         qt_selected = torch.sum(qt * one_hot_selection, dim=1)
         q_bar_e, _ = self.auxiliary_target_model(obs, state_batches_h, seq_lens)
         q_bar_e_selected = torch.sum(q_bar_e * one_hot_selection, dim=1)
-        # q_bar_e_selected = F.one_hot(torch.argmax(q_bar_e, 1), self.action_space.n)
-        # q_bar_e = torch.sum(q_bar_e * q_bar_e_selected, 1)
-        # q_bar_e = (1.0 - dones) * q_bar_e
-        # q_bar_e_selected = train_batch[SampleBatch.REWARDS] + self.config["gamma"] * q_bar_e
         qt_weight = torch.where(q_bar_e_selected > qt_selected, 1.0, self.lamda)
-        # loss = weight * (qt_selected - q_bar_e_selected.detach()) ** 2
         loss = qt_weight * huber_loss(qt_selected - q_bar_e_selected.detach())
         loss = torch.mean(loss)
 
@@ -361,3 +376,4 @@ class BQLPolicy(Policy):
             functools.partial(convert_to_torch_tensor, device=self.device)
         )
         return obs_batch
+
