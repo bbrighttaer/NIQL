@@ -25,7 +25,7 @@ IMIXTrainer = build_trainer(
 
 BPQTrainer = build_trainer(
     name="BPQTrainer",
-    get_policy_class=lambda c: DuelingBQLPolicy,
+    get_policy_class=lambda c: BQLPolicy,
     default_config=DEFAULT_CONFIG,
     execution_plan=joint_episode_execution_plan,
 )

@@ -90,7 +90,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
-    param_sharing = 'ns' if exp['model_arch_args']['custom_model'] == 'MatrixGameSplitQMLP' else ''
+    param_sharing = 'ns' if exp['model_arch_args'].get('custom_model') == 'MatrixGameSplitQMLP' else ''
     running_name = '_'.join([algorithm, arch, map_name] + ([param_sharing] if param_sharing else []))
     model_path = restore_model(restore, exp)
 

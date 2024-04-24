@@ -23,14 +23,6 @@ if __name__ == '__main__':
     parser = ArgumentParser()
 
     parser.add_argument(
-        '-m', '--model_arch',
-        default='mlp',
-        type=str,
-        choices=['mlp', 'gru', 'lstm'],
-        help='The core architecture of the model',
-    )
-
-    parser.add_argument(
         '-s', '--no-info-share',
         dest='no_sharing',
         action='store_true',
@@ -66,9 +58,9 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_two_step_matrix_game_env()
+    env = envs.make_mpe_simple_spread_env()
 
-    exp_config = config.COOP_MATRIX
+    exp_config = config.MPE
     gpu_count = torch.cuda.device_count()
 
     # register new algorithm
@@ -85,10 +77,9 @@ if __name__ == '__main__':
 
     # build agent model based on env + algorithms + user preference if checked available
     model_config = exp_config['model_preference']
-    model_config.update({'core_arch': args.model_arch})
     model = marl.build_model(env, bql, model_preference=model_config)
-    if model_config.get('custom_model'):
-        model = (eval(model_config['custom_model']), model[1])
+    if model_config['model']:
+        model = (eval(model_config['model']), model[1])
 
     if mode == 'train':
         # start learning + extra experiment settings if needed. remember to check ray.yaml before use

@@ -7,7 +7,7 @@ MPE = {
             'batch_episode': 128,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
-            'buffer_size': 5000,
+            'buffer_size': 10000,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
@@ -19,12 +19,12 @@ MPE = {
         }
     },
     'model_preference': {
-        "core_arch": "gru",  # mlp | gru | lstm
+        'core_arch': 'mlp',  # mlp | gru | lstm
         "encode_layer": "128-256",  # for RNN model
         'hidden_state_size': 256,  # for RNN model
         'fcnet_activation': 'relu',
-        'custom_model': 'DRQNModel',
-        'hidden_layer_dims': [64],  # for mlp model
+        'model': 'FCN',
+        'hidden_layer_dims': [256],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
     },
     'stop_condition': {
@@ -58,9 +58,9 @@ COOP_MATRIX = {
         'encode_layer': '32',  # for RNN model
         'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
-        # 'custom_model': 'DRQNModel',
-        'custom_model': 'MatrixGameQMLP',
-        # 'custom_model': 'MatrixGameSplitQMLP'
+        # 'model': 'DRQNModel',
+        'model': 'MatrixGameQMLP',
+        # 'model': 'MatrixGameSplitQMLP'
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
