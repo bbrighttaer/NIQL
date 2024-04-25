@@ -19,8 +19,10 @@ from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.tune import register_env
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import IQLTrainer, IMIXTrainer, BQLTrainer
+from niql.algo import IQLTrainer, IMIXTrainer, BQLTrainer, BQLPolicy
+from niql.algo.vdn_qmix import JointQPolicy
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
+from niql.execution_plans import joint_episode_execution_plan
 
 
 def determine_multiagent_policy_mapping(exp_info, env_info):
@@ -180,6 +182,8 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
         "custom_model_config": back_up_config,
         "custom_model": model_name,
         "lstm_cell_size": None,
+        "fcnet_activation": back_up_config["model_arch_args"]["fcnet_activation"],
+        "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
     }
 
     IQL_Config.update(
@@ -213,6 +217,9 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
     IQL_Config["act_space"] = GymTuple([action_space])
     IQL_Config["lambda"] = _param["lambda"]
     IQL_Config["tau"] = _param["tau"]
+    IQL_Config["enable_joint_buffer"] = _param.get("enable_joint_buffer")
+    IQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
+    IQL_Config["beta"] = _param["beta"]
     if "gamma" in _param:
         IQL_Config["gamma"] = _param["gamma"]
 
@@ -226,6 +233,11 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
             default_config=IQL_Config,
         )
     elif algorithm == 'bql':
+        trainer_class = BQLTrainer.with_updates(
+            get_policy_class=lambda c: BQLPolicy,
+            execution_plan=joint_episode_execution_plan,
+        )
+    elif algorithm == 'dbql':
         trainer_class = BQLTrainer.with_updates(
             name=algorithm.upper(),
             default_config=IQL_Config,
@@ -302,6 +314,8 @@ def load_joint_q_checkpoint(model: Any, exp: Dict, run: Dict, env: Dict,
             "custom_model_config": back_up_config,
             "custom_model": model_name,
             "lstm_cell_size": None,
+            "fcnet_activation": back_up_config["model_arch_args"]["fcnet_activation"],
+            "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
         },
     }
 
@@ -327,11 +341,14 @@ def load_joint_q_checkpoint(model: Any, exp: Dict, run: Dict, env: Dict,
     JointQ_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
     JointQ_Config["optimizer"] = optimizer
     JointQ_Config["training_intensity"] = None
+    JointQ_Config["gamma"] = _param.get("gamma", JointQ_Config["gamma"])
+    JointQ_Config["callbacks"] = _param.get("callbacks", JointQ_Config["callbacks"])
     JointQ_Config["env"] = run["env"]
     JointQ_Config.update(config)
 
     JQTrainer = JointQTrainer.with_updates(
         name=algorithm.upper(),
+        default_policy=JointQPolicy,
         default_config=JointQ_Config
     )
     trainer = JQTrainer(config=JointQ_Config, logger_creator=lambda c: NullLogger(c))
@@ -390,14 +407,16 @@ def vdn_qmix_custom_compute_actions(policy,
         agent_2_q_val = torch.squeeze(q_values[:, 1, :])
 
         if policy.mixer:
-            agent_1_q_val = agent_1_q_val[0]  # agent 1 action
-            agent_2_q_val = agent_2_q_val[0]  # agent 2 action
-            chosen_action_qvals = torch.tensor([agent_1_q_val, agent_2_q_val], dtype=torch.float)
+            agent_1_q = agent_1_q_val[0]  # agent 1 action
+            agent_2_q = agent_2_q_val[1]  # agent 2 action
+            chosen_action_qvals = torch.tensor([agent_1_q, agent_2_q], dtype=torch.float)
             chosen_action_qvals = chosen_action_qvals.view(-1, 1, 2)
             q_tot = policy.mixer(chosen_action_qvals, state)
 
             info = {
-                'q-values': [[agent_1_q_val.item(), agent_2_q_val.item()]],
+                'agent_1_q_val': [agent_1_q_val.cpu().detach().numpy().tolist()],
+                'agent_2_q_val': [agent_2_q_val.cpu().detach().numpy().tolist()],
+                'q-values': [[agent_1_q.item(), agent_2_q.item()]],
                 'q_tot': [q_tot.squeeze().item()],
             }
         else:

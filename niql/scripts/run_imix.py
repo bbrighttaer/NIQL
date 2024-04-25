@@ -79,6 +79,8 @@ def run_imix(model_class, exp, run_config, env, stop, restore):
             "max_seq_len": episode_limit,  # dynamic
             "custom_model_config": back_up_config,
             "custom_model": model_name,
+            "fcnet_activation": back_up_config["model_arch_args"]["fcnet_activation"],
+            "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
         },
     }
 

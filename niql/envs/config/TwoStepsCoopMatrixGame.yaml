@@ -3,7 +3,7 @@ env: TwoStepsCoopMatrixGame
 env_args:
   map_name: "all_scenario"
   continuous_actions: False,
-  monotonic_payoff: True
+  monotonic_payoff: False
   linear_payoff: False
 
 mask_flag: False

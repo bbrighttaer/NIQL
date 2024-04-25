@@ -16,7 +16,7 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
-from niql.models import DRQNModel, DuelingQModel
+from niql.models import DRQNModel
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ class DuelingBQLPolicy(Policy):
         config["model"]["n_agents"] = self.n_agents
         self.lamda = config["lambda"]
         self.tau = config["tau"]
+        self.beta = config["beta"]
         self.n_actions = action_space.n
         self.has_env_global_state = False
         self.has_action_mask = False
@@ -67,25 +68,14 @@ class DuelingBQLPolicy(Policy):
         self.q_values = []
 
         # models
-        dueling_input_dim = 64
         self.model = ModelCatalog.get_model_v2(
             config["obs_space"],
             action_space,
-            dueling_input_dim,
+            self.n_actions,
             config["model"],
             framework="torch",
             name="model",
             default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
-        ).to(self.device)
-
-        self.dueling_q = DuelingQModel(
-            input_dim=dueling_input_dim,
-            n_actions=self.n_actions,
-            obs_space=config["obs_space"],
-            action_space=action_space,
-            model_config=config["model"],
-            name="model",
-            in_activation_fn="relu",
         ).to(self.device)
 
         self.auxiliary_model = ModelCatalog.get_model_v2(
@@ -95,7 +85,6 @@ class DuelingBQLPolicy(Policy):
             config["model"],
             framework="torch",
             name="model",
-            default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
         ).to(self.device)
 
         self.auxiliary_target_model = ModelCatalog.get_model_v2(
@@ -105,7 +94,6 @@ class DuelingBQLPolicy(Policy):
             config["model"],
             framework="torch",
             name="model",
-            default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
         ).to(self.device)
 
         self.exploration = self._create_exploration()
@@ -117,8 +105,7 @@ class DuelingBQLPolicy(Policy):
         self._global_update_count = 0
 
         # optimizer
-        self.grad_clip_params = (list(self.model.parameters()) + list(self.auxiliary_model.parameters())
-                                 + list(self.dueling_q.parameters()))
+        self.grad_clip_params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
             self.optimiser_e = RMSprop(params=self.auxiliary_model.parameters(), lr=config["lr"])
@@ -156,9 +143,8 @@ class DuelingBQLPolicy(Policy):
         timestep = timestep if timestep is not None else self.global_timestep
 
         # Switch to eval mode.
-        if self.model and self.dueling_q:
+        if self.model:
             self.model.eval()
-            self.dueling_q.eval()
 
         with torch.no_grad():
             seq_lens = torch.ones(len(obs_batch), dtype=torch.int32)
@@ -180,11 +166,7 @@ class DuelingBQLPolicy(Policy):
             self.exploration.before_compute_actions(explore=explore, timestep=timestep)
 
             # predict q-vals
-            outputs, state_out = self.model(obs_batch, state_batches, seq_lens)
-            out_batch = obs_batch = SampleBatch({
-                SampleBatch.CUR_OBS: outputs
-            })
-            (dist_inputs, _), _ = self.dueling_q(out_batch)
+            dist_inputs, state_out = self.model(obs_batch, state_batches, seq_lens)
 
             # select action
             action_dist = self.dist_class(dist_inputs, self.model)
@@ -199,11 +181,8 @@ class DuelingBQLPolicy(Policy):
 
             # Update our global timestep by the batch size.
             self.global_timestep += len(obs_batch[SampleBatch.CUR_OBS])
-
-            # store q values selected in this time step for callbacks
-            self.q_values = dist_inputs.squeeze().cpu().detach().numpy().tolist()
-
-            results = convert_to_non_torch_type((actions, state_out, {'q-values': [self.q_values]}))
+            q_values = dist_inputs.squeeze().cpu().detach().numpy().tolist()
+            results = convert_to_non_torch_type((actions, state_out, {'q-values': [q_values]}))
 
         return results
 
@@ -224,6 +203,7 @@ class DuelingBQLPolicy(Policy):
         # Set Model to train mode.
         if self.model:
             self.model.train()
+            self.auxiliary_model.train()
 
         # Callback handling.
         learn_stats = {}
@@ -271,7 +251,6 @@ class DuelingBQLPolicy(Policy):
     @override(Policy)
     def set_weights(self, weights):
         self.model.load_state_dict(self._device_dict(weights["model"]))
-        self.dueling_q.load_state_dict(self._device_dict(weights["dueling_q"]))
         self.auxiliary_model.load_state_dict(self._device_dict(weights["auxiliary_model"]))
         self.auxiliary_target_model.load_state_dict(self._device_dict(weights["auxiliary_target_model"]))
 
@@ -279,7 +258,6 @@ class DuelingBQLPolicy(Policy):
     def get_weights(self):
         return {
             "model": self._cpu_dict(self.model.state_dict()),
-            "dueling_q": self._cpu_dict(self.dueling_q.state_dict()),
             "auxiliary_model": self._cpu_dict(self.auxiliary_model.state_dict()),
             "auxiliary_target_model": self._cpu_dict(self.auxiliary_target_model.state_dict()),
         }
@@ -325,10 +303,8 @@ class DuelingBQLPolicy(Policy):
 
         # compute estimate of the best possible value starting from state at t + 1
         q, _ = self.model(next_obs, state_batches_h_prime, seq_lens)
-        (q, vals), _ = self.dueling_q(SampleBatch({SampleBatch.OBS: q}))
         dones = train_batch[SampleBatch.DONES].float()
-        q_best_one_hot_selection = F.one_hot(torch.argmax(q, 1), self.action_space.n)
-        q_best = torch.sum(q * q_best_one_hot_selection, 1)
+        q_best = self._get_max_q(q)
         q_best = (1.0 - dones) * q_best
 
         # compute RHS of bellman equation
@@ -343,14 +319,27 @@ class DuelingBQLPolicy(Policy):
 
         # --------------------------- Main model -------------------------
         qt, _ = self.model(obs, state_batches_h, seq_lens)
-        (qt, vals), _ = self.dueling_q(SampleBatch({SampleBatch.OBS: qt}))
         qt_selected = torch.sum(qt * one_hot_selection, dim=1)
         q_bar_e, _ = self.auxiliary_target_model(obs, state_batches_h, seq_lens)
         q_bar_e_selected = torch.sum(q_bar_e * one_hot_selection, dim=1)
         qt_weight = torch.where(q_bar_e_selected > qt_selected, 1.0, self.lamda)
         loss = qt_weight * huber_loss(qt_selected - q_bar_e_selected.detach())
-        loss = torch.mean(loss)
 
+        # state-value loss
+        if "state_value_batch" in train_batch:
+            sv_batch = train_batch["state_value_batch"]
+            sv_batch.set_get_interceptor(
+                functools.partial(convert_to_torch_tensor, device=self.device)
+            )
+            sv_seq_lens = sv_batch.get(SampleBatch.SEQ_LENS)
+            state_in, _ = self.get_rnn_states(sv_batch)
+            sv_out, _ = self.model(sv_batch, state_in, sv_seq_lens)
+            sv_best = self._get_max_q(sv_out)
+            sv_loss = huber_loss(sv_best - sv_batch[SampleBatch.VF_PREDS])
+            loss = self.beta * sv_loss + (1 - self.beta) * loss
+
+        # final loss
+        loss = torch.mean(loss)
         self.model.tower_stats["loss"] = loss
 
         return loss, loss_qe, td_error_q_e.abs().sum().item(), qt_selected.mean().item(), q_e_target.mean().item()
@@ -364,33 +353,42 @@ class DuelingBQLPolicy(Policy):
 
     def compute_state_values_from_batch(self, batch: SampleBatch) -> SampleBatch:
         # data preprocessing
-        obs = self.convert_batch_to_tensor({
-            SampleBatch.OBS: batch[SampleBatch.OBS]
+        obs = SampleBatch({
+            SampleBatch.OBS: batch[SampleBatch.OBS],
         })
-        next_obs = self.convert_batch_to_tensor({
-            SampleBatch.OBS: batch[SampleBatch.NEXT_OBS]
+        next_obs = SampleBatch({
+            SampleBatch.OBS: batch[SampleBatch.NEXT_OBS],
         })
-        batch.set_get_interceptor(
+        obs = SampleBatch.concat_samples([obs, next_obs])
+        state_batches_h, state_batches_h_prime = self.get_rnn_states(batch)
+        state_batches_h += state_batches_h_prime
+        obs.set_get_interceptor(
             functools.partial(convert_to_torch_tensor, device=self.device)
         )
-        state_batches_h, state_batches_h_prime = self.get_rnn_states(batch)
+
         seq_lens = batch.get(SampleBatch.SEQ_LENS)
 
-        # forward propagation
+        # eval mode for forward propagation
+        self.auxiliary_model.eval()
         self.model.eval()
-        self.dueling_q.eval()
-        output_1, _ = self.model(obs, state_batches_h, seq_lens)
-        (_, values_1), _ = self.dueling_q(SampleBatch({SampleBatch.OBS: output_1}))
-        output_2, _ = self.model(next_obs, state_batches_h_prime, seq_lens)
-        (_, values_2), _ = self.dueling_q(SampleBatch({SampleBatch.OBS: output_2}))
-        states = torch.cat([obs[SampleBatch.OBS], next_obs[SampleBatch.OBS]], dim=0)
-        values = torch.cat([values_1, values_2])
+
+        # optimal state-value outputs
+        q_i, _ = self.model(obs, state_batches_h, seq_lens)
+        v_i = self._get_max_q(q_i)
+        q_e, _ = self.auxiliary_model(obs, state_batches_h, seq_lens)
+        v_e = self._get_max_q(q_e)
+
+        # optimal state values
+        state_vals = torch.maximum(v_i, v_e).view(-1, 1)
 
         # constitute a joint sample batch
         new_batch = SampleBatch({
-            SampleBatch.OBS: states.cpu().detach().numpy(),
-            SampleBatch.VF_PREDS: values.cpu().detach().numpy(),
+            SampleBatch.OBS: obs[SampleBatch.OBS].cpu().detach().numpy(),
+            SampleBatch.VF_PREDS: state_vals.cpu().detach().numpy(),
+            SampleBatch.SEQ_LENS: seq_lens,
         })
+        if state_batches_h:
+            new_batch["state_in_0"] = state_batches_h
 
         return new_batch
 
@@ -411,3 +409,8 @@ class DuelingBQLPolicy(Policy):
         if self._is_recurrent:
             assert state_batches_h_prime
         return state_batches_h, state_batches_h_prime
+
+    def _get_max_q(self, q):
+        q_best_one_hot_selection = F.one_hot(torch.argmax(q, 1), self.action_space.n)
+        q_best = torch.sum(q * q_best_one_hot_selection, 1, keepdim=True)
+        return q_best

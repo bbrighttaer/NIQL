@@ -67,11 +67,10 @@ class StateValueAugmentedPrioritizedReplayBuffer(PrioritizedReplayBuffer):
 
     def add_shared_state_value_batch(self, data: SampleBatch):
         self._state_value_storage.append(data)
-        print('added tuple')
 
     def sample(self, num_items: int, beta: float) -> SampleBatchType:
         batch = super().sample(num_items, beta)
         if self._state_value_storage:
             state_val_cat = SampleBatch.concat_samples(self._state_value_storage)
-            batch['state_value_batch'] = state_val_cat
+            batch["state_value_batch"] = state_val_cat
         return batch

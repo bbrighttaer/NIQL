@@ -185,9 +185,9 @@ class BQLPolicy(Policy):
             self.global_timestep += len(obs_batch[SampleBatch.CUR_OBS])
 
             # store q values selected in this time step for callbacks
-            # self.q_values = dist_inputs.squeeze().cpu().detach().numpy().tolist()
+            q_values = dist_inputs.squeeze().cpu().detach().numpy().tolist()
 
-            results = convert_to_non_torch_type((actions, state_out, {'q-values': [self.q_values]}))
+            results = convert_to_non_torch_type((actions, state_out, {'q-values': [q_values]}))
 
         return results
 
@@ -208,6 +208,7 @@ class BQLPolicy(Policy):
         # Set Model to train mode.
         if self.model:
             self.model.train()
+            self.auxiliary_model.train()
 
         # Callback handling.
         learn_stats = {}
@@ -329,11 +330,11 @@ class BQLPolicy(Policy):
 
         # compute RHS of bellman equation
         q_e_target = train_batch[SampleBatch.REWARDS] + self.config["gamma"] * q_best
-        q_e_weight = torch.where(q_e_target > q_e, 1.0, self.lamda)
+        # q_e_weight = torch.where(q_e_target > q_e, 1.0, self.lamda)
 
         # Compute the error (Square/Huber).
         td_error_q_e = q_e - q_e_target.detach()
-        loss_qe = torch.mean(q_e_weight * huber_loss(td_error_q_e))
+        loss_qe = torch.mean(huber_loss(td_error_q_e))
         self.model.tower_stats["loss_qe"] = loss_qe
         self.model.tower_stats["td_error"] = td_error_q_e
 
@@ -342,10 +343,6 @@ class BQLPolicy(Policy):
         qt_selected = torch.sum(qt * one_hot_selection, dim=1)
         q_bar_e, _ = self.auxiliary_target_model(obs, state_batches_h, seq_lens)
         q_bar_e_selected = torch.sum(q_bar_e * one_hot_selection, dim=1)
-        # q_bar_e_selected = F.one_hot(torch.argmax(q_bar_e, 1), self.action_space.n)
-        # q_bar_e = torch.sum(q_bar_e * q_bar_e_selected, 1)
-        # q_bar_e = (1.0 - dones) * q_bar_e
-        # q_bar_e_selected = train_batch[SampleBatch.REWARDS] + self.config["gamma"] * q_bar_e
         qt_weight = torch.where(q_bar_e_selected > qt_selected, 1.0, self.lamda)
         # loss = weight * (qt_selected - q_bar_e_selected.detach()) ** 2
         loss = qt_weight * huber_loss(qt_selected - q_bar_e_selected.detach())

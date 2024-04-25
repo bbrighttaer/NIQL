@@ -45,6 +45,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
             "custom_model_config": back_up_config,
             "custom_model": model_name,
             "fcnet_activation": back_up_config["model_arch_args"]["fcnet_activation"],
+            "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
         },
     }
 
@@ -81,6 +82,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     BQL_Config["callbacks"] = _param.get("callbacks", BQL_Config["callbacks"])
     BQL_Config["lambda"] = _param["lambda"]
     BQL_Config["tau"] = _param["tau"]
+    BQL_Config["beta"] = _param["beta"]
     BQL_Config["enable_joint_buffer"] = _param["enable_joint_buffer"]
     BQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
     BQL_Config["algorithm"] = algorithm

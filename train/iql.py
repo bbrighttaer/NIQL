@@ -51,7 +51,7 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_one_step_matrix_game_env()
+    env = envs.make_two_step_matrix_game_env()
 
     exp_config = config.COOP_MATRIX
     gpu_count = torch.cuda.device_count()
@@ -64,7 +64,7 @@ if __name__ == '__main__':
     )
 
     # initialize algorithm
-    iql = marl.algos.iql(hyperparam_source="mpe")
+    iql = marl.algos.iql  # (hyperparam_source="mpe")
     iql.algo_parameters = exp_config['algo_parameters']
 
     # build agent model based on env + algorithms + user preference if checked available
@@ -88,7 +88,7 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/iql_mlp_all_scenario/IQL_CoopMatrixGame_all_scenario_08779_00000_0_2024-04-21_02-42-53'
+        base = 'exp_results/iql_mlp_all_scenario/IQL_TwoStepsCoopMatrixGame_all_scenario_4fe1a_00000_0_2024-04-26_04-12-01'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
@@ -125,7 +125,7 @@ if __name__ == '__main__':
             with torch.no_grad():
                 while not done["__all__"]:
                     action_dict = {}
-                    cur_state = [0, 0]
+                    cur_state = [0, 0, 0]
                     for agent_id in obs.keys():
                         policy = agent.get_policy(pmap(agent_id))
                         agent_obs = [cur_state]  # obs[agent_id]["obs"]

@@ -48,7 +48,7 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_two_step_matrix_game_env()
+    env = envs.make_one_step_matrix_game_env()
 
     # initialise algorithm with hyperparameters
     if args.algo == 'qmix':
@@ -57,27 +57,26 @@ if __name__ == '__main__':
         algo = marl.algos.vdn
     else:
         algo = marl.algos.iql
-    algo = algo(hyperparam_source="mpe")
     exp_config = config.COOP_MATRIX
     algo.algo_parameters = exp_config['algo_parameters']
+
+    # register execution script
+    marl.algos.register_algo(
+        algo_name=algo.name,
+        style=algo.algo_type,
+        script=scripts.run_joint_q if mode == 'train' else utils.load_joint_q_checkpoint,
+    )
 
     # build model
     model_config = exp_config['model_preference']
     model_config.update({'core_arch': args.model_arch})
     model = marl.build_model(env, algo, model_preference=exp_config['model_preference'])
-    if model_config.get('custom_model'):
-        model = (eval(model_config['custom_model']), model[1])
+    if model_config.get('model'):
+        model = (eval(model_config['model']), model[1])
 
     gpu_count = torch.cuda.device_count()
 
     if mode == 'train':
-        # register execution script
-        marl.algos.register_algo(
-            algo_name=algo.name,
-            style=algo.algo_type,
-            script=scripts.run_joint_q
-        )
-
         # start training
         algo.fit(
             env,
@@ -90,18 +89,11 @@ if __name__ == '__main__':
             checkpoint_freq=10,
         )
     else:
-        base = 'exp_results/iql_ps_mlp_all_scenario_ns/IQL_grouped_CoopMatrixGame_all_scenario_314c3_00000_0_2024-04-12_11-30-06'
+        base = 'exp_results/qmix_mlp_all_scenario/QMIX_grouped_OneStepCoopMatrixGame_all_scenario_ba39a_00000_0_2024-04-26_02-27-37'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
-            'model_path': f'{base}/checkpoint_000020/checkpoint-20',  # checkpoint path
+            'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
         }
-
-        # register execution script
-        marl.algos.register_algo(
-            algo_name=algo.name,
-            style=algo.algo_type,
-            script=utils.load_joint_q_checkpoint,
-        )
 
         # start training
         results = algo.fit(
@@ -132,7 +124,7 @@ if __name__ == '__main__':
             step = 0
             with torch.no_grad():
                 while not done["__all__"]:
-                    agent_obs = [0, 0, 1] * 2
+                    agent_obs = [0, 0] * 2
                     actions, states, info = policy.compute_single_action(
                         np.array(agent_obs).reshape(1, -1),
                         states,

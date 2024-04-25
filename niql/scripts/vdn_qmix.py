@@ -83,6 +83,8 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
             "max_seq_len": episode_limit,  # dynamic
             "custom_model_config": back_up_config,
             "custom_model": model_name,
+            "fcnet_activation": back_up_config["model_arch_args"]["fcnet_activation"],
+            "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
         },
     }
 
@@ -119,7 +121,10 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
-    param_sharing = 'ns' if exp['model_arch_args']['custom_model'] == 'MatrixGameSplitQMLP' else ''
+    if exp['model_arch_args'].get('model') == 'MatrixGameSplitQMLP':
+        param_sharing = 'ns'
+    else:
+        param_sharing = ''
     if algorithm == 'iql':
         algorithm += '_ps'
     running_name = '_'.join([algorithm, arch, map_name] + ([param_sharing] if param_sharing else []))
