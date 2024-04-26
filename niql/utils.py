@@ -417,7 +417,7 @@ def vdn_qmix_custom_compute_actions(policy,
                 'agent_1_q_val': [agent_1_q_val.cpu().detach().numpy().tolist()],
                 'agent_2_q_val': [agent_2_q_val.cpu().detach().numpy().tolist()],
                 'q-values': [[agent_1_q.item(), agent_2_q.item()]],
-                'q_tot': [q_tot.squeeze().item()],
+                'q_tot': [q_tot.squeeze().item() * 2],
             }
         else:
             info = {
