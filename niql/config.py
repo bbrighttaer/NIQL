@@ -41,7 +41,7 @@ COOP_MATRIX = {
             'rollout_fragment_length': 1,
             'buffer_size': 10000,
             'target_network_update_freq': 10,
-            'final_epsilon': 1,
+            'final_epsilon': 0.01,
             'epsilon_timesteps': 1000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
@@ -60,9 +60,9 @@ COOP_MATRIX = {
         'encode_layer': '32',  # for RNN model
         'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
-        # 'model': 'DuelingQFCN',
+        'model': 'DuelingQFCN',
         # 'model': 'DRQNModel',
-        'model': 'MatrixGameQMLP',
+        # 'model': 'MatrixGameQMLP',
         # 'model': 'MatrixGameSplitQMLP'
     },
     'stop_condition': {

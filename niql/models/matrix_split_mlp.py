@@ -43,31 +43,35 @@ class MatrixGameSplitQMLP(TorchModelV2, nn.Module):
         self.full_obs_space = getattr(obs_space, "original_space", obs_space)
         self.n_agents = self.custom_config["num_agents"]
         self.input_dim = self.full_obs_space.shape[0]
+        activation = model_config.get("fcnet_activation")
 
         # agent modules
         agent_models_dict = {}
         for i in range(self.n_agents):
             # hidden layers
-            hidden_layers = []
-            input_dim = self.input_dim
+            layers = []
+            input_dim = self.full_obs_space.shape[0]
             for out_dim in self.custom_config["model_arch_args"]["hidden_layer_dims"]:
-                hidden_layers.append(
-                    nn.Linear(input_dim, out_dim)
-                )
-                hidden_layers.append(
-                    nn.ReLU()
+                layers.append(
+                    SlimFC(
+                        in_size=input_dim,
+                        out_size=out_dim,
+                        initializer=normc_initializer(1.0),
+                        activation_fn=activation,
+                    )
                 )
                 input_dim = out_dim
-            mlp = nn.Sequential(*hidden_layers)
-            q_value = SlimFC(
-                in_size=input_dim,
-                out_size=num_outputs,
-                initializer=normc_initializer(0.01),
-                activation_fn=None)
-            agent_models_dict[f'agent_{i}'] = nn.ModuleDict({
-                'mlp': mlp,
-                'q_value': q_value,
-            })
+
+            # Output layer
+            layers.append(
+                SlimFC(
+                    in_size=input_dim,
+                    out_size=num_outputs,
+                    initializer=normc_initializer(0.01),
+                    activation_fn=None,
+                )
+            )
+            agent_models_dict[f'agent_{i}'] = nn.Sequential(*layers)
         self.models = nn.ModuleDict(agent_models_dict)
 
         # record the custom config
@@ -85,11 +89,9 @@ class MatrixGameSplitQMLP(TorchModelV2, nn.Module):
         agent_q_vals = []
         inputs = inputs.view(-1, self.n_agents, self.input_dim)
         for i in range(self.n_agents):
-            mlp = self.models[f'agent_{i}']['mlp']
-            q_value = self.models[f'agent_{i}']['q_value']
+            q_function = self.models[f'agent_{i}']
             x = inputs[:, i, :]
-            x = mlp(x)
-            q = q_value(x)
+            q = q_function(x)
             agent_q_vals.append(q)
         q = torch.cat(agent_q_vals)
         return q, hidden_state

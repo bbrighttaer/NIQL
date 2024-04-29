@@ -43,10 +43,7 @@ def soft_update(target_net, source_net, tau):
     return target_net
 
 
-class DuelingBQLPolicy(Policy):
-    """
-    Implementation of Best Possible Q-learning
-    """
+class IBQLPolicy(Policy):
 
     def __init__(self, obs_space, action_space, config):
         self.framework = "torch"
@@ -326,17 +323,17 @@ class DuelingBQLPolicy(Policy):
         loss = qt_weight * huber_loss(qt_selected - q_bar_e_selected.detach())
 
         # state-value loss
-        if "state_value_batch" in train_batch:
-            sv_batch = train_batch["state_value_batch"]
-            sv_batch.set_get_interceptor(
-                functools.partial(convert_to_torch_tensor, device=self.device)
-            )
-            sv_seq_lens = sv_batch.get(SampleBatch.SEQ_LENS)
-            state_in, _ = self.get_rnn_states(sv_batch)
-            sv_out, _ = self.model(sv_batch, state_in, sv_seq_lens)
-            sv_best = self._get_max_q(sv_out)
-            sv_loss = huber_loss(sv_best - sv_batch[SampleBatch.VF_PREDS])
-            loss = self.beta * sv_loss + (1 - self.beta) * loss
+        # if "state_value_batch" in train_batch:
+        #     sv_batch = train_batch["state_value_batch"]
+        #     sv_batch.set_get_interceptor(
+        #         functools.partial(convert_to_torch_tensor, device=self.device)
+        #     )
+        #     sv_seq_lens = sv_batch.get(SampleBatch.SEQ_LENS)
+        #     state_in, _ = self.get_rnn_states(sv_batch)
+        #     sv_out, _ = self.model(sv_batch, state_in, sv_seq_lens)
+        #     sv_best = self._get_max_q(sv_out)
+        #     sv_loss = huber_loss(sv_best - sv_batch[SampleBatch.VF_PREDS])
+        #     loss = self.beta * sv_loss + (1 - self.beta) * loss
 
         # final loss
         loss = torch.mean(loss)

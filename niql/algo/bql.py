@@ -330,7 +330,6 @@ class BQLPolicy(Policy):
 
         # compute RHS of bellman equation
         q_e_target = train_batch[SampleBatch.REWARDS] + self.config["gamma"] * q_best
-        # q_e_weight = torch.where(q_e_target > q_e, 1.0, self.lamda)
 
         # Compute the error (Square/Huber).
         td_error_q_e = q_e - q_e_target.detach()

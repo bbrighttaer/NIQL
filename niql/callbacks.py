@@ -72,33 +72,33 @@ class NIQLCallbacks(DefaultCallbacks):
     #     for key, value in episode.user_data["q_values"].items():
     #         episode.hist_data[key] = episode.user_data["q_values"][key]
 
-    def on_train_result(self, *, trainer, result: dict, **kwargs) -> None:
-        super().on_train_result(trainer=trainer, result=result, **kwargs)
-        config = trainer.config
-
-        if config.get("algorithm", "").lower() == "dbql":
-            # retrieve replay buffers of all agents/policies
-            policy_to_buffer = trainer.local_replay_buffer.replay_buffers
-
-            # retrieve policies
-            policies = trainer.workers.local_worker().policy_map
-
-            # clear state-value buffers of all agents
-            for buffer in policy_to_buffer.values():
-                buffer.clear_state_value_buffer()
-
-            # share data among agents and store in their buffers
-            for policy_id, buffer in policy_to_buffer.items():
-                # sample local experiences
-                batch = buffer.sample_local_experiences(config["sharing_batch_size"])
-
-                # compose state-value tuples
-                batch = policies[policy_id].compute_state_values_from_batch(batch)
-
-                # send to other agents
-                for agent, n_buffer in policy_to_buffer.items():
-                    if agent != policy_id:
-                        n_buffer.add_shared_state_value_batch(batch.copy())
+    # def on_train_result(self, *, trainer, result: dict, **kwargs) -> None:
+    #     super().on_train_result(trainer=trainer, result=result, **kwargs)
+    #     config = trainer.config
+    #
+    #     if config.get("algorithm", "").lower() == "dbql":
+    #         # retrieve replay buffers of all agents/policies
+    #         policy_to_buffer = trainer.local_replay_buffer.replay_buffers
+    #
+    #         # retrieve policies
+    #         policies = trainer.workers.local_worker().policy_map
+    #
+    #         # clear state-value buffers of all agents
+    #         for buffer in policy_to_buffer.values():
+    #             buffer.clear_state_value_buffer()
+    #
+    #         # share data among agents and store in their buffers
+    #         for policy_id, buffer in policy_to_buffer.items():
+    #             # sample local experiences
+    #             batch = buffer.sample_local_experiences(config["sharing_batch_size"])
+    #
+    #             # compose state-value tuples
+    #             batch = policies[policy_id].compute_state_values_from_batch(batch)
+    #
+    #             # send to other agents
+    #             for agent, n_buffer in policy_to_buffer.items():
+    #                 if agent != policy_id:
+    #                     n_buffer.add_shared_state_value_batch(batch.copy())
 
 
 class ObservationCommWrapper(ObservationFunction):

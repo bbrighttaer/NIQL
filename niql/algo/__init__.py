@@ -5,7 +5,7 @@ from ray.rllib.agents.trainer_template import build_trainer
 from .iql import IQLPolicy
 from .imix import IMIX
 from .bql import BQLPolicy
-from .dueling_bql import DuelingBQLPolicy
+from .ibql import IBQLPolicy
 
 from ..execution_plans import imix_episode_execution_plan, bql_episode_execution_plan
 
@@ -25,7 +25,7 @@ IMIXTrainer = build_trainer(
 
 BQLTrainer = build_trainer(
     name="BQLTrainer",
-    get_policy_class=lambda c: DuelingBQLPolicy,
+    get_policy_class=lambda c: IBQLPolicy,
     default_config=DEFAULT_CONFIG,
     execution_plan=bql_episode_execution_plan,
 )

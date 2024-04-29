@@ -42,24 +42,32 @@ class MatrixGameQMLP(TorchModelV2, nn.Module):
         # decide the model arch
         self.full_obs_space = getattr(obs_space, "original_space", obs_space)
         self.n_agents = self.custom_config["num_agents"]
+        activation = model_config.get("fcnet_activation")
 
         # hidden layers
-        hidden_layers = []
+        layers = []
         input_dim = self.full_obs_space.shape[0]
         for out_dim in self.custom_config["model_arch_args"]["hidden_layer_dims"]:
-            hidden_layers.append(
-                nn.Linear(input_dim, out_dim)
-            )
-            hidden_layers.append(
-                nn.ReLU()
+            layers.append(
+                SlimFC(
+                    in_size=input_dim,
+                    out_size=out_dim,
+                    initializer=normc_initializer(1.0),
+                    activation_fn=activation,
+                )
             )
             input_dim = out_dim
-        self.mlp = nn.Sequential(*hidden_layers)
-        self.q_value = SlimFC(
-            in_size=input_dim,
-            out_size=num_outputs,
-            initializer=normc_initializer(0.01),
-            activation_fn=None)
+
+        # Output layer
+        layers.append(
+            SlimFC(
+                in_size=input_dim,
+                out_size=num_outputs,
+                initializer=normc_initializer(0.01),
+                activation_fn=None,
+            )
+        )
+        self.q_function = nn.Sequential(*layers)
 
         # record the custom config
         if self.custom_config["global_state_flag"]:
@@ -74,8 +82,7 @@ class MatrixGameQMLP(TorchModelV2, nn.Module):
         inputs = input_dict["obs_flat"].float()
         if len(self.full_obs_space.shape) == 3:  # 3D
             inputs = inputs.reshape((-1,) + self.full_obs_space.shape)
-        x = self.mlp(inputs)
-        q = self.q_value(x)
+        q = self.q_function(inputs)
         return q, hidden_state
 
 
