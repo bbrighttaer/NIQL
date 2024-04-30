@@ -266,3 +266,4 @@ pyrightconfig.json
 exp_results*/
 *.csv
 analysis/
+train/runs/

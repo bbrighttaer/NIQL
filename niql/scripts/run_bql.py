@@ -1,4 +1,6 @@
 import copy
+from collections import Counter
+from typing import Dict
 
 from gym.spaces import Tuple
 from marllib.marl.algos.scripts.coma import restore_model
@@ -6,7 +8,9 @@ from marllib.marl.algos.utils.log_dir_util import available_local_dir
 from marllib.marl.algos.utils.setup_utils import AlgVar
 from ray import tune
 from ray.rllib.agents.dqn import DEFAULT_CONFIG as BQL_Config
+from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.models import ModelCatalog
+from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from ray.tune import CLIReporter
 from ray.util.ml_utils.dict import merge_dicts
 
@@ -14,8 +18,12 @@ from niql.algo import BQLTrainer, BQLPolicy
 from niql.execution_plans import joint_episode_execution_plan
 
 
-def before_learn_on_batch(batch, *args):
-    # print('before_learn_on_batch')
+def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, policy_map: dict, summary_writer):
+    timestep = list(policy_map.values())[0].global_timestep
+    for policy_id, agent_batch in batch.policy_batches.items():
+        stats = Counter(agent_batch[SampleBatch.REWARDS])
+        summary_writer.add_scalars(policy_id, {str(k): v for k, v in stats.items()}, timestep)
+    summary_writer.flush()
     return batch
 
 
@@ -70,7 +78,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     BQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
     BQL_Config["optimizer"] = optimizer
     BQL_Config["training_intensity"] = None
-    # JointQ_Config['before_learn_on_batch'] = before_learn_on_batch
+    BQL_Config['before_learn_on_batch'] = before_learn_on_batch
     BQL_Config["info_sharing"] = exp["info_sharing"]
     BQL_Config["use_fingerprint"] = exp["use_fingerprint"]
     space_obs = env["space_obs"]["obs"]
