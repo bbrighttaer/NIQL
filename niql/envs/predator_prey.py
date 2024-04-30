@@ -1,3 +1,4 @@
+import numpy as np
 from gym.spaces import Dict as GymDict, Box
 from ma_gym.envs.predator_prey import PredatorPrey as Env
 from ray.rllib import MultiAgentEnv
@@ -23,6 +24,7 @@ class PredatorPrey(MultiAgentEnv):
         self.env = Env(**env_config)
         self.action_space = self.env.action_space[0]
         observation_space = self.env.observation_space[0]
+        self._dtype = observation_space.dtype
         self.observation_space = GymDict({"obs": observation_space})
         self.agents = [f'agent_{i}' for i in range(self.env.n_agents)]
         self.num_agents = self.env.n_agents
@@ -33,7 +35,7 @@ class PredatorPrey(MultiAgentEnv):
         raw_obs = self.env.reset()
         obs = {}
         for agent, r_obs in zip(self.agents, raw_obs):
-            obs[agent] = {'obs': r_obs}
+            obs[agent] = {'obs': np.array(r_obs, dtype=self._dtype)}
         return obs
 
     def step(self, action_dict):
@@ -44,7 +46,7 @@ class PredatorPrey(MultiAgentEnv):
         info = {}
 
         for agent, r_obs, r_rew, r_done in zip(self.agents, raw_obs, raw_rew, raw_done):
-            obs[agent] = {'obs': r_obs}
+            obs[agent] = {'obs': np.array(r_obs, dtype=self._dtype)}
             rew[agent] = r_rew
             done[agent] = r_done
             info[agent] = dict(raw_info)

@@ -16,6 +16,7 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
+from niql import clustering
 from niql.models import DRQNModel
 
 logger = logging.getLogger(__name__)
@@ -276,6 +277,7 @@ class IBQLPolicy(Policy):
         self.auxiliary_target_model = soft_update(self.auxiliary_target_model, self.auxiliary_model, self.tau)
 
     def compute_q_losses(self, train_batch: SampleBatch) -> TensorType:
+        train_batch = clustering.kmeans_cluster_batch(train_batch, k=6)
         # batch preprocessing ops
         obs = self.convert_batch_to_tensor({
             SampleBatch.OBS: train_batch[SampleBatch.OBS]
