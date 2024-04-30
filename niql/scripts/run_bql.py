@@ -19,12 +19,12 @@ from niql.execution_plans import joint_episode_execution_plan
 
 
 def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, policy_map: dict, summary_writer):
-    timestep = list(policy_map.values())[0].global_timestep
-    state = [0, 0, 1]
-    for policy_id, agent_batch in batch.policy_batches.items():
-        stats = Counter(agent_batch[SampleBatch.REWARDS])
-        summary_writer.add_scalars(policy_id, {str(k): v for k, v in stats.items()}, timestep)
-    summary_writer.flush()
+    # timestep = list(policy_map.values())[0].global_timestep
+    # state = [0, 0, 1]
+    # for policy_id, agent_batch in batch.policy_batches.items():
+    #     stats = Counter(agent_batch[SampleBatch.REWARDS])
+    #     summary_writer.add_scalars(policy_id, {str(k): v for k, v in stats.items()}, timestep)
+    # summary_writer.flush()
     return batch
 
 
