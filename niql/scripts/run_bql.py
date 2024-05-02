@@ -24,15 +24,16 @@ def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Di
         summary_writer = kwargs["summary_writer"]
         policy_map = kwargs["policy_map"]
         timestep = list(policy_map.values())[0].global_timestep
-        state = [0, 0, 1]
+        state = [0, 0, 0]
         for policy_id, agent_batch in batch.policy_batches.items():
             stats = Counter(agent_batch[SampleBatch.REWARDS])
             summary_writer.add_scalars(policy_id, {str(k): v for k, v in stats.items()}, timestep)
         summary_writer.flush()
 
-    for policy_id, agent_batch in batch.policy_batches.items():
-        agent_batch = distance_metrics.batch_cosine_similarity_reward_update(agent_batch)
-        batch.policy_batches[policy_id] = agent_batch
+    if config["reconcile_rewards"]:
+        for policy_id, agent_batch in batch.policy_batches.items():
+            agent_batch = distance_metrics.batch_cosine_similarity_reward_update(agent_batch)
+            batch.policy_batches[policy_id] = agent_batch
     return batch
 
 
@@ -103,6 +104,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     BQL_Config["enable_joint_buffer"] = _param["enable_joint_buffer"]
     BQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
     BQL_Config["algorithm"] = algorithm
+    BQL_Config["reconcile_rewards"] = _param["reconcile_rewards"]
 
     # create trainer
     trainer = BQLTrainer.with_updates(
@@ -112,7 +114,10 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     if algorithm.lower() == 'bql':
         trainer = trainer.with_updates(
             get_policy_class=lambda c: BQLPolicy,
-            # execution_plan=joint_episode_execution_plan,
+        )
+    if _param["enable_joint_buffer"]:
+        trainer = trainer.with_updates(
+            execution_plan=joint_episode_execution_plan,
         )
 
     map_name = exp["env_args"]["map_name"]

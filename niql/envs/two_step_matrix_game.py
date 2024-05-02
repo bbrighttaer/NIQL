@@ -51,16 +51,22 @@ class TwoStepMultiAgentCoopMatrixGame(MultiAgentEnv):
         self.num_agents = len(self.agents)
         self.step_count = 0
         self.max_steps = 2
+        monotonic, linear = env_config["monotonic_payoff"], env_config["linear_payoff"]
         # Payoff matrix for game 1
-        self.payoff1 = np.array([
-            [7, 7],
-            [7, 7],
-        ])
+        if monotonic and linear:
+            self.payoff1 = np.array([
+                [1, 1],
+                [1, 1],
+            ])
+        else:
+            self.payoff1 = np.array([
+                [7, 7],
+                [7, 7],
+            ])
         # Payoff matrix for game 2
-        self.payoff2 = _get_payoff2(env_config["monotonic_payoff"], env_config["linear_payoff"])
+        self.payoff2 = _get_payoff2(monotonic, linear)
         self.current_game = 0  # Current game being played
         self.seed(321)
-
 
     def reset(self):
         self.step_count = 0

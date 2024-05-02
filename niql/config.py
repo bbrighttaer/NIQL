@@ -39,10 +39,10 @@ COOP_MATRIX = {
             'batch_episode': 128,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
-            'buffer_size': 200000,
+            'buffer_size': 100000,
             'target_network_update_freq': 10,
             'final_epsilon': 0.05,
-            'epsilon_timesteps': 200000,
+            'epsilon_timesteps': 100000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
             'gamma': 0.99,
@@ -67,6 +67,6 @@ COOP_MATRIX = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 1000000,
+        'timesteps_total': 300000,
     }
 }

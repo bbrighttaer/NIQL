@@ -60,6 +60,13 @@ if __name__ == '__main__':
         help='The algorithm to use.',
     )
 
+    parser.add_argument(
+        '-r', '--reconcile_rewards',
+        action='store_true',
+        default=False,
+        help='Whether to apply reward reconciliation to every sample batch before training.',
+    )
+
     args = parser.parse_args()
 
     mode = args.exec_mode
@@ -74,13 +81,14 @@ if __name__ == '__main__':
     marl.algos.register_algo(
         algo_name=args.algo,
         style="il",
-        script=scripts.run_bql if mode == 'train' else utils.load_iql_checkpoint,
+        script=scripts.run_bql if mode == "train" else utils.load_iql_checkpoint,
     )
 
     # initialize algorithm
     bql = marl.algos.dbql if args.algo == "dbql" else marl.algos.bql  # (hyperparam_source="mpe")
     bql.algo_parameters = exp_config['algo_parameters']
-    bql.algo_parameters['algo_args']['enable_joint_buffer'] = not args.disable_joint_buffer
+    bql.algo_parameters["algo_args"]["reconcile_rewards"] = args.reconcile_rewards
+    bql.algo_parameters["algo_args"]["enable_joint_buffer"] = not args.disable_joint_buffer and not args.reconcile_rewards
 
     # build agent model based on env + algorithms + user preference if checked available
     model_config = exp_config['model_preference']
@@ -103,7 +111,7 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/bql_gru_all_scenario/BQL_TwoStepsCoopMatrixGame_all_scenario_abb50_00000_0_2024-05-02_13-32-58'
+        base = 'exp_results/bql_gru_all_scenario/BQL_TwoStepsCoopMatrixGame_all_scenario_09806_00000_0_2024-05-02_23-44-03'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
