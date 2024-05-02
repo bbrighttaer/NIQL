@@ -2,7 +2,7 @@ import numpy as np
 from ray.rllib import SampleBatch
 
 
-def batch_cosine_similarity_reward_update(batch: SampleBatch, threshold=0.9) -> SampleBatch:
+def batch_cosine_similarity_reward_update(batch: SampleBatch, threshold=0.99) -> SampleBatch:
     """
     Computes the cosine similarity of the observation and uses that to optimistically reconcile the rewards.
 
@@ -19,6 +19,8 @@ def batch_cosine_similarity_reward_update(batch: SampleBatch, threshold=0.9) -> 
     obs = batch[SampleBatch.OBS] + eps
     actions = batch[SampleBatch.ACTIONS].reshape(-1, 1)
     rewards = batch[SampleBatch.REWARDS].reshape(1, -1)
+    # reward shaping
+    rewards += np.random.uniform(low=0., high=eps, size=rewards.shape)
     obs = np.concatenate([obs, actions], axis=1)
 
     # cosine similarity

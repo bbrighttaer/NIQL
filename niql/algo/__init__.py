@@ -26,5 +26,5 @@ BQLTrainer = build_trainer(
     name="BQLTrainer",
     get_policy_class=lambda c: IBQLPolicy,
     default_config=DEFAULT_CONFIG,
-    execution_plan=bql_episode_execution_plan,
+    execution_plan=episode_execution_plan,
 )

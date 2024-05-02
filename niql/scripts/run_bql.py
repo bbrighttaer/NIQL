@@ -14,17 +14,25 @@ from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from ray.tune import CLIReporter
 from ray.util.ml_utils.dict import merge_dicts
 
+from niql import distance_metrics
 from niql.algo import BQLTrainer, BQLPolicy
 from niql.execution_plans import joint_episode_execution_plan
 
 
-def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, policy_map: dict, summary_writer):
-    # timestep = list(policy_map.values())[0].global_timestep
-    # state = [0, 0, 1]
-    # for policy_id, agent_batch in batch.policy_batches.items():
-    #     stats = Counter(agent_batch[SampleBatch.REWARDS])
-    #     summary_writer.add_scalars(policy_id, {str(k): v for k, v in stats.items()}, timestep)
-    # summary_writer.flush()
+def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, *args, **kwargs):
+    if "summary_writer" in kwargs:
+        summary_writer = kwargs["summary_writer"]
+        policy_map = kwargs["policy_map"]
+        timestep = list(policy_map.values())[0].global_timestep
+        state = [0, 0, 1]
+        for policy_id, agent_batch in batch.policy_batches.items():
+            stats = Counter(agent_batch[SampleBatch.REWARDS])
+            summary_writer.add_scalars(policy_id, {str(k): v for k, v in stats.items()}, timestep)
+        summary_writer.flush()
+
+    for policy_id, agent_batch in batch.policy_batches.items():
+        agent_batch = distance_metrics.batch_cosine_similarity_reward_update(agent_batch)
+        batch.policy_batches[policy_id] = agent_batch
     return batch
 
 

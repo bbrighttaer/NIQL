@@ -33,6 +33,7 @@ from ray.rllib.execution.rollout_ops import ParallelRollouts
 from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.utils.typing import TrainerConfigDict
 from ray.util.iter import LocalIterator
+from torch.utils.tensorboard import SummaryWriter
 
 from niql.replay_buffers.joint_episode_replay_buffer import JointEpisodeReplayBuffer
 
@@ -77,9 +78,9 @@ def joint_episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     #     workers.local_worker().learn_on_batch,
     #
     # )
-
+    summary_writer = SummaryWriter()
     replay_op = Replay(local_buffer=local_replay_buffer) \
-        .for_each(lambda x: post_fn(x, workers, config, policy_map)) \
+        .for_each(lambda x: post_fn(x, workers, config, policy_map, summary_writer)) \
         .for_each(train_step_op) \
         .for_each(UpdateTargetNetwork(workers, config["target_network_update_freq"]))
 

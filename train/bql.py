@@ -65,7 +65,7 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_two_step_matrix_game_env()
+    env = envs.make_predator_prey_env()
 
     exp_config = config.COOP_MATRIX
     gpu_count = torch.cuda.device_count()
@@ -103,7 +103,7 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/dbql_mlp_all_scenario/DBQL_TwoStepsCoopMatrixGame_all_scenario_44cea_00000_0_2024-05-01_00-59-39'
+        base = 'exp_results/bql_gru_all_scenario/BQL_TwoStepsCoopMatrixGame_all_scenario_abb50_00000_0_2024-05-02_13-32-58'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
@@ -140,7 +140,7 @@ if __name__ == '__main__':
             with torch.no_grad():
                 while not done["__all__"]:
                     action_dict = {}
-                    cur_state = [0, 0, 1]
+                    cur_state = [0, 0, 0]
                     for agent_id in obs.keys():
                         policy = agent.get_policy(pmap(agent_id))
                         agent_obs = [cur_state]  # obs[agent_id]["obs"]

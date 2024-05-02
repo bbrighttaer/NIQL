@@ -277,9 +277,6 @@ class IBQLPolicy(Policy):
         self.auxiliary_target_model = soft_update(self.auxiliary_target_model, self.auxiliary_model, self.tau)
 
     def compute_q_losses(self, train_batch: SampleBatch) -> TensorType:
-        # Reconcile rewards
-        train_batch = distance_metrics.batch_cosine_similarity_reward_update(train_batch)
-
         # batch preprocessing ops
         obs = self.convert_batch_to_tensor({
             SampleBatch.OBS: train_batch[SampleBatch.OBS]
