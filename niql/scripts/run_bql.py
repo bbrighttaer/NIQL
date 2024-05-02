@@ -112,7 +112,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     if algorithm.lower() == 'bql':
         trainer = trainer.with_updates(
             get_policy_class=lambda c: BQLPolicy,
-            execution_plan=joint_episode_execution_plan,
+            # execution_plan=joint_episode_execution_plan,
         )
 
     map_name = exp["env_args"]["map_name"]
