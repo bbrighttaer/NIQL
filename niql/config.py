@@ -41,8 +41,8 @@ COOP_MATRIX = {
             'rollout_fragment_length': 1,
             'buffer_size': 100000,
             'target_network_update_freq': 10,
-            'final_epsilon': 0.05,
-            'epsilon_timesteps': 100000,
+            'final_epsilon': 0.01,
+            'epsilon_timesteps': 1000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
             'gamma': 0.99,
@@ -54,19 +54,19 @@ COOP_MATRIX = {
         }
     },
     'model_preference': {
-        'core_arch': 'gru',  # mlp | gru
+        'core_arch': 'mlp',  # mlp | gru
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'encode_layer': '64',  # for RNN model
         'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
-        # 'model': 'DuelingQFCN',
-        'model': 'DRQNModel',
+        'model': 'DuelingQFCN',
+        # 'model': 'DRQNModel',
         # 'model': 'MatrixGameQMLP',
         # 'model': 'MatrixGameSplitQMLP'
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 300000,
+        'timesteps_total': 10000,
     }
 }
