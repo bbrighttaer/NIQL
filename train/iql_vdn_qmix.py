@@ -29,13 +29,13 @@ if __name__ == '__main__':
         choices=['vdn', 'qmix', 'iql'],
         help='Select which CTDE algorithm to run.',
     )
-    parser.add_argument(
-        '-m', '--model_arch',
-        default='mlp',
-        type=str,
-        choices=['mlp', 'gru', 'lstm'],
-        help='The core architecture of the model',
-    )
+    # parser.add_argument(
+    #     '-m', '--model_arch',
+    #     default='mlp',
+    #     type=str,
+    #     choices=['mlp', 'gru', 'lstm'],
+    #     help='The core architecture of the model',
+    # )
     parser.add_argument(
         '-e', '--exec_mode',
         default='train',
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_two_step_matrix_game_env()
+    env = envs.make_mpe_simple_env()
 
     # initialise algorithm with hyperparameters
     if args.algo == 'qmix':
@@ -57,7 +57,7 @@ if __name__ == '__main__':
         algo = marl.algos.vdn
     else:
         algo = marl.algos.iql
-    exp_config = config.COOP_MATRIX
+    exp_config = config.MPE
     algo.algo_parameters = exp_config['algo_parameters']
 
     # register execution script
@@ -69,7 +69,7 @@ if __name__ == '__main__':
 
     # build model
     model_config = exp_config['model_preference']
-    model_config.update({'core_arch': args.model_arch})
+    # model_config.update({'core_arch': args.model_arch})
     model = marl.build_model(env, algo, model_preference=exp_config['model_preference'])
     if model_config.get('model'):
         model = (eval(model_config['model']), model[1])

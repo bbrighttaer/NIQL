@@ -10,26 +10,29 @@ MPE = {
             'buffer_size': 100000,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
-            'epsilon_timesteps': 50000,
+            'epsilon_timesteps': 100000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
             'lambda': 0.01,
-            'tau': 0.5,
+            'tau': 0.5,  # target network soft update
+            'beta': 0,
+            'callbacks': NIQLCallbacks,
+            'sharing_batch_size': 10,
         }
     },
     'model_preference': {
-        'core_arch': 'mlp',  # mlp | gru
-        "encode_layer": "128-256",  # for RNN model
-        'hidden_state_size': 256,  # for RNN model
+        'core_arch': 'gru',  # mlp | gru
+        "encode_layer": "64",  # for RNN model
+        'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
-        'model': 'FCN',
-        'hidden_layer_dims': [256],  # for mlp model
+        'model': 'DRQNModel',
+        'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 3000000,
+        'timesteps_total': 200000,
     }
 }
 

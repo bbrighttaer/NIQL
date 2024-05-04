@@ -52,6 +52,6 @@ class JointQPolicy(Policy):
                 actions,
                 list(masked_q_values.shape)[:-1]).cpu().numpy()
             hiddens = [s.cpu().numpy() for s in hiddens]
-            self.joint_q_values = masked_q_values_folded.numpy().tolist()
+            # self.joint_q_values = masked_q_values_folded.numpy().tolist()
 
         return tuple(actions.transpose([1, 0])), hiddens, {}

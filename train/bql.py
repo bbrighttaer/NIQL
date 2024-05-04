@@ -74,7 +74,7 @@ if __name__ == '__main__':
     # get env
     env = envs.make_mpe_simple_env()
 
-    exp_config = config.COOP_MATRIX
+    exp_config = config.MPE
     gpu_count = torch.cuda.device_count()
 
     # register new algorithm
