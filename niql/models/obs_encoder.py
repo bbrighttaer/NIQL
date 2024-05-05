@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class ObservationEmbeddingModel(nn.Module):
-    def __init__(self, input_dim, num_heads, dropout=0.1):
+    def __init__(self, input_dim, num_heads, device, dropout=0.1):
         super(ObservationEmbeddingModel, self).__init__()
         assert input_dim % num_heads == 0, "Input dimension must be divisible by the number of heads"
         self.input_dim = input_dim
@@ -18,7 +18,7 @@ class ObservationEmbeddingModel(nn.Module):
         self.W_agg = nn.Linear(input_dim, input_dim)
 
         self.dropout = nn.Dropout(dropout)
-        self.scale_factor = torch.sqrt(torch.FloatTensor([self.head_dim]))
+        self.scale_factor = torch.sqrt(torch.FloatTensor([self.head_dim])).to(device)
 
     def forward(self, x):
         query, key, value = x, x, x

@@ -76,6 +76,7 @@ class BQLPolicy(Policy):
             self.obs_encoder = ObservationEmbeddingModel(
                 input_dim=self.obs_size,
                 num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
+                device=self.device,
             ).to(self.device)
         else:
             self.obs_encoder = None
