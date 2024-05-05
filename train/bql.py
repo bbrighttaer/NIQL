@@ -92,7 +92,7 @@ if __name__ == '__main__':
     bql.algo_parameters = exp_config['algo_parameters']
     bql.algo_parameters["algo_args"]["reconcile_rewards"] = args.reconcile_rewards
     bql.algo_parameters["algo_args"]["enable_joint_buffer"] = not args.disable_joint_buffer and not args.reconcile_rewards
-    bql.algo_parameters["use_obs_encoder"] = args.use_obs_encoder
+    bql.algo_parameters["algo_args"]["use_obs_encoder"] = args.use_obs_encoder
 
     # build agent model based on env + algorithms + user preference if checked available
     model_config = exp_config['model_preference']
