@@ -1,6 +1,8 @@
+import copy
 from copy import deepcopy
 from typing import Dict, Optional
 
+import numpy as np
 from ray.rllib import SampleBatch
 from ray.rllib.agents.callbacks import DefaultCallbacks
 from ray.rllib.env import BaseEnv
@@ -113,15 +115,14 @@ class ObservationCommWrapper(ObservationFunction):
                  worker: RolloutWorker, base_env: BaseEnv,
                  policies: Dict[PolicyID, Policy], episode: MultiAgentEpisode,
                  **kw) -> Dict[AgentID, TensorType]:
-        if hasattr(worker.callbacks, 'agent_comm'):
-            # get communication channel
-            comm = worker.callbacks.agent_comm
-
-            # publish observation to other agents
-            for agent_id, obs in agent_obs.items():
-                policy_id = self.policy_mapping_fn(agent_id)
-                comm.broadcast(
-                    policy_id,
-                    Message(msg_type=CommMsg.OBSERVATION, msg=deepcopy(agent_obs[agent_id]))
-                )
+        # publish observation to other agents
+        for agent_id, obs in agent_obs.items():
+            policy_id = self.policy_mapping_fn(agent_id)
+            policy = policies[policy_id]
+            if hasattr(policy, "shared_neighbour_obs"):
+                all_n_obs = []
+                for n_id, n_obs in agent_obs.items():
+                    if n_id != agent_id:
+                        all_n_obs.append(n_obs["obs"])
+                policy.shared_neighbour_obs = all_n_obs
         return agent_obs

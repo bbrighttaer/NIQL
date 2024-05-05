@@ -47,7 +47,7 @@ def make_mpe_simple_env(**kwargs):
     # choose environment + scenario
     env = marl.make_env(
         environment_name="mpe",
-        map_name="simple_spread",
+        map_name="simple",
         # force_coop=True,
         max_cycles=25,
         **kwargs,

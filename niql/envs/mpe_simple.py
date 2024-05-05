@@ -31,7 +31,7 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 # from pettingzoo 1.12.0
 
 policy_mapping_dict = {
-    "simple_spread": {
+    "simple": {
         "description": "one team cooperate",
         "team_prefix": ("agent_",),
         "all_agents_one_policy": True,

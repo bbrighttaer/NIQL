@@ -16,9 +16,13 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
-from niql.models import DRQNModel
+from niql import distance_metrics
+from niql.models import DRQNModel, ObservationEmbeddingModel
 
 logger = logging.getLogger(__name__)
+
+NEIGHBOUR_OBS = "n_obs"
+NEIGHBOUR_NEXT_OBS = "n_next_obs"
 
 
 def get_size(obs_space):
@@ -65,8 +69,16 @@ class BQLPolicy(Policy):
         config["model"]["full_obs_space"] = obs_space
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
         self.q_values = []
+        self.shared_neighbour_obs = []
 
         # models
+        if self.config["use_obs_encoder"]:
+            self.obs_encoder = ObservationEmbeddingModel(
+                input_dim=self.obs_size,
+                num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
+            ).to(self.device)
+        else:
+            self.obs_encoder = None
         self.model = ModelCatalog.get_model_v2(
             config['obs_space'],
             action_space,
@@ -107,16 +119,18 @@ class BQLPolicy(Policy):
 
         # optimizer
         self.grad_clip_params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
+        if self.obs_encoder:
+            self.grad_clip_params += list(self.obs_encoder.parameters())
+
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
-            self.optimiser_e = RMSprop(params=self.auxiliary_model.parameters(), lr=config["lr"])
-            self.optimiser_i = RMSprop(params=self.model.parameters(), lr=config["lr"])
+            self.optimiser = RMSprop(params=self.grad_clip_params, lr=config["lr"])
+            # self.optimiser_i = RMSprop(params=self.model.parameters(), lr=config["lr"])
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
-            self.optimiser_e = Adam(params=self.auxiliary_model.parameters(), lr=config["lr"])
-            self.optimiser_i = Adam(params=self.model.parameters(), lr=config["lr"])
-
+            self.optimiser = Adam(params=self.grad_clip_params, lr=config["lr"])
+            # self.optimiser_i = Adam(params=self.model.parameters(), lr=config["lr"])
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -147,15 +161,29 @@ class BQLPolicy(Policy):
         # Switch to eval mode.
         if self.model:
             self.model.eval()
+            if self.obs_encoder:
+                self.obs_encoder.eval()
 
         with torch.no_grad():
             seq_lens = torch.ones(len(obs_batch), dtype=torch.int32)
-            obs_batch = SampleBatch({
-                SampleBatch.CUR_OBS: obs_batch
-            })
-            obs_batch.set_get_interceptor(
-                functools.partial(convert_to_torch_tensor, device=self.device)
-            )
+            if self.config["use_obs_encoder"]:
+                if self.shared_neighbour_obs:
+                    n = len(self.shared_neighbour_obs)
+                    obs_batch = obs_batch.reshape(1, 1, -1)
+                    neighbour_obs = np.array(self.shared_neighbour_obs).reshape(1, n, -1)
+                    obs_batch = np.concatenate([obs_batch, neighbour_obs], axis=1)
+                obs_batch = convert_to_torch_tensor(obs_batch, self.device)
+                outputs = self.obs_encoder(obs_batch)
+                obs_batch = SampleBatch({
+                    SampleBatch.CUR_OBS: outputs
+                })
+            else:
+                obs_batch = SampleBatch({
+                    SampleBatch.CUR_OBS: obs_batch
+                })
+                obs_batch.set_get_interceptor(
+                    functools.partial(convert_to_torch_tensor, device=self.device)
+                )
             if prev_action_batch is not None:
                 obs_batch[SampleBatch.PREV_ACTIONS] = np.asarray(prev_action_batch)
             if prev_reward_batch is not None:
@@ -202,6 +230,19 @@ class BQLPolicy(Policy):
             other_agent_batches: Optional[Dict[AgentID, Tuple[
                 "Policy", SampleBatch]]] = None,
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
+        # observation sharing
+        sample_batch = sample_batch.copy()
+        n_obs = []
+        n_next_obs = []
+        for n_id, (_, batch) in other_agent_batches.items():
+            n_obs.append(
+                batch[SampleBatch.OBS]
+            )
+            n_next_obs.append(
+                batch[SampleBatch.NEXT_OBS]
+            )
+        sample_batch[NEIGHBOUR_OBS] = np.array(n_obs).reshape(1, len(other_agent_batches), -1)
+        sample_batch[NEIGHBOUR_NEXT_OBS] = np.array(n_next_obs).reshape(1, len(other_agent_batches), -1)
         return sample_batch
 
     def learn_on_batch(self, samples: SampleBatch) -> Dict[str, TensorType]:
@@ -209,6 +250,8 @@ class BQLPolicy(Policy):
         if self.model:
             self.model.train()
             self.auxiliary_model.train()
+            if self.obs_encoder:
+                self.obs_encoder.train()
 
         # Callback handling.
         learn_stats = {}
@@ -219,21 +262,17 @@ class BQLPolicy(Policy):
         )
 
         # compute loss
-        loss_qi, loss_qe, td_error_abs, qt_selected_mean, qt_target_mean = self.compute_q_losses(samples)
+        loss, td_error_abs, qt_selected_mean, qt_target_mean = self.compute_q_losses(samples)
 
         # Optimise
-        self.optimiser_e.zero_grad()
-        self.optimiser_i.zero_grad()
-        loss_qe.backward()
-        loss_qi.backward()
+        self.optimiser.zero_grad()
+        loss.backward()
         grad_norm_clipping_ = self.config["grad_clip"]
         grad_norm = torch.nn.utils.clip_grad_norm_(self.grad_clip_params, grad_norm_clipping_)
-        self.optimiser_i.step()
-        self.optimiser_e.step()
+        self.optimiser.step()
 
         stats = {
-            "loss": loss_qi.item(),
-            "loss_aux": loss_qe.item(),
+            "loss": loss.item(),
             "grad_norm": grad_norm if isinstance(grad_norm, float) else grad_norm.item(),
             "td_error_abs": td_error_abs,
             "q_taken_mean": qt_selected_mean,
@@ -258,14 +297,19 @@ class BQLPolicy(Policy):
         self.model.load_state_dict(self._device_dict(weights["model"]))
         self.auxiliary_model.load_state_dict(self._device_dict(weights["auxiliary_model"]))
         self.auxiliary_target_model.load_state_dict(self._device_dict(weights["auxiliary_target_model"]))
+        if "obs_encoder" in weights and self.obs_encoder:
+            self.obs_encoder.load_state_dict(self._device_dict(weights["obs_encoder"]))
 
     @override(Policy)
     def get_weights(self):
-        return {
+        wts = {
             "model": self._cpu_dict(self.model.state_dict()),
             "auxiliary_model": self._cpu_dict(self.auxiliary_model.state_dict()),
             "auxiliary_target_model": self._cpu_dict(self.auxiliary_target_model.state_dict()),
         }
+        if self.obs_encoder:
+            wts["obs_encoder"] = self._cpu_dict(self.obs_encoder.state_dict())
+        return wts
 
     @override(Policy)
     def is_recurrent(self) -> bool:
@@ -284,13 +328,50 @@ class BQLPolicy(Policy):
         self.auxiliary_target_model = soft_update(self.auxiliary_target_model, self.auxiliary_model, self.tau)
 
     def compute_q_losses(self, train_batch: SampleBatch) -> TensorType:
+        obs = train_batch[SampleBatch.OBS]
+        actions = train_batch[SampleBatch.ACTIONS]
+        batch_rewards = train_batch[SampleBatch.REWARDS]
+        next_obs = train_batch[SampleBatch.NEXT_OBS]
+        convert = True
+
+        # ----------------------- Reward reconciliation ------------------
+        if self.config["reconcile_rewards"]:
+            if self.config["use_obs_encoder"]:
+                def projection(x, n_x):
+                    x = convert_to_torch_tensor(x, self.device).unsqueeze(1)
+                    n_obs = convert_to_torch_tensor(n_x, self.device)
+                    x = torch.cat([x, n_obs], dim=1)
+                    x = self.obs_encoder(x)
+                    return x
+                obs = projection(obs, train_batch[NEIGHBOUR_OBS])
+                next_obs = projection(next_obs, train_batch[NEIGHBOUR_NEXT_OBS])
+                convert = False
+                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update(
+                    obs=obs.cpu().detach().numpy(),
+                    actions=actions,
+                    rewards=batch_rewards,
+                    threshold=0.99,
+                )
+                batch_rewards = convert_to_torch_tensor(batch_rewards, self.device)
+                obs = {SampleBatch.OBS: obs}
+                next_obs = {SampleBatch.OBS: next_obs}
+            else:
+                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update(
+                    obs=obs,
+                    actions=actions,
+                    rewards=batch_rewards,
+                )
+
         # batch preprocessing ops
-        obs = self.convert_batch_to_tensor({
-            SampleBatch.OBS: train_batch[SampleBatch.OBS]
-        })
-        next_obs = self.convert_batch_to_tensor({
-            SampleBatch.OBS: train_batch[SampleBatch.NEXT_OBS]
-        })
+        if convert:
+            obs = self.convert_batch_to_tensor({
+                SampleBatch.OBS: convert_to_torch_tensor(obs, self.device)
+            })
+            next_obs = self.convert_batch_to_tensor({
+                SampleBatch.OBS: convert_to_torch_tensor(next_obs, self.device)
+            })
+            batch_rewards = convert_to_torch_tensor(batch_rewards, self.device)
+
         train_batch.set_get_interceptor(
             functools.partial(convert_to_torch_tensor, device=self.device)
         )
@@ -329,7 +410,7 @@ class BQLPolicy(Policy):
         q_best = (1.0 - dones) * q_best
 
         # compute RHS of bellman equation
-        q_e_target = train_batch[SampleBatch.REWARDS] + self.config["gamma"] * q_best
+        q_e_target = batch_rewards + self.config["gamma"] * q_best
 
         # Compute the error (Square/Huber).
         td_error_q_e = q_e - q_e_target.detach()
@@ -349,7 +430,7 @@ class BQLPolicy(Policy):
 
         self.model.tower_stats["loss"] = loss
 
-        return loss, loss_qe, td_error_q_e.abs().sum().item(), qt_selected.mean().item(), q_e_target.mean().item()
+        return loss + loss_qe, td_error_q_e.abs().sum().item(), qt_selected.mean().item(), q_e_target.mean().item()
 
     def convert_batch_to_tensor(self, data_dict):
         obs_batch = SampleBatch(data_dict)

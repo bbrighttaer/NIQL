@@ -14,7 +14,7 @@ MPE = {
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
-            'lambda': 0.01,
+            'lambda': 0.6,
             'tau': 0.5,  # target network soft update
             'beta': 0,
             'callbacks': NIQLCallbacks,
@@ -27,12 +27,14 @@ MPE = {
         'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
         'model': 'DRQNModel',
+        # 'model': 'DuelingQFCN',
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
+        'mha_num_heads': 4,
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 200000,
+        'timesteps_total': 500000,
     }
 }
 

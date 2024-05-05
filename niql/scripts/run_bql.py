@@ -14,8 +14,8 @@ from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from ray.tune import CLIReporter
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql import distance_metrics
 from niql.algo import BQLTrainer, BQLPolicy
+from niql.callbacks import ObservationCommWrapper
 from niql.execution_plans import joint_episode_execution_plan
 
 
@@ -29,11 +29,6 @@ def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Di
             stats = Counter(agent_batch[SampleBatch.REWARDS])
             summary_writer.add_scalars(policy_id, {str(k): v for k, v in stats.items()}, timestep)
         summary_writer.flush()
-
-    if config["reconcile_rewards"]:
-        for policy_id, agent_batch in batch.policy_batches.items():
-            agent_batch = distance_metrics.batch_cosine_similarity_reward_update(agent_batch)
-            batch.policy_batches[policy_id] = agent_batch
     return batch
 
 
@@ -68,6 +63,9 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     }
 
     config.update(run_config)
+
+    # add observation function
+    config["multiagent"]["observation_fn"] = ObservationCommWrapper(config["multiagent"]["policy_mapping_fn"])
 
     BQL_Config.update(
         {
@@ -105,6 +103,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     BQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
     BQL_Config["algorithm"] = algorithm
     BQL_Config["reconcile_rewards"] = _param["reconcile_rewards"]
+    BQL_Config["use_obs_encoder"] = _param["use_obs_encoder"]
 
     # create trainer
     trainer = BQLTrainer.with_updates(
