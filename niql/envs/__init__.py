@@ -37,6 +37,16 @@ def make_predator_prey_env(**kwargs):
     return env
 
 
+def make_smac_env(**kwargs):
+    env = marl.make_env(
+        environment_name="smac",
+        map_name=kwargs.get("map_name", "3m"),
+        difficulty=kwargs.get("difficulty", "7"),
+        reward_scale_rate=kwargs.get("reward_scale_rate", 20),
+    )
+    return env
+
+
 # ------------------------- Debug envs ---------------------------------------------
 
 def make_mpe_simple_env(**kwargs):
