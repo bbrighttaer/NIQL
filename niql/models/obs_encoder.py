@@ -6,7 +6,7 @@ import torch.nn.functional as F
 class ObservationEmbeddingModel(nn.Module):
     def __init__(self, input_dim, num_heads, device, dropout=0.1):
         super(ObservationEmbeddingModel, self).__init__()
-        assert input_dim % num_heads == 0, "Input dimension must be divisible by the number of heads"
+        assert input_dim % num_heads == 0, f"Input dimension {input_dim} must be divisible by the number of heads {num_heads}"
         self.input_dim = input_dim
         self.num_heads = num_heads
         self.head_dim = input_dim // num_heads
