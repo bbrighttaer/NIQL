@@ -30,7 +30,7 @@ MPE = {
         # 'model': 'DuelingQFCN',
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
-        'mha_num_heads': 4,
+        'mha_num_heads': 2,
     },
     'stop_condition': {
         'episode_reward_mean': 2000,

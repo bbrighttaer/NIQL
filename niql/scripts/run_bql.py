@@ -70,6 +70,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     BQL_Config.update(
         {
             "rollout_fragment_length": 1,
+            "batch_mode": "complete_episodes",  # "truncate_episodes",
             "buffer_size": buffer_size * episode_limit,  # in timesteps
             "train_batch_size": train_batch_episode,  # in sequence
             "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps

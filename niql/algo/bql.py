@@ -5,6 +5,7 @@ from typing import Union, List, Optional, Dict, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
+from gym.spaces import Dict as GymDict
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
 from ray.rllib.models import ModelCatalog
@@ -18,11 +19,9 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql import distance_metrics
 from niql.models import DRQNModel, ObservationEmbeddingModel
+from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS
 
 logger = logging.getLogger(__name__)
-
-NEIGHBOUR_OBS = "n_obs"
-NEIGHBOUR_NEXT_OBS = "n_next_obs"
 
 
 def get_size(obs_space):
@@ -64,12 +63,35 @@ class BQLPolicy(Policy):
         self.has_env_global_state = False
         self.has_action_mask = False
         self.device = (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
-        self.obs_size = get_size(obs_space)
-        self.env_global_state_shape = (self.obs_size, self.n_agents)
         config["model"]["full_obs_space"] = obs_space
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
-        self.q_values = []
+        self.reward_standardize = config["reward_standardize"]
         self.shared_neighbour_obs = []
+
+        agent_obs_space = obs_space.original_space
+        if isinstance(agent_obs_space, GymDict):
+            space_keys = set(agent_obs_space.spaces.keys())
+            if "obs" not in space_keys:
+                raise ValueError("Dict obs space must have subspace labeled `obs`")
+            self.obs_size = get_size(agent_obs_space.spaces["obs"])
+            if "action_mask" in space_keys:
+                mask_shape = tuple(agent_obs_space.spaces["action_mask"].shape)
+                if mask_shape != (self.n_actions,):
+                    raise ValueError(
+                        "Action mask shape must be {}, got {}".format(
+                            (self.n_actions,), mask_shape))
+                self.has_action_mask = True
+            if "state" in space_keys:
+                self.env_global_state_shape = get_size(agent_obs_space.spaces["state"])
+                self.has_env_global_state = True
+            else:
+                self.env_global_state_shape = (self.obs_size, self.n_agents)
+            # The real agent obs space is nested inside the dict
+            config["model"]["full_obs_space"] = agent_obs_space
+            agent_obs_space = agent_obs_space.spaces["obs"]
+        else:
+            self.obs_size = get_size(agent_obs_space)
+            self.env_global_state_shape = (self.obs_size, self.n_agents)
 
         # models
         if self.config["use_obs_encoder"]:
@@ -81,7 +103,7 @@ class BQLPolicy(Policy):
         else:
             self.obs_encoder = None
         self.model = ModelCatalog.get_model_v2(
-            config['obs_space'],
+            agent_obs_space,
             action_space,
             self.n_actions,
             config["model"],
@@ -91,7 +113,7 @@ class BQLPolicy(Policy):
         ).to(self.device)
 
         self.auxiliary_model = ModelCatalog.get_model_v2(
-            config['obs_space'],
+            agent_obs_space,
             action_space,
             self.n_actions,
             config["model"],
@@ -101,7 +123,7 @@ class BQLPolicy(Policy):
         ).to(self.device)
 
         self.auxiliary_target_model = ModelCatalog.get_model_v2(
-            config['obs_space'],
+            agent_obs_space,
             action_space,
             self.n_actions,
             config["model"],
@@ -158,6 +180,7 @@ class BQLPolicy(Policy):
             **kwargs) -> Tuple[TensorType, List[TensorType], Dict[str, TensorType]]:
         explore = explore if explore is not None else self.config["explore"]
         timestep = timestep if timestep is not None else self.global_timestep
+        obs_batch, action_mask, _ = unpack_observation(self, obs_batch)
 
         # Switch to eval mode.
         if self.model:
@@ -173,6 +196,7 @@ class BQLPolicy(Policy):
                     obs_batch = obs_batch.reshape(1, 1, -1)
                     neighbour_obs = np.array(self.shared_neighbour_obs).reshape(1, n, -1)
                     obs_batch = np.concatenate([obs_batch, neighbour_obs], axis=1)
+                    self.shared_neighbour_obs.clear()
                 obs_batch = convert_to_torch_tensor(obs_batch, self.device)
                 outputs = self.obs_encoder(obs_batch)
                 obs_batch = SampleBatch({
@@ -262,28 +286,48 @@ class BQLPolicy(Policy):
             result=learn_stats,
         )
 
-        # compute loss
-        loss, td_error_abs, qt_selected_mean, qt_target_mean = self.compute_q_losses(samples)
+        (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
+         next_obs, obs, rewards, terminated, n_obs, n_next_obs) = preprocess_trajectory_batch(
+            policy=self,
+            samples=samples,
+            has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
+        )
+
+        loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
+            rewards,
+            actions,
+            terminated,
+            mask,
+            obs,
+            next_obs,
+            action_mask,
+            next_action_mask,
+            env_global_state,
+            next_env_global_state,
+            n_obs,
+            n_next_obs,
+        )
 
         # Optimise
         self.optimiser.zero_grad()
-        loss.backward()
+        loss_out.backward()
         grad_norm_clipping_ = self.config["grad_clip"]
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.grad_clip_params, grad_norm_clipping_)
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.params, grad_norm_clipping_)
         self.optimiser.step()
 
+        mask_elems = mask.sum().item()
         stats = {
-            "loss": loss.item(),
+            "loss": loss_out.item(),
             "grad_norm": grad_norm if isinstance(grad_norm, float) else grad_norm.item(),
-            "td_error_abs": td_error_abs,
-            "q_taken_mean": qt_selected_mean,
-            "target_mean": qt_target_mean,
+            "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
+            "q_taken_mean": (chosen_action_qvals * mask).sum().item() / mask_elems,
+            "target_mean": (targets * mask).sum().item() / mask_elems,
         }
-        data = {LEARNER_STATS_KEY: stats}
-
-        if self.model:
-            data["model"] = self.model.metrics()
-        data.update({"custom_metrics": learn_stats})
+        data = {
+            LEARNER_STATS_KEY: stats,
+            "model": self.model.metrics(),
+            "custom_metrics": learn_stats
+        }
         return data
 
     @override(Policy)
@@ -439,3 +483,69 @@ class BQLPolicy(Policy):
             functools.partial(convert_to_torch_tensor, device=self.device)
         )
         return obs_batch
+
+    def compute_trajectory_q_loss(self,
+                                  rewards,
+                                  actions,
+                                  terminated,
+                                  mask,
+                                  obs,
+                                  next_obs,
+                                  action_mask,
+                                  next_action_mask,
+                                  state=None,
+                                  next_state=None,
+                                  neighbour_obs=None,
+                                  neighbour_next_obs=None):
+        """
+        Computes the Q loss.
+        Based on the JointQLoss of Marllib.
+
+        Args:
+            rewards: Tensor of shape [B, T]
+            actions: Tensor of shape [B, T]
+            terminated: Tensor of shape [B, T]
+            mask: Tensor of shape [B, T]
+            obs: Tensor of shape [B, T, obs_size]
+            next_obs: Tensor of shape [B, T, obs_size]
+            action_mask: Tensor of shape [B, T, n_actions]
+            next_action_mask: Tensor of shape [B, T, n_actions]
+            state: Tensor of shape [B, T, state_dim] (optional)
+            next_state: Tensor of shape [B, T, state_dim] (optional)
+            neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+            neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+        """
+        B, T = obs.shape[0], obs.shape[1]
+
+        # ----------------------- Reward reconciliation ------------------
+        if self.config["reconcile_rewards"]:
+            threshold = 0.99
+            if self.config["use_obs_encoder"]:
+                def projection(x, n_x):
+                    x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
+                    n_obs = convert_to_torch_tensor(n_x, self.device)
+                    x = torch.cat([x, n_obs], dim=2)
+                    x = self.obs_encoder(x.view(B * T, *x.shape[2:]))
+                    x = x.view(B, T, -1)
+                    return x
+
+                obs = projection(obs, neighbour_obs)
+                next_obs = projection(next_obs, neighbour_next_obs)
+                convert = False
+                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update(
+                    obs=obs.clone().detach().reshape(B * T, -1),
+                    actions=actions.reshape(-1, 1),
+                    rewards=rewards.reshape(-1, 1),
+                    threshold=threshold,
+                )
+                rewards = batch_rewards.view(*rewards.shape)
+            else:
+                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update(
+                    obs=obs.clone().detach().reshape(B * T, -1),
+                    actions=actions.reshape(-1, 1),
+                    rewards=rewards.reshape(-1, 1),
+                    threshold=threshold,
+                )
+                rewards = batch_rewards.view(*rewards.shape)
+
+        return 0

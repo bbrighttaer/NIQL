@@ -2,6 +2,8 @@ import tree
 from ray.rllib.execution.replay_buffer import *
 from ray.rllib.models.modelv2 import _unpack_obs
 from ray.rllib.models.preprocessors import get_preprocessor
+import torch
+from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 
 
 # -----------------------------------------------------------------------------------------------
@@ -22,6 +24,18 @@ def notify_wrap(f, cb):
         cb(*args, **kwargs)
 
     return wrapped
+
+
+def get_size(obs_space):
+    return get_preprocessor(obs_space)(obs_space).size
+
+
+def get_group_rewards(n_agents, info_batch):
+    group_rewards = np.array([
+        info.get("_group_rewards", [0.0] * n_agents)
+        for info in info_batch
+    ])
+    return group_rewards
 
 
 def unpack_observation(policy, obs_batch):
@@ -70,13 +84,112 @@ def unpack_observation(policy, obs_batch):
     return obs, action_mask, state
 
 
-def get_size(obs_space):
-    return get_preprocessor(obs_space)(obs_space).size
+def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data=False):
+    shared_obs_batch, shared_next_obs_batch = None, None
+    # preprocess training data
+    obs_batch, action_mask, env_global_state = unpack_observation(
+        policy,
+        samples[SampleBatch.CUR_OBS],
+    )
+    next_obs_batch, next_action_mask, next_env_global_state = unpack_observation(
+        policy,
+        samples[SampleBatch.NEXT_OBS],
+    )
+
+    if has_neighbour_data:
+        n_samples = samples[NEIGHBOUR_OBS]
+        n_shape = n_samples.shape
+        n_samples = n_samples.reshape(-1, n_shape[-1])
+        shared_obs_batch, _, _ = unpack_observation(
+            policy,
+            n_samples,
+        )
+        shared_obs_batch = shared_obs_batch.reshape(*n_shape[:2], -1)
+
+        n_next_samples = samples[NEIGHBOUR_NEXT_OBS]
+        n_next_samples = n_next_samples.reshape(-1, n_shape[-1])
+        shared_next_obs_batch, _, _ = unpack_observation(
+            policy,
+            n_next_samples,
+        )
+        shared_next_obs_batch = shared_next_obs_batch.reshape(*n_shape[:2], -1)
+
+    group_rewards = get_group_rewards(policy.n_agents, samples[SampleBatch.INFOS])
+    input_list = [
+        group_rewards, action_mask, next_action_mask,
+        samples[SampleBatch.ACTIONS], samples[SampleBatch.DONES],
+        obs_batch, next_obs_batch
+    ]
+
+    if policy.has_env_global_state:
+        input_list.extend([env_global_state, next_env_global_state])
+
+    if has_neighbour_data:
+        input_list.extend([shared_obs_batch, shared_next_obs_batch])
+
+    n_obs = None
+    n_next_obs = None
+
+    output_list, _, seq_lens = chop_into_sequences(
+        episode_ids=samples[SampleBatch.EPS_ID],
+        unroll_ids=samples[SampleBatch.UNROLL_ID],
+        agent_indices=samples[SampleBatch.AGENT_INDEX],
+        feature_columns=input_list,
+        state_columns=[],  # RNN states not used here
+        max_seq_len=policy.config["model"]["max_seq_len"],
+        dynamic_max=True,
+    )
+    # These will be padded to shape [B * T, ...]
+    if policy.has_env_global_state and has_neighbour_data:
+        (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
+         env_global_state, next_env_global_state, n_obs, n_next_obs) = output_list
+    elif policy.has_env_global_state:
+        (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
+         env_global_state, next_env_global_state) = output_list
+    elif has_neighbour_data:
+        (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
+         n_obs, n_next_obs) = output_list
+    else:
+        (rew, action_mask, next_action_mask, act, dones, obs,
+         next_obs) = output_list
+    B, T = len(seq_lens), max(seq_lens)
+
+    def to_batches(arr, dtype):
+        new_shape = [B, T] + list(arr.shape[1:])
+        return torch.as_tensor(
+            np.reshape(arr, new_shape),
+            dtype=dtype,
+            device=policy.device,
+        ).squeeze(2)
+
+    # reduce the scale of reward for small variance. This is also
+    # because we copy the global reward to each agent in rllib_env
+    rewards = to_batches(rew, torch.float)
+    if policy.reward_standardize:
+        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+
+    obs = to_batches(obs, torch.float)
+    next_obs = to_batches(next_obs, torch.float)
+    actions = to_batches(act.reshape(-1, 1), torch.long)
+    action_mask = to_batches(action_mask, torch.float)
+    next_action_mask = to_batches(next_action_mask, torch.float)
+    terminated = to_batches(dones.reshape(-1, 1), torch.float)
+
+    if policy.has_env_global_state:
+        env_global_state = to_batches(env_global_state, torch.float)
+        next_env_global_state = to_batches(next_env_global_state, torch.float)
+
+    if has_neighbour_data:
+        n_obs = to_batches(n_obs, torch.float)
+        n_next_obs = to_batches(n_next_obs, torch.float)
+
+    # Create mask for where index is < unpadded sequence length
+    filled = np.reshape(np.tile(np.arange(T, dtype=np.float32), B), [B, T]) < np.expand_dims(seq_lens, 1)
+    mask = torch.as_tensor(filled, dtype=torch.float, device=policy.device)
+
+    return (action_mask, actions, env_global_state, mask, next_action_mask,
+            next_env_global_state, next_obs, obs, rewards, terminated, n_obs, n_next_obs)
 
 
-def get_group_rewards(n_agents, info_batch):
-    group_rewards = np.array([
-        info.get("_group_rewards", [0.0] * n_agents)
-        for info in info_batch
-    ])
-    return group_rewards
+NEIGHBOUR_NEXT_OBS = "n_next_obs"
+NEIGHBOUR_OBS = "n_obs"

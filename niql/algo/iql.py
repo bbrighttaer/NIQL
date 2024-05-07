@@ -5,23 +5,22 @@ from typing import Union, List, Optional, Dict, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
-from ray.rllib.agents.qmix.qmix_policy import _mac, _unroll_mac
-from ray.rllib.policy.rnn_sequencing import chop_into_sequences
-from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
-from ray.rllib.utils.torch_ops import huber_loss
+from gym.spaces import Dict as GymDict
 from marllib.marl import JointQRNN
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
+from ray.rllib.agents.qmix.qmix_policy import _mac, _unroll_mac
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.utils import override
-from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type
+from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
+from ray.rllib.utils.torch_ops import convert_to_torch_tensor
+from ray.rllib.utils.torch_ops import huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
-from gym.spaces import Dict as GymDict
 
 from niql.config import FINGERPRINT_SIZE
-from niql.utils import unpack_observation, get_size, get_group_rewards
+from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch
 
 logger = logging.getLogger(__name__)
 
@@ -208,70 +207,8 @@ class IQLPolicy(Policy):
             result=learn_stats,
         )
 
-        # preprocess training data
-        obs_batch, action_mask, env_global_state = unpack_observation(
-            self,
-            samples[SampleBatch.CUR_OBS],
-        )
-        next_obs_batch, next_action_mask, next_env_global_state = unpack_observation(
-            self,
-            samples[SampleBatch.NEXT_OBS],
-        )
-        group_rewards = get_group_rewards(self.n_agents, samples[SampleBatch.INFOS])
-
-        input_list = [
-            group_rewards, action_mask, next_action_mask,
-            samples[SampleBatch.ACTIONS], samples[SampleBatch.DONES],
-            obs_batch, next_obs_batch
-        ]
-        if self.has_env_global_state:
-            input_list.extend([env_global_state, next_env_global_state])
-
-        output_list, _, seq_lens = chop_into_sequences(
-            episode_ids=samples[SampleBatch.EPS_ID],
-            unroll_ids=samples[SampleBatch.UNROLL_ID],
-            agent_indices=samples[SampleBatch.AGENT_INDEX],
-            feature_columns=input_list,
-            state_columns=[],  # RNN states not used here
-            max_seq_len=self.config["model"]["max_seq_len"],
-            dynamic_max=True,
-        )
-        # These will be padded to shape [B * T, ...]
-        if self.has_env_global_state:
-            (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
-             env_global_state, next_env_global_state) = output_list
-        else:
-            (rew, action_mask, next_action_mask, act, dones, obs,
-             next_obs) = output_list
-        B, T = len(seq_lens), max(seq_lens)
-
-        def to_batches(arr, dtype):
-            new_shape = [B, T, -1]
-            return torch.as_tensor(
-                np.reshape(arr, new_shape),
-                dtype=dtype,
-                device=self.device,
-            ).squeeze(2)
-
-        # reduce the scale of reward for small variance. This is also
-        # because we copy the global reward to each agent in rllib_env
-        rewards = to_batches(rew, torch.float)
-        if self.reward_standardize:
-            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
-
-        obs = to_batches(obs, torch.float)
-        next_obs = to_batches(next_obs, torch.float)
-        actions = to_batches(act, torch.long)
-        action_mask = to_batches(action_mask, torch.float)
-        next_action_mask = to_batches(next_action_mask, torch.float)
-        if self.has_env_global_state:
-            env_global_state = to_batches(env_global_state, torch.float)
-            next_env_global_state = to_batches(next_env_global_state, torch.float)
-        terminated = to_batches(dones, torch.float)
-
-        # Create mask for where index is < unpadded sequence length
-        filled = np.reshape(np.tile(np.arange(T, dtype=np.float32), B), [B, T]) < np.expand_dims(seq_lens, 1)
-        mask = torch.as_tensor(filled, dtype=torch.float, device=self.device)
+        (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
+         next_obs, obs, rewards, terminated, _, _) = preprocess_trajectory_batch(self, samples)
 
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
             rewards,
