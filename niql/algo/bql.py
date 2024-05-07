@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from gym.spaces import Dict as GymDict
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
+from ray.rllib.agents.qmix.qmix_policy import _unroll_mac
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
@@ -141,19 +142,17 @@ class BQLPolicy(Policy):
         self._global_update_count = 0
 
         # optimizer
-        self.grad_clip_params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
+        self.params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
         if self.obs_encoder:
-            self.grad_clip_params += list(self.obs_encoder.parameters())
+            self.params += list(self.obs_encoder.parameters())
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
-            self.optimiser = RMSprop(params=self.grad_clip_params, lr=config["lr"])
-            # self.optimiser_i = RMSprop(params=self.model.parameters(), lr=config["lr"])
+            self.optimiser = RMSprop(params=self.params, lr=config["lr"])
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
-            self.optimiser = Adam(params=self.grad_clip_params, lr=config["lr"])
-            # self.optimiser_i = Adam(params=self.model.parameters(), lr=config["lr"])
+            self.optimiser = Adam(params=self.params, lr=config["lr"])
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -224,7 +223,10 @@ class BQLPolicy(Policy):
             dist_inputs, state_out = self.model(obs_batch, state_batches, seq_lens)
 
             # select action
-            action_dist = self.dist_class(dist_inputs, self.model)
+            try:
+                action_dist = self.dist_class(dist_inputs, self.model)
+            except ValueError as e:
+                print('asdfa')
             actions, logp = self.exploration.get_exploration_action(
                 action_distribution=action_dist,
                 timestep=timestep,
@@ -256,18 +258,21 @@ class BQLPolicy(Policy):
                 "Policy", SampleBatch]]] = None,
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
         # observation sharing
-        sample_batch = sample_batch.copy()
-        n_obs = []
-        n_next_obs = []
-        for n_id, (_, batch) in other_agent_batches.items():
-            n_obs.append(
-                batch[SampleBatch.OBS]
-            )
-            n_next_obs.append(
-                batch[SampleBatch.NEXT_OBS]
-            )
-        sample_batch[NEIGHBOUR_OBS] = np.array(n_obs).reshape(len(sample_batch), len(other_agent_batches), -1)
-        sample_batch[NEIGHBOUR_NEXT_OBS] = np.array(n_next_obs).reshape(len(sample_batch), len(other_agent_batches), -1)
+        if len(other_agent_batches) > 0:
+            sample_batch = sample_batch.copy()
+            n_obs = []
+            n_next_obs = []
+            for n_id, (_, batch) in other_agent_batches.items():
+                n_obs.append(
+                    batch[SampleBatch.OBS]
+                )
+                n_next_obs.append(
+                    batch[SampleBatch.NEXT_OBS]
+                )
+            sample_batch[NEIGHBOUR_OBS] = np.array(n_obs).reshape(
+                len(sample_batch), len(other_agent_batches), -1)
+            sample_batch[NEIGHBOUR_NEXT_OBS] = np.array(n_next_obs).reshape(
+                len(sample_batch), len(other_agent_batches), -1)
         return sample_batch
 
     def learn_on_batch(self, samples: SampleBatch) -> Dict[str, TensorType]:
@@ -391,7 +396,7 @@ class BQLPolicy(Policy):
                 obs = projection(obs, train_batch[NEIGHBOUR_OBS])
                 next_obs = projection(next_obs, train_batch[NEIGHBOUR_NEXT_OBS])
                 convert = False
-                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update(
+                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_np(
                     obs=obs.cpu().detach().numpy(),
                     actions=actions,
                     rewards=batch_rewards,
@@ -401,7 +406,7 @@ class BQLPolicy(Policy):
                 obs = {SampleBatch.OBS: obs}
                 next_obs = {SampleBatch.OBS: next_obs}
             else:
-                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update(
+                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_np(
                     obs=obs,
                     actions=actions,
                     rewards=batch_rewards,
@@ -499,7 +504,6 @@ class BQLPolicy(Policy):
                                   neighbour_next_obs=None):
         """
         Computes the Q loss.
-        Based on the JointQLoss of Marllib.
 
         Args:
             rewards: Tensor of shape [B, T]
@@ -517,10 +521,10 @@ class BQLPolicy(Policy):
         """
         B, T = obs.shape[0], obs.shape[1]
 
-        # ----------------------- Reward reconciliation ------------------
+        # reward reconciliation
         if self.config["reconcile_rewards"]:
-            threshold = 0.99
-            if self.config["use_obs_encoder"]:
+            threshold = self.config.get("similarity_threshold", 0.99)
+            if self.config.get("use_obs_encoder", False) and neighbour_obs is not None and neighbour_next_obs is not None:
                 def projection(x, n_x):
                     x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
                     n_obs = convert_to_torch_tensor(n_x, self.device)
@@ -531,8 +535,7 @@ class BQLPolicy(Policy):
 
                 obs = projection(obs, neighbour_obs)
                 next_obs = projection(next_obs, neighbour_next_obs)
-                convert = False
-                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update(
+                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
                     obs=obs.clone().detach().reshape(B * T, -1),
                     actions=actions.reshape(-1, 1),
                     rewards=rewards.reshape(-1, 1),
@@ -540,7 +543,7 @@ class BQLPolicy(Policy):
                 )
                 rewards = batch_rewards.view(*rewards.shape)
             else:
-                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update(
+                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
                     obs=obs.clone().detach().reshape(B * T, -1),
                     actions=actions.reshape(-1, 1),
                     rewards=rewards.reshape(-1, 1),
@@ -548,4 +551,48 @@ class BQLPolicy(Policy):
                 )
                 rewards = batch_rewards.view(*rewards.shape)
 
-        return 0
+        # append the first element of obs + next_obs to get new one
+        whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
+        whole_obs = whole_obs.unsqueeze(2)
+
+        # Auxiliary model objective
+        # Qe(s, a_i)
+        Qe_out = _unroll_mac(self.auxiliary_model, whole_obs).squeeze(2)
+        Qe_qvals = torch.gather(Qe_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
+
+        # Qi(s', a'_i*)
+        Qi_out = _unroll_mac(self.model, whole_obs).squeeze(2)
+        Qi_out_sp = Qi_out[:, 1:]
+        # Mask out unavailable actions for the t+1 step
+        ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
+        Qi_out_sp[ignore_action_tp1] = -np.inf
+        Qi_out_sp_qvals = Qi_out_sp.max(dim=2)[0]
+
+        # Calculate 1-step Q-Learning targets
+        targets = rewards + self.config["gamma"] * (1 - terminated) * Qi_out_sp_qvals
+
+        # Qe_i TD error
+        Qe_td_error = (Qe_qvals - targets.detach())
+        mask = mask.expand_as(Qe_td_error)
+        # 0-out the targets that came from padded data
+        masked_td_error = Qe_td_error * mask
+        Qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
+        self.model.tower_stats["Qe_loss"] = Qe_loss
+        self.model.tower_stats["td_error"] = Qe_td_error
+
+        # Qi function objective
+        # Qi(s, a)
+        Qi_out_s_qvals = torch.gather(Qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
+        # Qe_bar(s, a)
+        Qe_bar_out = _unroll_mac(self.auxiliary_target_model, whole_obs).squeeze(2)
+        Qe_bar_out_qvals = torch.gather(Qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
+        Qi_weights = torch.where(Qe_bar_out_qvals > Qi_out_s_qvals, 1.0, self.lamda)
+        Qi_loss = Qi_weights * huber_loss(Qi_out_s_qvals - Qe_bar_out_qvals.detach())
+        Qi_loss = torch.sum(Qi_loss * mask) / mask.sum()
+        self.model.tower_stats["Qi_loss"] = Qi_loss
+
+        # combine losses
+        loss = Qe_loss + Qi_loss
+        self.model.tower_stats["loss"] = loss
+
+        return loss, mask, masked_td_error, Qi_out_s_qvals, targets

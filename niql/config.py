@@ -4,12 +4,12 @@ FINGERPRINT_SIZE = 2
 MPE = {
     'algo_parameters': {
         'algo_args': {
-            'batch_episode': 128,
+            'batch_episode': 64,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
-            'buffer_size': 100000,
+            'buffer_size': 50000,
             'target_network_update_freq': 200,
-            'final_epsilon': 0.05,
+            'final_epsilon': 0.01,
             'epsilon_timesteps': 100000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
@@ -68,7 +68,8 @@ COOP_MATRIX = {
         'model': 'DuelingQFCN',
         # 'model': 'DRQNModel',
         # 'model': 'MatrixGameQMLP',
-        # 'model': 'MatrixGameSplitQMLP'
+        # 'model': 'MatrixGameSplitQMLP',
+        'mha_num_heads': 2,
     },
     'stop_condition': {
         'episode_reward_mean': 2000,

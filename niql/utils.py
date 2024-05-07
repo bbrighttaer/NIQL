@@ -114,9 +114,8 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
         )
         shared_next_obs_batch = shared_next_obs_batch.reshape(*n_shape[:2], -1)
 
-    group_rewards = get_group_rewards(policy.n_agents, samples[SampleBatch.INFOS])
     input_list = [
-        group_rewards, action_mask, next_action_mask,
+        samples[SampleBatch.REWARDS], action_mask, next_action_mask,
         samples[SampleBatch.ACTIONS], samples[SampleBatch.DONES],
         obs_batch, next_obs_batch
     ]
@@ -154,17 +153,21 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
          next_obs) = output_list
     B, T = len(seq_lens), max(seq_lens)
 
-    def to_batches(arr, dtype):
+    def to_batches(arr, dtype, squeeze=True):
         new_shape = [B, T] + list(arr.shape[1:])
-        return torch.as_tensor(
+        tensor = torch.as_tensor(
             np.reshape(arr, new_shape),
             dtype=dtype,
             device=policy.device,
-        ).squeeze(2)
+        )
+        if squeeze:
+            return tensor.squeeze(2)
+        else:
+            return tensor
 
     # reduce the scale of reward for small variance. This is also
     # because we copy the global reward to each agent in rllib_env
-    rewards = to_batches(rew, torch.float)
+    rewards = to_batches(rew.reshape(-1, 1), torch.float)
     if policy.reward_standardize:
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
@@ -180,8 +183,8 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
         next_env_global_state = to_batches(next_env_global_state, torch.float)
 
     if has_neighbour_data:
-        n_obs = to_batches(n_obs, torch.float)
-        n_next_obs = to_batches(n_next_obs, torch.float)
+        n_obs = to_batches(n_obs, torch.float, squeeze=False)  # squeeze=False means maintain agent dim
+        n_next_obs = to_batches(n_next_obs, torch.float, squeeze=False)
 
     # Create mask for where index is < unpadded sequence length
     filled = np.reshape(np.tile(np.arange(T, dtype=np.float32), B), [B, T]) < np.expand_dims(seq_lens, 1)
