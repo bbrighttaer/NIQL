@@ -8,6 +8,7 @@ import ray
 import torch
 from marllib import marl
 
+import niql.trainer_loaders
 from niql import envs, scripts, config, utils, seed
 from niql.models import *  # noqa
 
@@ -60,7 +61,7 @@ if __name__ == '__main__':
     marl.algos.register_algo(
         algo_name="imix",
         style="il",
-        script=scripts.run_imix if mode == 'train' else utils.load_iql_checkpoint,
+        script=scripts.run_imix if mode == 'train' else niql.trainer_loaders.load_iql_checkpoint,
     )
 
     # initialize algorithm

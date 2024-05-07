@@ -44,7 +44,7 @@ COOP_MATRIX = {
             'batch_episode': 128,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
-            'buffer_size': 100000,
+            'buffer_size': 10000,
             'target_network_update_freq': 10,
             'final_epsilon': 0.01,
             'epsilon_timesteps': 1000,

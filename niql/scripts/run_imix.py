@@ -17,7 +17,7 @@ from ray.util.ml_utils.dict import merge_dicts
 
 from niql.algo import IMIXTrainer
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
-from niql.utils import determine_multiagent_policy_mapping
+from niql.trainer_loaders import determine_multiagent_policy_mapping
 
 
 def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, policy_map: dict):

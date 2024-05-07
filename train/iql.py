@@ -8,6 +8,7 @@ import ray
 import torch
 from marllib import marl
 
+import niql.trainer_loaders
 from niql import envs, scripts, config, utils, seed
 from niql.models import *  # noqa
 
@@ -51,16 +52,16 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_smac_env()
+    env = envs.make_one_step_matrix_game_env()
 
-    exp_config = config.MPE
+    exp_config = config.COOP_MATRIX
     gpu_count = torch.cuda.device_count()
 
     # register new algorithm
     marl.algos.register_algo(
         algo_name="iql",
         style="il",
-        script=scripts.run_iql if mode == 'train' else utils.load_iql_checkpoint,
+        script=scripts.run_iql if mode == 'train' else niql.trainer_loaders.load_iql_checkpoint,
     )
 
     # initialize algorithm

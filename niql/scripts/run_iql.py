@@ -14,7 +14,7 @@ from ray.util.ml_utils.dict import merge_dicts
 
 from niql.algo import IQLTrainer
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
-from niql.utils import determine_multiagent_policy_mapping
+from niql.trainer_loaders import determine_multiagent_policy_mapping
 
 
 def before_learn_on_batch(batch, *args):
@@ -90,6 +90,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     IQL_Config.update(
         {
             "rollout_fragment_length": 1,
+            "batch_mode": "complete_episodes",  # "truncate_episodes",
             "buffer_size": buffer_size * episode_limit,  # in timesteps
             "train_batch_size": train_batch_episode,  # in sequence
             "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps
@@ -101,7 +102,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
                 "final_epsilon": final_epsilon,
                 "epsilon_timesteps": epsilon_timesteps,
             },
-            "mixer": mixer_dict[algorithm]
+            "mixer": mixer_dict[algorithm],
         })
 
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on

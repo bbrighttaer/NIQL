@@ -242,8 +242,8 @@ class BQLPolicy(Policy):
             n_next_obs.append(
                 batch[SampleBatch.NEXT_OBS]
             )
-        sample_batch[NEIGHBOUR_OBS] = np.array(n_obs).reshape(1, len(other_agent_batches), -1)
-        sample_batch[NEIGHBOUR_NEXT_OBS] = np.array(n_next_obs).reshape(1, len(other_agent_batches), -1)
+        sample_batch[NEIGHBOUR_OBS] = np.array(n_obs).reshape(len(sample_batch), len(other_agent_batches), -1)
+        sample_batch[NEIGHBOUR_NEXT_OBS] = np.array(n_next_obs).reshape(len(sample_batch), len(other_agent_batches), -1)
         return sample_batch
 
     def learn_on_batch(self, samples: SampleBatch) -> Dict[str, TensorType]:
