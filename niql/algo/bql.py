@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from gym.spaces import Dict as GymDict
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
-from ray.rllib.agents.qmix.qmix_policy import _unroll_mac
+from ray.rllib.agents.qmix.qmix_policy import _unroll_mac, _mac
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
@@ -56,7 +56,7 @@ class BQLPolicy(Policy):
         self.framework = "torch"
         config = dict(DEFAULT_CONFIG, **config)
         super().__init__(obs_space, action_space, config)
-        self.n_agents = len(obs_space.original_space)
+        self.n_agents = 1
         config["model"]["n_agents"] = self.n_agents
         self.lamda = config["lambda"]
         self.tau = config["tau"]
@@ -188,7 +188,14 @@ class BQLPolicy(Policy):
                 self.obs_encoder.eval()
 
         with torch.no_grad():
-            seq_lens = torch.ones(len(obs_batch), dtype=torch.int32)
+            obs_batch = convert_to_torch_tensor(obs_batch, self.device)
+            state_batches = [
+                convert_to_torch_tensor(s, self.device) for s in (state_batches or [])
+            ]
+
+            # Call the exploration before_compute_actions hook.
+            self.exploration.before_compute_actions(explore=explore, timestep=timestep)
+
             if self.config["use_obs_encoder"]:
                 if self.shared_neighbour_obs:
                     n = len(self.shared_neighbour_obs)
@@ -197,52 +204,32 @@ class BQLPolicy(Policy):
                     obs_batch = np.concatenate([obs_batch, neighbour_obs], axis=1)
                     self.shared_neighbour_obs.clear()
                 obs_batch = convert_to_torch_tensor(obs_batch, self.device)
-                outputs = self.obs_encoder(obs_batch)
-                obs_batch = SampleBatch({
-                    SampleBatch.CUR_OBS: outputs
-                })
+                obs_batch = self.obs_encoder(obs_batch).unsqueeze(1)
             else:
-                obs_batch = SampleBatch({
-                    SampleBatch.CUR_OBS: obs_batch
-                })
-                obs_batch.set_get_interceptor(
-                    functools.partial(convert_to_torch_tensor, device=self.device)
-                )
-            if prev_action_batch is not None:
-                obs_batch[SampleBatch.PREV_ACTIONS] = np.asarray(prev_action_batch)
-            if prev_reward_batch is not None:
-                obs_batch[SampleBatch.PREV_REWARDS] = np.asarray(prev_reward_batch)
-            state_batches = [
-                convert_to_torch_tensor(s, self.device) for s in (state_batches or [])
-            ]
-
-            # Call the exploration before_compute_actions hook.
-            self.exploration.before_compute_actions(explore=explore, timestep=timestep)
+                obs_batch = convert_to_torch_tensor(obs_batch, self.device)
 
             # predict q-vals
-            dist_inputs, state_out = self.model(obs_batch, state_batches, seq_lens)
+            q_values, hiddens = _mac(self.model, obs_batch, state_batches)
+            avail_actions = convert_to_torch_tensor(action_mask, self.device)
+            masked_q_values = q_values.clone()
+            masked_q_values[avail_actions == 0.0] = -float("inf")
+            masked_q_values_folded = torch.reshape(masked_q_values, [-1] + list(masked_q_values.shape)[2:])
 
             # select action
-            try:
-                action_dist = self.dist_class(dist_inputs, self.model)
-            except ValueError as e:
-                print('asdfa')
+            action_dist = self.dist_class(masked_q_values_folded, self.model)
             actions, logp = self.exploration.get_exploration_action(
                 action_distribution=action_dist,
                 timestep=timestep,
                 explore=explore,
             )
 
-            # assign selection actions
-            obs_batch[SampleBatch.ACTIONS] = actions
-
-            # Update our global timestep by the batch size.
-            self.global_timestep += len(obs_batch[SampleBatch.CUR_OBS])
+            actions = actions.cpu().numpy()
+            hiddens = [s.view(self.n_agents, -1).cpu().numpy() for s in hiddens]
 
             # store q values selected in this time step for callbacks
-            q_values = dist_inputs.squeeze().cpu().detach().numpy().tolist()
+            q_values = masked_q_values.squeeze().cpu().detach().numpy().tolist()
 
-            results = convert_to_non_torch_type((actions, state_out, {'q-values': [q_values]}))
+            results = convert_to_non_torch_type((actions, hiddens, {'q-values': [q_values]}))
 
         return results
 
