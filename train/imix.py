@@ -9,7 +9,7 @@ import torch
 from marllib import marl
 
 import niql.trainer_loaders
-from niql import envs, scripts, config, utils, seed
+from niql import envs, scripts, seed
 from niql.models import *  # noqa
 
 os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
@@ -52,9 +52,8 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.get_active_env()
+    env, exp_config = envs.get_active_env()
 
-    exp_config = config.COOP_MATRIX
     gpu_count = torch.cuda.device_count()
 
     # register new algorithm

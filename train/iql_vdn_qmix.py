@@ -9,9 +9,9 @@ import ray
 import torch
 from marllib import marl
 from ray.rllib.policy.sample_batch import DEFAULT_POLICY_ID
-from niql.models import *  # noqa
 
-from niql import envs, config, utils, scripts, seed
+from niql import envs, utils, trainer_loaders, scripts, seed
+from niql.models import *  # noqa
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.get_active_env()
+    env, exp_config = envs.get_active_env()
 
     # initialise algorithm with hyperparameters
     if args.algo == 'qmix':
@@ -57,14 +57,13 @@ if __name__ == '__main__':
         algo = marl.algos.vdn
     else:
         algo = marl.algos.iql
-    exp_config = config.MPE
     algo.algo_parameters = exp_config['algo_parameters']
 
     # register execution script
     marl.algos.register_algo(
         algo_name=algo.name,
         style=algo.algo_type,
-        script=scripts.run_joint_q if mode == 'train' else utils.load_joint_q_checkpoint,
+        script=scripts.run_joint_q if mode == 'train' else trainer_loaders.load_joint_q_checkpoint,
     )
 
     # build model

@@ -8,13 +8,13 @@ from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
 from .mpe_simple import MPESimple
 from .predator_prey import PredatorPrey
 from .utils import make_local_env
+from ..config import PREDATOR_PREY, SMAC, MPE, MATRIX_GAME
 
 
 def get_active_env(**kwargs):
     return make_predator_prey_env(**kwargs)
 
 
-# ---------------- Cooperative envs ---------------------------------------------
 def make_mpe_simple_spread_env(**kwargs):
     # choose environment + scenario
     env = marl.make_env(
@@ -24,7 +24,7 @@ def make_mpe_simple_spread_env(**kwargs):
         max_cycles=25,
         **kwargs,
     )
-    return env
+    return env, MPE
 
 
 def make_predator_prey_env(**kwargs):
@@ -38,7 +38,7 @@ def make_predator_prey_env(**kwargs):
         map_name="all_scenario",
         **kwargs,
     )
-    return env
+    return env, PREDATOR_PREY
 
 
 def make_smac_env(**kwargs):
@@ -48,10 +48,8 @@ def make_smac_env(**kwargs):
         difficulty=kwargs.get("difficulty", "7"),
         reward_scale_rate=kwargs.get("reward_scale_rate", 20),
     )
-    return env
+    return env, SMAC
 
-
-# ------------------------- Debug envs ---------------------------------------------
 
 def make_mpe_simple_env(**kwargs):
     # register new env
@@ -66,7 +64,7 @@ def make_mpe_simple_env(**kwargs):
         max_cycles=25,
         **kwargs,
     )
-    return env
+    return env, MPE
 
 
 def make_two_step_matrix_game_env(**kwargs):
@@ -80,7 +78,7 @@ def make_two_step_matrix_game_env(**kwargs):
         map_name="all_scenario",
         **kwargs,
     )
-    return env
+    return env, MATRIX_GAME
 
 
 def make_one_step_matrix_game_env(**kwargs):
@@ -94,10 +92,7 @@ def make_one_step_matrix_game_env(**kwargs):
         map_name="all_scenario",
         **kwargs,
     )
-    return env
-
-
-# ------------------------------------------------------------------------------------
+    return env, MATRIX_GAME
 
 
 def pad_obs_space(obs_space):
