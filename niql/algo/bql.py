@@ -511,7 +511,7 @@ class BQLPolicy(Policy):
 
         # reward reconciliation
         if self.config["reconcile_rewards"]:
-            threshold = self.config.get("similarity_threshold", 0.99)
+            threshold = self.config["similarity_threshold"]
             if self.config.get("use_obs_encoder", False) and neighbour_obs is not None and neighbour_next_obs is not None:
                 def projection(x, n_x):
                     x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
