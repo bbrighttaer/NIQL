@@ -64,15 +64,15 @@ class FCNEncoder(nn.Module):
 
         self.fc1 = nn.Linear(input_dim, 64)
         self.fc2 = nn.Linear(64, 128)
-        # self.fc3 = nn.Linear(128, 512)
-        self.out = nn.Linear(128, input_dim)
+        self.fc3 = nn.Linear(128, 512)
+        self.out = nn.Linear(512, input_dim)
         self.ste = StraightThroughEstimator()
 
     def forward(self, x):
         x = torch.sum(x, dim=1, keepdim=True)  # gather across the neighbour dimension
         x = F.elu(self.fc1(x))
-        # x = F.elu(self.fc2(x))
-        encoding = self.ste(self.fc2(x))
+        x = F.elu(self.fc2(x))
+        encoding = self.ste(self.fc3(x))
         x = self.out(encoding)
         return x, encoding
 
