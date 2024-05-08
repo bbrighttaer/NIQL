@@ -10,18 +10,20 @@ class MultiHeadSelfAttentionEncoder(nn.Module):
         self.input_dim = input_dim
         self.num_heads = num_heads
         self.head_dim = input_dim // num_heads
+        self.latent_dim = 128
 
         self.W_q = nn.Linear(input_dim, input_dim)
         self.W_k = nn.Linear(input_dim, input_dim)
         self.W_v = nn.Linear(input_dim, input_dim)
-        self.W_o = nn.Linear(input_dim, input_dim)
-        self.W_agg = nn.Linear(input_dim, input_dim)
+        self.W_enc = nn.Linear(input_dim, self.latent_dim)
+        self.W_out = nn.Linear(self.latent_dim, input_dim)
         self.ste = StraightThroughEstimator()
 
         self.dropout = nn.Dropout(dropout)
         self.scale_factor = torch.sqrt(torch.FloatTensor([self.head_dim])).to(device)
 
     def forward(self, x):
+        x = torch.mean(x, dim=1, keepdim=True)  # gather across the neighbour dimension
         query, key, value = x, x, x
         batch_size = query.shape[0]
 
@@ -47,14 +49,9 @@ class MultiHeadSelfAttentionEncoder(nn.Module):
 
         # Concatenate heads and apply final linear transformation
         x = x.permute(0, 2, 1, 3).contiguous().view(batch_size, -1, self.input_dim)
-        x = self.W_o(x)
-
-        # Aggregation
-        x = torch.sum(x, dim=1, keepdim=True)  # gather across the neighbour dimension
-        x = self.W_agg(x)
-        x = self.ste(x)
-
-        return x
+        enc = self.ste(self.W_enc(x))
+        out = self.W_out(enc)
+        return out, enc
 
 
 class FCNEncoder(nn.Module):

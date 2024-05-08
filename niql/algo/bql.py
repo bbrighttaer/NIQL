@@ -96,7 +96,7 @@ class BQLPolicy(Policy):
 
         # models
         if self.config["use_obs_encoder"]:
-            self.obs_encoder = FCNEncoder(
+            self.obs_encoder = MultiHeadSelfAttentionEncoder(
                 input_dim=self.obs_size,
                 num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
                 device=self.device,
