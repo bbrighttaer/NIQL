@@ -35,7 +35,7 @@ MPE = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 300000,
+        'timesteps_total': 100000,
     }
 }
 
