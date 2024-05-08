@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class ObservationEmbeddingModel(nn.Module):
+class MultiHeadSelfAttentionEncoder(nn.Module):
     def __init__(self, input_dim, num_heads, device, dropout=0.1):
-        super(ObservationEmbeddingModel, self).__init__()
+        super(MultiHeadSelfAttentionEncoder, self).__init__()
         assert input_dim % num_heads == 0, f"Input dimension {input_dim} must be divisible by the number of heads {num_heads}"
         self.input_dim = input_dim
         self.num_heads = num_heads
@@ -16,6 +16,7 @@ class ObservationEmbeddingModel(nn.Module):
         self.W_v = nn.Linear(input_dim, input_dim)
         self.W_o = nn.Linear(input_dim, input_dim)
         self.W_agg = nn.Linear(input_dim, input_dim)
+        self.ste = StraightThroughEstimator()
 
         self.dropout = nn.Dropout(dropout)
         self.scale_factor = torch.sqrt(torch.FloatTensor([self.head_dim])).to(device)
@@ -49,8 +50,52 @@ class ObservationEmbeddingModel(nn.Module):
         x = self.W_o(x)
 
         # Aggregation
-        x = torch.sum(x, dim=1)  # gather across the neighbour dimension
+        x = torch.sum(x, dim=1, keepdim=True)  # gather across the neighbour dimension
         x = self.W_agg(x)
-        x = F.elu(x)
+        x = self.ste(x)
 
+        return x
+
+
+class FCNEncoder(nn.Module):
+
+    def __init__(self, input_dim, *args, **kwargs):
+        super().__init__()
+
+        self.fc1 = nn.Linear(input_dim, 64)
+        self.fc2 = nn.Linear(64, 128)
+        self.fc3 = nn.Linear(128, 512)
+        self.out = nn.Linear(512, input_dim)
+        self.ste = StraightThroughEstimator()
+
+    def forward(self, x):
+        x = torch.sum(x, dim=1, keepdim=True)  # gather across the neighbour dimension
+        x = F.elu(self.fc1(x))
+        x = F.elu(self.fc2(x))
+        encoding = self.ste(self.fc3(x))
+        x = self.out(encoding)
+        return x, encoding
+
+
+class STEFunction(torch.autograd.Function):
+    """
+    Credit: https://hassanaskary.medium.com/intuitive-explanation-of-straight-through-estimators-with-pytorch-implementation-71d99d25d9d0
+    """
+
+    @staticmethod
+    def forward(ctx, input):
+        return (input > 0).float()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # passed through hard-tanh to clip gradients between [-1, 1]
+        return F.hardtanh(grad_output)
+
+
+class StraightThroughEstimator(nn.Module):
+    def __init__(self):
+        super(StraightThroughEstimator, self).__init__()
+
+    def forward(self, x):
+        x = STEFunction.apply(x)
         return x

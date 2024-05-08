@@ -19,7 +19,7 @@ from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_to
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql import distance_metrics
-from niql.models import DRQNModel, ObservationEmbeddingModel
+from niql.models import DRQNModel, MultiHeadSelfAttentionEncoder, FCNEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS
 
 logger = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class BQLPolicy(Policy):
 
         # models
         if self.config["use_obs_encoder"]:
-            self.obs_encoder = ObservationEmbeddingModel(
+            self.obs_encoder = FCNEncoder(
                 input_dim=self.obs_size,
                 num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
                 device=self.device,
@@ -205,7 +205,8 @@ class BQLPolicy(Policy):
                     obs_batch = torch.cat([obs_batch, neighbour_obs], axis=1)
                     self.shared_neighbour_obs.clear()
                 obs_batch = convert_to_torch_tensor(obs_batch, self.device)
-                obs_batch = self.obs_encoder(obs_batch).unsqueeze(1)
+                obs_batch, _ = self.obs_encoder(obs_batch)
+                obs_batch = obs_batch.unsqueeze(1)
             else:
                 obs_batch = convert_to_torch_tensor(obs_batch, self.device)
 
@@ -517,14 +518,14 @@ class BQLPolicy(Policy):
                     x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
                     n_obs = convert_to_torch_tensor(n_x, self.device)
                     x = torch.cat([x, n_obs], dim=2)
-                    x = self.obs_encoder(x.view(B * T, *x.shape[2:]))
+                    x, enc = self.obs_encoder(x.view(B * T, *x.shape[2:]))
                     x = x.view(B, T, -1)
-                    return x
+                    return x, enc
 
-                obs = projection(obs, neighbour_obs)
-                next_obs = projection(next_obs, neighbour_next_obs)
+                obs, encoding = projection(obs, neighbour_obs)
+                next_obs, _ = projection(next_obs, neighbour_next_obs)
                 batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
-                    obs=obs.clone().detach().reshape(B * T, -1),
+                    obs=encoding.clone().detach().reshape(B * T, -1),
                     actions=actions.reshape(-1, 1),
                     rewards=rewards.reshape(-1, 1),
                     threshold=threshold,

@@ -13,7 +13,7 @@ PREDATOR_PREY = {
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
-            'lambda': 0.01,
+            'lambda': 0.5,
             'tau': 0.5,  # target network soft update
             'beta': 0,
             'callbacks': NIQLCallbacks,
@@ -24,7 +24,7 @@ PREDATOR_PREY = {
     'model_preference': {
         'core_arch': 'gru',  # mlp | gru
         "encode_layer": "64",  # for RNN model
-        'hidden_state_size': 128,  # for RNN model
+        'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
         'model': 'DRQNModel',
         # 'model': 'DuelingQFCN',
