@@ -18,7 +18,7 @@ PREDATOR_PREY = {
             'beta': 0,
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
-            'similarity_threshold': 0.99,
+            'similarity_threshold': 0.999,
         }
     },
     'model_preference': {
