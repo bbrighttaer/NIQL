@@ -23,18 +23,18 @@ MPE = {
     },
     'model_preference': {
         'core_arch': 'gru',  # mlp | gru
-        "encode_layer": "64",  # for RNN model
+        "encode_layer": "128",  # for RNN model
         'hidden_state_size': 128,  # for RNN model
         'fcnet_activation': 'relu',
         'model': 'DRQNModel',
         # 'model': 'DuelingQFCN',
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
-        'mha_num_heads': 4,
+        'mha_num_heads': 7,
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 200000,
+        'timesteps_total': 300000,
     }
 }
 
