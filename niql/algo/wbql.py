@@ -44,7 +44,7 @@ def soft_update(target_net, source_net, tau):
     return target_net
 
 
-class IBQLPolicy(Policy):
+class WBQLPolicy(Policy):
 
     def __init__(self, obs_space, action_space, config):
         self.framework = "torch"

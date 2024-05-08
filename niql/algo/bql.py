@@ -200,8 +200,9 @@ class BQLPolicy(Policy):
                 if self.shared_neighbour_obs:
                     n = len(self.shared_neighbour_obs)
                     obs_batch = obs_batch.reshape(1, 1, -1)
-                    neighbour_obs = np.array(self.shared_neighbour_obs).reshape(1, n, -1)
-                    obs_batch = np.concatenate([obs_batch, neighbour_obs], axis=1)
+                    neighbour_obs = convert_to_torch_tensor(
+                        np.array(self.shared_neighbour_obs).reshape(1, n, -1), self.device)
+                    obs_batch = torch.cat([obs_batch, neighbour_obs], axis=1)
                     self.shared_neighbour_obs.clear()
                 obs_batch = convert_to_torch_tensor(obs_batch, self.device)
                 obs_batch = self.obs_encoder(obs_batch).unsqueeze(1)

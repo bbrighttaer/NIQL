@@ -24,7 +24,7 @@ MPE = {
     'model_preference': {
         'core_arch': 'gru',  # mlp | gru
         "encode_layer": "64",  # for RNN model
-        'hidden_state_size': 64,  # for RNN model
+        'hidden_state_size': 128,  # for RNN model
         'fcnet_activation': 'relu',
         'model': 'DRQNModel',
         # 'model': 'DuelingQFCN',

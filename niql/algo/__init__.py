@@ -3,7 +3,7 @@ from ray.rllib.agents.dqn import DEFAULT_CONFIG
 from ray.rllib.agents.trainer_template import build_trainer
 
 from .bql import BQLPolicy
-from .ibql import IBQLPolicy
+from .wbql import WBQLPolicy
 from .imix import IMIX
 from .iql import IQLPolicy
 from ..execution_plans import imix_episode_execution_plan, bql_episode_execution_plan
@@ -24,7 +24,7 @@ IMIXTrainer = build_trainer(
 
 BQLTrainer = build_trainer(
     name="BQLTrainer",
-    get_policy_class=lambda c: IBQLPolicy,
+    get_policy_class=lambda c: WBQLPolicy,
     default_config=DEFAULT_CONFIG,
     execution_plan=episode_execution_plan,
 )
