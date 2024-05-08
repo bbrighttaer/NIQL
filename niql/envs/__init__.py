@@ -10,6 +10,10 @@ from .predator_prey import PredatorPrey
 from .utils import make_local_env
 
 
+def get_active_env(**kwargs):
+    return make_predator_prey_env(**kwargs)
+
+
 # ---------------- Cooperative envs ---------------------------------------------
 def make_mpe_simple_spread_env(**kwargs):
     # choose environment + scenario

@@ -19,7 +19,7 @@ MPE = {
             'beta': 0,
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
-            'similarity_threshold': 0.999,
+            'similarity_threshold': 0.9,
         }
     },
     'model_preference': {

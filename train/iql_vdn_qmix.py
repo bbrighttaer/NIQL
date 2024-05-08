@@ -48,7 +48,7 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_mpe_simple_env()
+    env = envs.get_active_env()
 
     # initialise algorithm with hyperparameters
     if args.algo == 'qmix':

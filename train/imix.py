@@ -52,7 +52,7 @@ if __name__ == '__main__':
     mode = args.exec_mode
 
     # get env
-    env = envs.make_two_step_matrix_game_env()
+    env = envs.get_active_env()
 
     exp_config = config.COOP_MATRIX
     gpu_count = torch.cuda.device_count()
