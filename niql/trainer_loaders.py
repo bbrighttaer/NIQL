@@ -208,6 +208,8 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
     IQL_Config["enable_joint_buffer"] = _param.get("enable_joint_buffer")
     IQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
     IQL_Config["beta"] = _param["beta"]
+    IQL_Config["reconcile_rewards"] = _param.get("reconcile_rewards")
+    IQL_Config["use_obs_encoder"] = _param.get("use_obs_encoder")
     if "gamma" in _param:
         IQL_Config["gamma"] = _param["gamma"]
 

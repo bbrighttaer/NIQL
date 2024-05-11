@@ -9,11 +9,11 @@ PREDATOR_PREY = {
             'buffer_size': 10000,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
-            'epsilon_timesteps': 300000,
+            'epsilon_timesteps': 50000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
-            'lambda': 0.3,
+            'lambda': 0.5,
             'tau': 0.5,  # target network soft update
             'beta': 0,
             'callbacks': NIQLCallbacks,

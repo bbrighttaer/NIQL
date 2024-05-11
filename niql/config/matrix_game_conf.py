@@ -3,7 +3,7 @@ from niql.callbacks import NIQLCallbacks
 MATRIX_GAME = {
     'algo_parameters': {
         'algo_args': {
-            'batch_episode': 128,
+            'batch_episode': 32,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
             'buffer_size': 10000,
@@ -18,6 +18,7 @@ MATRIX_GAME = {
             'beta': 0,
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
+            'similarity_threshold': 0.999,
         }
     },
     'model_preference': {

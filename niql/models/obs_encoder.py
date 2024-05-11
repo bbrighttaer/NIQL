@@ -50,7 +50,7 @@ class MultiHeadSelfAttentionEncoder(nn.Module):
         # Concatenate heads and apply final linear transformation
         x = x.permute(0, 2, 1, 3).contiguous().view(batch_size, -1, self.input_dim)
         enc = self.ste(self.W_enc(x))
-        out = self.W_out(enc)
+        out = F.relu(self.W_out(enc))
         return out, enc
 
 
@@ -58,19 +58,28 @@ class FCNEncoder(nn.Module):
 
     def __init__(self, input_dim, *args, **kwargs):
         super().__init__()
+        self.encoding_dim = 32
 
-        self.fc1 = nn.Linear(input_dim, 64)
-        self.fc2 = nn.Linear(64, 128)
-        self.fc3 = nn.Linear(128, 512)
-        self.out = nn.Linear(512, input_dim)
+        self.linear1 = nn.Linear(input_dim, input_dim)
+        self.enc_linear = nn.Linear(input_dim, self.encoding_dim)
+        self.linear2 = nn.Linear(self.encoding_dim, input_dim)
         self.ste = StraightThroughEstimator()
 
     def forward(self, x):
-        x = torch.sum(x, dim=1, keepdim=True)  # gather across the neighbour dimension
-        x = F.elu(self.fc1(x))
-        x = F.elu(self.fc2(x))
-        encoding = self.ste(self.fc3(x))
-        x = self.out(encoding)
+        # projection
+        x = F.elu(self.linear1(x))
+
+        # aggregation
+        x = torch.max(x, dim=1, keepdim=True)[0]  # gather across the neighbour dimension
+        x = F.elu(x)
+
+        # encoding
+        encoding = self.ste(self.enc_linear(x))
+
+        # res-link
+        x = self.linear2(encoding) + x
+        x = F.elu(x)
+
         return x, encoding
 
 

@@ -9,7 +9,7 @@ import torch
 from marllib import marl
 
 import niql.trainer_loaders
-from niql import envs, scripts, config, utils, seed
+from niql import envs, scripts, seed
 from niql.models import *  # noqa
 
 os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
@@ -91,7 +91,8 @@ if __name__ == '__main__':
     bql = marl.algos.dbql if args.algo == "dbql" else marl.algos.bql  # (hyperparam_source="mpe")
     bql.algo_parameters = exp_config['algo_parameters']
     bql.algo_parameters["algo_args"]["reconcile_rewards"] = args.reconcile_rewards
-    bql.algo_parameters["algo_args"]["enable_joint_buffer"] = not args.disable_joint_buffer and not args.reconcile_rewards
+    bql.algo_parameters["algo_args"][
+        "enable_joint_buffer"] = not args.disable_joint_buffer and not args.reconcile_rewards
     bql.algo_parameters["algo_args"]["use_obs_encoder"] = args.use_obs_encoder
 
     # build agent model based on env + algorithms + user preference if checked available
@@ -115,7 +116,7 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/dbql_mlp_all_scenario/DBQL_TwoStepsCoopMatrixGame_all_scenario_70ad6_00000_0_2024-05-03_11-06-58'
+        base = 'exp_results/bql_mlp_all_scenario/BQL_TwoStepsCoopMatrixGame_all_scenario_73111_00000_0_2024-05-10_16-56-39'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
@@ -152,10 +153,13 @@ if __name__ == '__main__':
             with torch.no_grad():
                 while not done["__all__"]:
                     action_dict = {}
-                    cur_state = [0, 0, 0]
+                    cur_state = np.array([0, 0, 0])
+                    neighbour_state = cur_state  # np.array([0, 0, 0])
                     for agent_id in obs.keys():
                         policy = agent.get_policy(pmap(agent_id))
-                        agent_obs = [cur_state]  # obs[agent_id]["obs"]
+                        if hasattr(policy, "shared_neighbour_obs"):
+                            policy.shared_neighbour_obs.append(neighbour_state.reshape(1, 1, len(cur_state)))
+                        agent_obs = cur_state  # obs[agent_id]["obs"]
                         action_dict[agent_id], states[agent_id], info = policy.compute_single_action(
                             agent_obs,
                             states[agent_id],

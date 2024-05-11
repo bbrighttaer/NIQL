@@ -96,7 +96,7 @@ class BQLPolicy(Policy):
 
         # models
         if self.config["use_obs_encoder"]:
-            self.obs_encoder = MultiHeadSelfAttentionEncoder(
+            self.obs_encoder = FCNEncoder(
                 input_dim=self.obs_size,
                 num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
                 device=self.device,
@@ -546,42 +546,74 @@ class BQLPolicy(Policy):
 
         # Auxiliary model objective
         # Qe(s, a_i)
-        Qe_out = _unroll_mac(self.auxiliary_model, whole_obs).squeeze(2)
-        Qe_qvals = torch.gather(Qe_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
+        qe_out = _unroll_mac(self.auxiliary_model, whole_obs).squeeze(2)
+        qe_qvals = torch.gather(qe_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
 
         # Qi(s', a'_i*)
-        Qi_out = _unroll_mac(self.model, whole_obs).squeeze(2)
-        Qi_out_sp = Qi_out[:, 1:]
+        qi_out = _unroll_mac(self.model, whole_obs).squeeze(2)
+        qi_out_sp = qi_out[:, 1:]
         # Mask out unavailable actions for the t+1 step
         ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
-        Qi_out_sp[ignore_action_tp1] = -np.inf
-        Qi_out_sp_qvals = Qi_out_sp.max(dim=2)[0]
+        qi_out_sp[ignore_action_tp1] = -np.inf
+        qi_out_sp_qvals = qi_out_sp.max(dim=2)[0]
 
         # Calculate 1-step Q-Learning targets
-        targets = rewards + self.config["gamma"] * (1 - terminated) * Qi_out_sp_qvals
+        targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
         # Qe_i TD error
-        Qe_td_error = (Qe_qvals - targets.detach())
-        mask = mask.expand_as(Qe_td_error)
+        qe_td_error = (qe_qvals - targets.detach())
+        mask = mask.expand_as(qe_td_error)
         # 0-out the targets that came from padded data
-        masked_td_error = Qe_td_error * mask
-        Qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
-        self.model.tower_stats["Qe_loss"] = Qe_loss
-        self.model.tower_stats["td_error"] = Qe_td_error
+        masked_td_error = qe_td_error * mask
+        qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
+        self.model.tower_stats["Qe_loss"] = qe_loss
+        self.model.tower_stats["td_error"] = qe_td_error
 
         # Qi function objective
         # Qi(s, a)
-        Qi_out_s_qvals = torch.gather(Qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
+        qi_out_s_qvals = torch.gather(qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         # Qe_bar(s, a)
-        Qe_bar_out = _unroll_mac(self.auxiliary_target_model, whole_obs).squeeze(2)
-        Qe_bar_out_qvals = torch.gather(Qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
-        Qi_weights = torch.where(Qe_bar_out_qvals > Qi_out_s_qvals, 1.0, self.lamda)
-        Qi_loss = Qi_weights * huber_loss(Qi_out_s_qvals - Qe_bar_out_qvals.detach())
-        Qi_loss = torch.sum(Qi_loss * mask) / mask.sum()
-        self.model.tower_stats["Qi_loss"] = Qi_loss
+        qe_bar_out = _unroll_mac(self.auxiliary_target_model, whole_obs).squeeze(2)
+        qe_bar_out_qvals = torch.gather(qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
+        qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
+        qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
+        qi_loss = torch.sum(qi_loss * mask) / mask.sum()
+        self.model.tower_stats["Qi_loss"] = qi_loss
 
         # combine losses
-        loss = Qe_loss + Qi_loss
+        loss = qe_loss + qi_loss
         self.model.tower_stats["loss"] = loss
 
-        return loss, mask, masked_td_error, Qi_out_s_qvals, targets
+        return loss, mask, masked_td_error, qi_out_s_qvals, targets
+
+
+class EncodingLoss(torch.nn.Module):
+    def __init__(self, margin=1.0, threshold=0.01):
+        super(EncodingLoss, self).__init__()
+        self.margin = margin
+        self.threshold = threshold
+
+    def forward(self, obs, encoding):
+        device = obs.device
+
+        # index of each observation
+        obs_idx = torch.arange(obs.shape[0]).to(device)
+
+        # similarity among observations
+        xx, yy = torch.meshgrid(obs_idx, obs_idx)
+        obs_dist = F.pairwise_distance(obs[xx.ravel().to(device)], obs[yy.ravel().to(device)], keepdim=True)
+
+        # similarity among encoding
+        enc_dist = F.pairwise_distance(encoding[xx.ravel().to(device)], encoding[yy.ravel().to(device)], keepdim=True)
+
+        # determine positive and negative samples among encoding
+        distance_negative_mask = obs_dist > self.threshold
+        distance_positive_mask = ~distance_negative_mask
+
+        # Compute loss
+        p_dist = enc_dist * distance_positive_mask
+        n_dist = enc_dist * distance_negative_mask
+        loss = torch.clamp(p_dist - n_dist + self.margin, min=0.0)
+        loss = torch.mean(loss)
+
+        return loss
