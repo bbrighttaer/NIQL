@@ -19,7 +19,7 @@ from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_to
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql import distance_metrics
-from niql.models import DRQNModel, MultiHeadSelfAttentionEncoder, FCNEncoder
+from niql.models import DRQNModel, MultiHeadSelfAttentionEncoder, FCNEncoder, SimpleCommNet
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS
 
 logger = logging.getLogger(__name__)
@@ -106,6 +106,9 @@ class BQLPolicy(Policy):
                 num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
                 device=self.device,
             ).to(self.device)
+            com_dim = 8
+            self.comm_net = SimpleCommNet(self.obs_size, com_dim)
+            self.comm_net_target = SimpleCommNet(self.obs_size, com_dim)
         else:
             self.obs_encoder = None
         self.model = ModelCatalog.get_model_v2(
@@ -128,7 +131,7 @@ class BQLPolicy(Policy):
             default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
         ).to(self.device)
 
-        self.auxiliary_target_model = ModelCatalog.get_model_v2(
+        self.auxiliary_model_target = ModelCatalog.get_model_v2(
             agent_obs_space,
             action_space,
             self.n_actions,
@@ -191,6 +194,7 @@ class BQLPolicy(Policy):
             self.model.eval()
             if self.obs_encoder:
                 self.obs_encoder.eval()
+                self.comm_net.eval()
 
         with torch.no_grad():
             obs_batch = convert_to_torch_tensor(obs_batch, self.device)
@@ -205,6 +209,7 @@ class BQLPolicy(Policy):
                 if self.shared_neighbour_obs:
                     n = len(self.shared_neighbour_obs)
                     obs_batch = obs_batch.reshape(1, 1, -1)
+                    obs_batch = self.comm_net(obs_batch)
                     neighbour_obs = convert_to_torch_tensor(
                         np.array(self.shared_neighbour_obs).reshape(1, n, -1), self.device)
                     obs_batch = torch.cat([obs_batch, neighbour_obs], axis=1)
@@ -276,6 +281,7 @@ class BQLPolicy(Policy):
             self.auxiliary_model.train()
             if self.obs_encoder:
                 self.obs_encoder.train()
+                self.comm_net.train()
 
         # Callback handling.
         learn_stats = {}
@@ -340,7 +346,7 @@ class BQLPolicy(Policy):
     def set_weights(self, weights):
         self.model.load_state_dict(self._device_dict(weights["model"]))
         self.auxiliary_model.load_state_dict(self._device_dict(weights["auxiliary_model"]))
-        self.auxiliary_target_model.load_state_dict(self._device_dict(weights["auxiliary_target_model"]))
+        self.auxiliary_model_target.load_state_dict(self._device_dict(weights["auxiliary_model_target"]))
         if "obs_encoder" in weights and self.obs_encoder:
             self.obs_encoder.load_state_dict(self._device_dict(weights["obs_encoder"]))
             self.obs_encoder_target.load_state_dict(self._device_dict(weights["obs_encoder_target"]))
@@ -350,7 +356,7 @@ class BQLPolicy(Policy):
         wts = {
             "model": self._cpu_dict(self.model.state_dict()),
             "auxiliary_model": self._cpu_dict(self.auxiliary_model.state_dict()),
-            "auxiliary_target_model": self._cpu_dict(self.auxiliary_target_model.state_dict()),
+            "auxiliary_model_target": self._cpu_dict(self.auxiliary_model_target.state_dict()),
         }
         if self.obs_encoder:
             wts["obs_encoder"] = self._cpu_dict(self.obs_encoder.state_dict())
@@ -371,8 +377,10 @@ class BQLPolicy(Policy):
         }
 
     def update_target(self):
-        self.auxiliary_target_model = soft_update(self.auxiliary_target_model, self.auxiliary_model, self.tau)
-        self.obs_encoder_target = soft_update(self.obs_encoder_target, self.obs_encoder, self.tau)
+        self.auxiliary_model_target = soft_update(self.auxiliary_model_target, self.auxiliary_model, self.tau)
+        if self.obs_encoder:
+            self.obs_encoder_target = soft_update(self.obs_encoder_target, self.obs_encoder, self.tau)
+            self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
 
     def compute_q_losses(self, train_batch: SampleBatch) -> TensorType:
         obs = train_batch[SampleBatch.OBS]
@@ -468,7 +476,7 @@ class BQLPolicy(Policy):
         # --------------------------- Main model -------------------------
         qt, _ = self.model(obs, state_batches_h, seq_lens)
         qt_selected = torch.sum(qt * one_hot_selection, dim=1)
-        q_bar_e, _ = self.auxiliary_target_model(obs, state_batches_h, seq_lens)
+        q_bar_e, _ = self.auxiliary_model_target(obs, state_batches_h, seq_lens)
         q_bar_e_selected = torch.sum(q_bar_e * one_hot_selection, dim=1)
         qt_weight = torch.where(q_bar_e_selected > qt_selected, 1.0, self.lamda)
         # loss = weight * (qt_selected - q_bar_e_selected.detach()) ** 2
@@ -517,8 +525,12 @@ class BQLPolicy(Policy):
             neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
         """
         B, T = obs.shape[0], obs.shape[1]
-        target_obs = obs
-        target_next_obs = next_obs
+        raw_obs = obs
+        raw_next_obs = next_obs
+        obs = self.comm_net(raw_obs)
+        next_obs = self.comm_net(raw_next_obs)
+        target_obs = self.comm_net_target(raw_obs).detach()
+        target_next_obs = self.comm_net_target(raw_next_obs).detach()
 
         # reward reconciliation
         if self.config["reconcile_rewards"]:
@@ -558,7 +570,7 @@ class BQLPolicy(Policy):
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
         target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
-        target_whole_obs = target_whole_obs.unsqueeze(2)
+        target_whole_obs = target_whole_obs.unsqueeze(2).detach()
 
         # Auxiliary encoder objective
         # Qe(s, a_i)
@@ -589,7 +601,7 @@ class BQLPolicy(Policy):
         # Qi(s, a)
         qi_out_s_qvals = torch.gather(qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         # Qe_bar(s, a)
-        qe_bar_out = _unroll_mac(self.auxiliary_target_model, target_whole_obs).squeeze(2)
+        qe_bar_out = _unroll_mac(self.auxiliary_model_target, target_whole_obs).squeeze(2)
         qe_bar_out_qvals = torch.gather(qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
@@ -601,6 +613,12 @@ class BQLPolicy(Policy):
         self.model.tower_stats["loss"] = loss
 
         return loss, mask, masked_td_error, qi_out_s_qvals, targets
+
+    def get_message(self, obs):
+        obs = obs.reshape(1, 1, -1)
+        obs = convert_to_torch_tensor(obs).float()
+        obs = self.comm_net(obs).cpu().detach().numpy()
+        return obs
 
 
 class EncodingLoss(torch.nn.Module):

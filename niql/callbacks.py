@@ -197,7 +197,8 @@ class ObservationCommWrapper(ObservationFunction):
                 all_n_obs = []
                 for n_id, n_obs in agent_obs.items():
                     if n_id != agent_id:
-                        all_n_obs.append(n_obs["obs"])
+                        message = policy.get_message(n_obs["obs"])
+                        all_n_obs.append(message)
                 policy.shared_neighbour_obs = all_n_obs
         return agent_obs
 

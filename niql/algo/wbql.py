@@ -250,14 +250,14 @@ class WBQLPolicy(Policy):
     def set_weights(self, weights):
         self.model.load_state_dict(self._device_dict(weights["model"]))
         self.auxiliary_model.load_state_dict(self._device_dict(weights["auxiliary_model"]))
-        self.auxiliary_target_model.load_state_dict(self._device_dict(weights["auxiliary_target_model"]))
+        self.auxiliary_target_model.load_state_dict(self._device_dict(weights["auxiliary_model_target"]))
 
     @override(Policy)
     def get_weights(self):
         return {
             "model": self._cpu_dict(self.model.state_dict()),
             "auxiliary_model": self._cpu_dict(self.auxiliary_model.state_dict()),
-            "auxiliary_target_model": self._cpu_dict(self.auxiliary_target_model.state_dict()),
+            "auxiliary_model_target": self._cpu_dict(self.auxiliary_target_model.state_dict()),
         }
 
     @override(Policy)

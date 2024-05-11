@@ -116,7 +116,7 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/bql_mlp_all_scenario/BQL_TwoStepsCoopMatrixGame_all_scenario_73111_00000_0_2024-05-10_16-56-39'
+        base = 'exp_results/bql_mlp_all_scenario/BQL_TwoStepsCoopMatrixGame_all_scenario_07e75_00000_0_2024-05-12_00-09-07'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
