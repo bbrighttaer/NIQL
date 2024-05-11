@@ -101,6 +101,11 @@ class BQLPolicy(Policy):
                 num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
                 device=self.device,
             ).to(self.device)
+            self.obs_encoder_target = FCNEncoder(
+                input_dim=self.obs_size,
+                num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
+                device=self.device,
+            ).to(self.device)
         else:
             self.obs_encoder = None
         self.model = ModelCatalog.get_model_v2(
@@ -338,6 +343,7 @@ class BQLPolicy(Policy):
         self.auxiliary_target_model.load_state_dict(self._device_dict(weights["auxiliary_target_model"]))
         if "obs_encoder" in weights and self.obs_encoder:
             self.obs_encoder.load_state_dict(self._device_dict(weights["obs_encoder"]))
+            self.obs_encoder_target.load_state_dict(self._device_dict(weights["obs_encoder_target"]))
 
     @override(Policy)
     def get_weights(self):
@@ -348,6 +354,7 @@ class BQLPolicy(Policy):
         }
         if self.obs_encoder:
             wts["obs_encoder"] = self._cpu_dict(self.obs_encoder.state_dict())
+            wts["obs_encoder_target"] = self._cpu_dict(self.obs_encoder_target.state_dict())
         return wts
 
     @override(Policy)
@@ -365,6 +372,7 @@ class BQLPolicy(Policy):
 
     def update_target(self):
         self.auxiliary_target_model = soft_update(self.auxiliary_target_model, self.auxiliary_model, self.tau)
+        self.obs_encoder_target = soft_update(self.obs_encoder_target, self.obs_encoder, self.tau)
 
     def compute_q_losses(self, train_batch: SampleBatch) -> TensorType:
         obs = train_batch[SampleBatch.OBS]
@@ -509,21 +517,27 @@ class BQLPolicy(Policy):
             neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
         """
         B, T = obs.shape[0], obs.shape[1]
+        target_obs = obs
+        target_next_obs = next_obs
 
         # reward reconciliation
         if self.config["reconcile_rewards"]:
             threshold = self.config["similarity_threshold"]
             if self.config.get("use_obs_encoder", False) and neighbour_obs is not None and neighbour_next_obs is not None:
-                def projection(x, n_x):
+                def projection(x, n_x, target=False):
                     x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
                     n_obs = convert_to_torch_tensor(n_x, self.device)
                     x = torch.cat([x, n_obs], dim=2)
-                    x, enc = self.obs_encoder(x.view(B * T, *x.shape[2:]))
+                    encoder = self.obs_encoder_target if target else self.obs_encoder
+                    x, enc = encoder(x.view(B * T, *x.shape[2:]))
                     x = x.view(B, T, -1)
                     return x, enc
 
                 obs, encoding = projection(obs, neighbour_obs)
+                target_obs, _ = projection(target_obs, neighbour_obs, target=True)
                 next_obs, _ = projection(next_obs, neighbour_next_obs)
+                target_next_obs, _ = projection(target_next_obs, neighbour_next_obs, target=True)
+
                 batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
                     obs=encoding.clone().detach().reshape(B * T, -1),
                     actions=actions.reshape(-1, 1),
@@ -543,8 +557,10 @@ class BQLPolicy(Policy):
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
+        target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
+        target_whole_obs = target_whole_obs.unsqueeze(2)
 
-        # Auxiliary model objective
+        # Auxiliary encoder objective
         # Qe(s, a_i)
         qe_out = _unroll_mac(self.auxiliary_model, whole_obs).squeeze(2)
         qe_qvals = torch.gather(qe_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
@@ -573,7 +589,7 @@ class BQLPolicy(Policy):
         # Qi(s, a)
         qi_out_s_qvals = torch.gather(qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         # Qe_bar(s, a)
-        qe_bar_out = _unroll_mac(self.auxiliary_target_model, whole_obs).squeeze(2)
+        qe_bar_out = _unroll_mac(self.auxiliary_target_model, target_whole_obs).squeeze(2)
         qe_bar_out_qvals = torch.gather(qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
