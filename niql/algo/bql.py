@@ -107,8 +107,8 @@ class BQLPolicy(Policy):
                 device=self.device,
             ).to(self.device)
             com_dim = 8
-            self.comm_net = SimpleCommNet(self.obs_size, com_dim)
-            self.comm_net_target = SimpleCommNet(self.obs_size, com_dim)
+            self.comm_net = SimpleCommNet(self.obs_size, com_dim).to(self.device)
+            self.comm_net_target = SimpleCommNet(self.obs_size, com_dim).to(self.device)
         else:
             self.obs_encoder = None
         self.model = ModelCatalog.get_model_v2(
@@ -616,7 +616,7 @@ class BQLPolicy(Policy):
 
     def get_message(self, obs):
         obs = obs.reshape(1, 1, -1)
-        obs = convert_to_torch_tensor(obs).float()
+        obs = convert_to_torch_tensor(obs, self.device).float()
         obs = self.comm_net(obs).cpu().detach().numpy()
         return obs
 
