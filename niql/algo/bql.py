@@ -527,15 +527,18 @@ class BQLPolicy(Policy):
         B, T = obs.shape[0], obs.shape[1]
         raw_obs = obs
         raw_next_obs = next_obs
-        obs = self.comm_net(raw_obs)
-        next_obs = self.comm_net(raw_next_obs)
-        target_obs = self.comm_net_target(raw_obs).detach()
-        target_next_obs = self.comm_net_target(raw_next_obs).detach()
+        obs, target_obs = raw_obs, raw_obs
+        next_obs, target_next_obs = raw_next_obs, raw_next_obs
 
         # reward reconciliation
         if self.config["reconcile_rewards"]:
             threshold = self.config["similarity_threshold"]
             if self.config.get("use_obs_encoder", False) and neighbour_obs is not None and neighbour_next_obs is not None:
+                obs = self.comm_net(raw_obs)
+                next_obs = self.comm_net(raw_next_obs)
+                target_obs = self.comm_net_target(raw_obs).detach()
+                target_next_obs = self.comm_net_target(raw_next_obs).detach()
+
                 def projection(x, n_x, target=False):
                     x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
                     n_obs = convert_to_torch_tensor(n_x, self.device)
@@ -550,21 +553,22 @@ class BQLPolicy(Policy):
                 next_obs, _ = projection(next_obs, neighbour_next_obs)
                 target_next_obs, _ = projection(target_next_obs, neighbour_next_obs, target=True)
 
-                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
-                    obs=encoding.clone().detach().reshape(B * T, -1),
-                    actions=actions.reshape(-1, 1),
-                    rewards=rewards.reshape(-1, 1),
-                    threshold=threshold,
-                )
-                rewards = batch_rewards.view(*rewards.shape)
+                # batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
+                #     obs=encoding.clone().detach().reshape(B * T, -1),
+                #     actions=actions.reshape(-1, 1),
+                #     rewards=rewards.reshape(-1, 1),
+                #     threshold=threshold,
+                # )
+                # rewards = batch_rewards.view(*rewards.shape)
             else:
-                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
-                    obs=obs.clone().detach().reshape(B * T, -1),
-                    actions=actions.reshape(-1, 1),
-                    rewards=rewards.reshape(-1, 1),
-                    threshold=threshold,
-                )
-                rewards = batch_rewards.view(*rewards.shape)
+                ...
+                # batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
+                #     obs=obs.clone().detach().reshape(B * T, -1),
+                #     actions=actions.reshape(-1, 1),
+                #     rewards=rewards.reshape(-1, 1),
+                #     threshold=threshold,
+                # )
+                # rewards = batch_rewards.view(*rewards.shape)
 
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
@@ -615,9 +619,10 @@ class BQLPolicy(Policy):
         return loss, mask, masked_td_error, qi_out_s_qvals, targets
 
     def get_message(self, obs):
-        obs = obs.reshape(1, 1, -1)
-        obs = convert_to_torch_tensor(obs, self.device).float()
-        obs = self.comm_net(obs).cpu().detach().numpy()
+        if self.config.get("use_obs_encoder", False):
+            obs = obs.reshape(1, 1, -1)
+            obs = convert_to_torch_tensor(obs, self.device).float()
+            obs = self.comm_net(obs).cpu().detach().numpy()
         return obs
 
 
