@@ -96,23 +96,23 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
         samples[SampleBatch.NEXT_OBS],
     )
 
-    if has_neighbour_data:
-        n_samples = samples[NEIGHBOUR_OBS]
-        n_shape = n_samples.shape
-        n_samples = n_samples.reshape(-1, n_shape[-1])
-        shared_obs_batch, _, _ = unpack_observation(
-            policy,
-            n_samples,
-        )
-        shared_obs_batch = shared_obs_batch.reshape(*n_shape[:2], -1)
-
-        n_next_samples = samples[NEIGHBOUR_NEXT_OBS]
-        n_next_samples = n_next_samples.reshape(-1, n_shape[-1])
-        shared_next_obs_batch, _, _ = unpack_observation(
-            policy,
-            n_next_samples,
-        )
-        shared_next_obs_batch = shared_next_obs_batch.reshape(*n_shape[:2], -1)
+    # if has_neighbour_data:
+    #     n_samples = samples[NEIGHBOUR_OBS]
+    #     n_shape = n_samples.shape
+    #     n_samples = n_samples.reshape(-1, n_shape[-1])
+    #     shared_obs_batch, _, _ = unpack_observation(
+    #         policy,
+    #         n_samples,
+    #     )
+    #     shared_obs_batch = shared_obs_batch.reshape(*n_shape[:2], -1)
+    #
+    #     n_next_samples = samples[NEIGHBOUR_NEXT_OBS]
+    #     n_next_samples = n_next_samples.reshape(-1, n_shape[-1])
+    #     shared_next_obs_batch, _, _ = unpack_observation(
+    #         policy,
+    #         n_next_samples,
+    #     )
+    #     shared_next_obs_batch = shared_next_obs_batch.reshape(*n_shape[:2], -1)
 
     input_list = [
         samples[SampleBatch.REWARDS], action_mask, next_action_mask,
@@ -124,7 +124,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
         input_list.extend([env_global_state, next_env_global_state])
 
     if has_neighbour_data:
-        input_list.extend([shared_obs_batch, shared_next_obs_batch])
+        input_list.extend([samples[NEIGHBOUR_OBS], samples[NEIGHBOUR_NEXT_OBS]])
 
     n_obs = None
     n_next_obs = None

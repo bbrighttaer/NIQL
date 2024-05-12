@@ -190,6 +190,7 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
             },
             "mixer": exp["algo_args"]["mixer"] if algorithm == 'imix' else algorithm,
             "max_neighbours": env["num_agents"] - 1,
+            "comm_dim": _param.get("comm_dim", 0)
         })
 
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on

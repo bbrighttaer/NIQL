@@ -193,12 +193,12 @@ class ObservationCommWrapper(ObservationFunction):
         for agent_id, obs in agent_obs.items():
             policy_id = self.policy_mapping_fn(agent_id)
             policy = policies[policy_id]
-            if hasattr(policy, "shared_neighbour_obs"):
+            if hasattr(policy, "neighbour_messages") and policy.use_comm:
                 all_n_obs = []
                 for n_id, n_obs in agent_obs.items():
                     if n_id != agent_id:
                         message = policy.get_message(n_obs["obs"])
                         all_n_obs.append(message)
-                policy.shared_neighbour_obs = all_n_obs
+                policy.neighbour_messages = all_n_obs
         return agent_obs
 

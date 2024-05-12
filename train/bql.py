@@ -116,7 +116,7 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/bql_mlp_all_scenario/BQL_TwoStepsCoopMatrixGame_all_scenario_07e75_00000_0_2024-05-12_00-09-07'
+        base = 'exp_results/bql_mlp_all_scenario/BQL_TwoStepsCoopMatrixGame_all_scenario_e2ff2_00000_0_2024-05-12_22-19-31'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
@@ -157,8 +157,9 @@ if __name__ == '__main__':
                     neighbour_state = cur_state  # np.array([0, 0, 0])
                     for agent_id in obs.keys():
                         policy = agent.get_policy(pmap(agent_id))
-                        if hasattr(policy, "shared_neighbour_obs"):
-                            policy.shared_neighbour_obs.append(neighbour_state.reshape(1, 1, len(cur_state)))
+                        if hasattr(policy, "neighbour_messages"):
+                            n_msg = policy.get_message(neighbour_state.reshape(1, 1, len(cur_state)))
+                            policy.neighbour_messages.append(n_msg)
                         agent_obs = cur_state  # obs[agent_id]["obs"]
                         action_dict[agent_id], states[agent_id], info = policy.compute_single_action(
                             agent_obs,
