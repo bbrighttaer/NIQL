@@ -105,12 +105,12 @@ class BQLPolicy(Policy):
 
         if self.config["use_obs_encoder"]:
             self.obs_encoder = FCNEncoder(
-                input_dim=self.obs_size,
+                input_dim=self.obs_size + self.config.get("comm_dim", 0),
                 num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
                 device=self.device,
             ).to(self.device)
             self.obs_encoder_target = FCNEncoder(
-                input_dim=self.obs_size,
+                input_dim=self.obs_size + self.config.get("comm_dim", 0),
                 num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
                 device=self.device,
             ).to(self.device)
@@ -229,7 +229,6 @@ class BQLPolicy(Policy):
             if self.config["use_obs_encoder"]:
                 obs_batch = convert_to_torch_tensor(obs_batch, self.device)
                 obs_batch, _ = self.obs_encoder(obs_batch)
-                obs_batch = obs_batch.unsqueeze(1)
             else:
                 obs_batch = convert_to_torch_tensor(obs_batch, self.device)
 
@@ -294,6 +293,7 @@ class BQLPolicy(Policy):
             self.auxiliary_model.train()
             if self.obs_encoder:
                 self.obs_encoder.train()
+            if self.use_comm:
                 self.comm_net.train()
 
         # Callback handling.
@@ -360,6 +360,7 @@ class BQLPolicy(Policy):
         self.model.load_state_dict(self._device_dict(weights["model"]))
         self.auxiliary_model.load_state_dict(self._device_dict(weights["auxiliary_model"]))
         self.auxiliary_model_target.load_state_dict(self._device_dict(weights["auxiliary_model_target"]))
+
         if "obs_encoder" in weights and self.obs_encoder:
             self.obs_encoder.load_state_dict(self._device_dict(weights["obs_encoder"]))
             self.obs_encoder_target.load_state_dict(self._device_dict(weights["obs_encoder_target"]))
@@ -548,64 +549,62 @@ class BQLPolicy(Policy):
             neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
         """
         B, T = obs.shape[0], obs.shape[1]
-        # raw_obs = obs
-        # raw_next_obs = next_obs
-        # obs, target_obs = raw_obs, raw_obs
-        # next_obs, target_next_obs = raw_next_obs, raw_next_obs
+        target_obs, raw_obs = obs, obs
+        target_next_obs, raw_next_obs = next_obs, next_obs
 
         if self.use_comm:
-            local_msg = self.comm_net(obs).unsqueeze(2)
-            msgs = torch.cat([local_msg, neighbour_obs], dim=2)
-            agg_msg = self.aggregate_messages(msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
-            obs = torch.cat([obs, agg_msg], dim=-1)
-            next_local_msg = self.comm_net(next_obs).unsqueeze(2)
-            next_msgs = torch.cat([next_local_msg, neighbour_next_obs], dim=2)
-            agg_next_msg = self.aggregate_messages(next_msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
-            next_obs = torch.cat([next_obs, agg_next_msg], dim=-1)
+            def add_comm_msg(model, ob, next_ob):
+                local_msg = model(ob).unsqueeze(2)
+                msgs = torch.cat([local_msg, neighbour_obs], dim=2)
+                agg_msg = self.aggregate_messages(msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
+                ob = torch.cat([ob, agg_msg], dim=-1)
 
-        # # reward reconciliation
-        # if self.config["reconcile_rewards"]:
-        #     threshold = self.config["similarity_threshold"]
-        #     if self.config.get("use_obs_encoder", False) and neighbour_obs is not None and neighbour_next_obs is not None:
-        #         obs = self.comm_net(raw_obs)
-        #         next_obs = self.comm_net(raw_next_obs)
-        #         target_obs = self.comm_net_target(raw_obs).detach()
-        #         target_next_obs = self.comm_net_target(raw_next_obs).detach()
-        #
-        #         def projection(x, n_x, target=False):
-        #             x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
-        #             n_obs = convert_to_torch_tensor(n_x, self.device)
-        #             x = torch.cat([x, n_obs], dim=2)
-        #             encoder = self.obs_encoder_target if target else self.obs_encoder
-        #             x, enc = encoder(x.view(B * T, *x.shape[2:]))
-        #             x = x.view(B, T, -1)
-        #             return x, enc
-        #
-        #         obs, encoding = projection(obs, neighbour_obs)
-        #         target_obs, _ = projection(target_obs, neighbour_obs, target=True)
-        #         next_obs, _ = projection(next_obs, neighbour_next_obs)
-        #         target_next_obs, _ = projection(target_next_obs, neighbour_next_obs, target=True)
-        #
-        #         # batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
-        #         #     obs=encoding.clone().detach().reshape(B * T, -1),
-        #         #     actions=actions.reshape(-1, 1),
-        #         #     rewards=rewards.reshape(-1, 1),
-        #         #     threshold=threshold,
-        #         # )
-        #         # rewards = batch_rewards.view(*rewards.shape)
-        #     else:
-        #         ...
-        #         # batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
-        #         #     obs=obs.clone().detach().reshape(B * T, -1),
-        #         #     actions=actions.reshape(-1, 1),
-        #         #     rewards=rewards.reshape(-1, 1),
-        #         #     threshold=threshold,
-        #         # )
-        #         # rewards = batch_rewards.view(*rewards.shape)
+                next_local_msg = model(next_ob).unsqueeze(2)
+                next_msgs = torch.cat([next_local_msg, neighbour_next_obs], dim=2)
+                agg_next_msg = self.aggregate_messages(next_msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
+                next_ob = torch.cat([next_ob, agg_next_msg], dim=-1)
+
+                return ob, next_ob
+            obs, next_obs = add_comm_msg(self.comm_net, obs, next_obs)
+            target_obs, target_next_obs = add_comm_msg(self.comm_net_target, target_obs, target_next_obs)
+
+        # reward reconciliation
+        if self.config["reconcile_rewards"]:
+            threshold = self.config["similarity_threshold"]
+            if self.config.get("use_obs_encoder", False) and neighbour_obs is not None and neighbour_next_obs is not None:
+                def projection(x, target=False):
+                    x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
+                    encoder = self.obs_encoder_target if target else self.obs_encoder
+                    x, enc = encoder(x.view(B * T, *x.shape[2:]))
+                    x = x.view(B, T, -1)
+                    return x, enc
+
+                obs, encoding = projection(obs)
+                target_obs, _ = projection(target_obs, target=True)
+                next_obs, _ = projection(next_obs)
+                target_next_obs, _ = projection(target_next_obs, target=True)
+
+                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
+                    obs=encoding.clone().detach().reshape(B * T, -1),
+                    actions=actions.reshape(-1, 1),
+                    rewards=rewards.reshape(-1, 1),
+                    threshold=threshold,
+                )
+                rewards = batch_rewards.view(*rewards.shape)
+            else:
+                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
+                    obs=obs.clone().detach().reshape(B * T, -1),
+                    actions=actions.reshape(-1, 1),
+                    rewards=rewards.reshape(-1, 1),
+                    threshold=threshold,
+                )
+                rewards = batch_rewards.view(*rewards.shape)
 
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
+        target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
+        target_whole_obs = target_whole_obs.unsqueeze(2)
 
         # Auxiliary encoder objective
         # Qe(s, a_i)
@@ -636,7 +635,7 @@ class BQLPolicy(Policy):
         # Qi(s, a)
         qi_out_s_qvals = torch.gather(qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         # Qe_bar(s, a)
-        qe_bar_out = _unroll_mac(self.auxiliary_model_target, whole_obs).squeeze(2)
+        qe_bar_out = _unroll_mac(self.auxiliary_model_target, target_whole_obs).squeeze(2)
         qe_bar_out_qvals = torch.gather(qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())

@@ -69,10 +69,6 @@ class FCNEncoder(nn.Module):
         # projection
         x = F.elu(self.linear1(x))
 
-        # aggregation
-        x = torch.max(x, dim=1, keepdim=True)[0]  # gather across the neighbour dimension
-        x = F.elu(x)
-
         # encoding
         encoding = self.ste(self.enc_linear(x))
 
