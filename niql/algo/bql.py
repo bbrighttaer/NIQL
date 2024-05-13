@@ -159,6 +159,9 @@ class BQLPolicy(Policy):
         if self.obs_encoder:
             self.params += list(self.obs_encoder.parameters())
 
+        if self.use_comm:
+            self.params += list(self.comm_net.parameters())
+
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
             self.optimiser = RMSprop(params=self.params, lr=config["lr"])
