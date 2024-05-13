@@ -8,7 +8,7 @@ PREDATOR_PREY = {
             'rollout_fragment_length': 1,
             'buffer_size': 10000,
             'target_network_update_freq': 200,
-            'final_epsilon': 0.05,
+            'final_epsilon': 0.01,
             'epsilon_timesteps': 50000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,

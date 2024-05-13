@@ -116,7 +116,7 @@ if __name__ == '__main__':
             use_fingerprint=args.use_fingerprint,
         )
     else:
-        base = 'exp_results/bql_mlp_all_scenario/BQL_TwoStepsCoopMatrixGame_all_scenario_e2ff2_00000_0_2024-05-12_22-19-31'
+        base = 'exp_results/bql_mlp_all_scenario/BQL_TwoStepsCoopMatrixGame_all_scenario_92d96_00000_0_2024-05-13_20-50-12'
         restore_path = {
             'params_path': f'{base}/params.json',  # experiment configuration
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
@@ -153,7 +153,7 @@ if __name__ == '__main__':
             with torch.no_grad():
                 while not done["__all__"]:
                     action_dict = {}
-                    cur_state = np.array([0, 0, 0])
+                    cur_state = np.array([0, 0, 1+1])
                     neighbour_state = cur_state  # np.array([0, 0, 0])
                     for agent_id in obs.keys():
                         policy = agent.get_policy(pmap(agent_id))

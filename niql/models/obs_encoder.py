@@ -56,26 +56,31 @@ class MultiHeadSelfAttentionEncoder(nn.Module):
 
 class FCNEncoder(nn.Module):
 
-    def __init__(self, input_dim, *args, **kwargs):
+    def __init__(self, input_dim, num_tiling=3, **kwargs):
         super().__init__()
-        self.encoding_dim = 32
-
-        self.linear1 = nn.Linear(input_dim, input_dim)
-        self.enc_linear = nn.Linear(input_dim, self.encoding_dim)
-        self.linear2 = nn.Linear(self.encoding_dim, input_dim)
+        self.encoding_dim = 8
         self.ste = StraightThroughEstimator()
+        self.lin_projection = nn.Linear(input_dim, input_dim)
+
+        # create tilings
+        self.tilings = [nn.Linear(input_dim, self.encoding_dim) for _ in range(num_tiling)]
+
+        # reduction layer
+        self.lin_reduce = nn.Linear(self.encoding_dim, input_dim)
 
     def forward(self, x):
         # projection
-        x = F.elu(self.linear1(x))
+        x = F.elu(self.lin_projection(x))
 
         # encoding
-        encoding = self.ste(self.enc_linear(x))
+        encoding = []
+        for i, tiling in enumerate(self.tilings):
+            enc = self.ste(tiling(x)) + i
+            encoding.append(enc)
+        encoding = torch.mean(torch.stack(encoding), dim=0, keepdim=True)
 
         # res-link
-        x = self.linear2(encoding) + x
-        x = F.elu(x)
-
+        x = F.elu(self.lin_reduce(encoding) + x)
         return x, encoding
 
 
