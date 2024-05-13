@@ -61,9 +61,10 @@ class FCNEncoder(nn.Module):
         self.encoding_dim = 8
         self.ste = StraightThroughEstimator()
         self.lin_projection = nn.Linear(input_dim, input_dim)
+        self.tiling_id = torch.eye(num_tiling).to(kwargs.get("device", "cpu"))
 
         # create tilings
-        self.tilings = [nn.Linear(input_dim, self.encoding_dim) for _ in range(num_tiling)]
+        self.tilings = nn.ModuleList([nn.Linear(input_dim + num_tiling, self.encoding_dim) for _ in range(num_tiling)])
 
         # reduction layer
         self.lin_reduce = nn.Linear(self.encoding_dim, input_dim)
@@ -75,7 +76,10 @@ class FCNEncoder(nn.Module):
         # encoding
         encoding = []
         for i, tiling in enumerate(self.tilings):
-            enc = self.ste(tiling(x)) + i
+            t_id = self.tiling_id[i]
+            t_id = t_id.view(1, 1, -1).expand(x.shape[:2] + (-1,))
+            t_x = torch.cat([x, t_id], dim=-1)
+            enc = self.ste(tiling(t_x))
             encoding.append(enc)
         encoding = torch.mean(torch.stack(encoding), dim=0, keepdim=True)
 
