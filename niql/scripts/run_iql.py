@@ -68,12 +68,6 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     back_up_config = merge_dicts(exp, env)
     back_up_config.pop("algo_args")  # clean for grid_search
 
-    mixer_dict = {
-        "qmix": "qmix",
-        "vdn": "vdn",
-        "iql": None
-    }
-
     back_up_config["num_agents"] = 1  # one agent one model IQL
     config = {
         "model": {
@@ -102,7 +96,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
                 "final_epsilon": final_epsilon,
                 "epsilon_timesteps": epsilon_timesteps,
             },
-            "mixer": mixer_dict[algorithm],
+            "mixer": None,
         })
 
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on

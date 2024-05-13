@@ -47,6 +47,14 @@ if __name__ == '__main__':
         help='Execution mode',
     )
 
+    parser.add_argument(
+        '-a', '--algo',
+        type=str,
+        default='iql',
+        choices=['iql', 'ippo'],
+        help='Select which IL algorithm to run.',
+    )
+
     args = parser.parse_args()
 
     mode = args.exec_mode
@@ -56,26 +64,30 @@ if __name__ == '__main__':
 
     gpu_count = torch.cuda.device_count()
 
+    # initialise algorithm with hyperparameters
+    if args.algo == 'ippo':
+        algo = marl.algos.ippo
+    else:
+        algo = marl.algos.iql
+    # initialize algorithm
+    algo.algo_parameters = exp_config['algo_parameters']
+
     # register new algorithm
     marl.algos.register_algo(
-        algo_name="iql",
+        algo_name=args.algo,
         style="il",
         script=scripts.run_iql if mode == 'train' else niql.trainer_loaders.load_iql_checkpoint,
     )
 
-    # initialize algorithm
-    iql = marl.algos.iql  # (hyperparam_source="mpe")
-    iql.algo_parameters = exp_config['algo_parameters']
-
     # build agent model based on env + algorithms + user preference if checked available
     model_config = exp_config['model_preference']
-    model = marl.build_model(env, iql, model_preference=exp_config['model_preference'])
+    model = marl.build_model(env, algo, model_preference=exp_config['model_preference'])
     if model_config.get('model'):
         model = (eval(model_config['model']), model[1])
 
     if mode == 'train':
         # start learning + extra experiment settings if needed. remember to check ray.yaml before use
-        iql.fit(
+        algo.fit(
             env,
             model,
             stop=exp_config['stop_condition'],
@@ -94,7 +106,7 @@ if __name__ == '__main__':
             'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
         }
 
-        results = iql.fit(
+        results = algo.fit(
             env,
             model,
             stop=exp_config['stop_condition'],
