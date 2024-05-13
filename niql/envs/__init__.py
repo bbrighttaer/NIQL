@@ -12,7 +12,7 @@ from ..config import PREDATOR_PREY, SMAC, MPE, MATRIX_GAME
 
 
 def get_active_env(**kwargs):
-    return make_mpe_simple_spread_env(**kwargs)
+    return make_predator_prey_env(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
