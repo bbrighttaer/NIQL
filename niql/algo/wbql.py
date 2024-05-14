@@ -1,12 +1,14 @@
 import functools
 import logging
+from collections import Counter
 from typing import Union, List, Optional, Dict, Tuple
 
 import numpy as np
 import torch
-import torch.nn.functional as F
+from gym.spaces import Dict as GymDict
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
+from ray.rllib.agents.qmix.qmix_policy import _unroll_mac, _mac
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
@@ -16,8 +18,8 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
-from niql import clustering, distance_metrics
-from niql.models import DRQNModel
+from niql.models import DRQNModel, FCNEncoder, SimpleCommNet
+from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS
 
 logger = logging.getLogger(__name__)
 
@@ -45,29 +47,76 @@ def soft_update(target_net, source_net, tau):
 
 
 class WBQLPolicy(Policy):
+    """
+    Implementation of Weighted Best Possible Q-learning
+    """
 
     def __init__(self, obs_space, action_space, config):
         self.framework = "torch"
         config = dict(DEFAULT_CONFIG, **config)
         super().__init__(obs_space, action_space, config)
-        self.n_agents = len(obs_space.original_space)
+        self.n_agents = 1
         config["model"]["n_agents"] = self.n_agents
         self.lamda = config["lambda"]
         self.tau = config["tau"]
-        self.beta = config["beta"]
         self.n_actions = action_space.n
         self.has_env_global_state = False
         self.has_action_mask = False
         self.device = (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
-        self.obs_size = get_size(obs_space)
-        self.env_global_state_shape = (self.obs_size, self.n_agents)
         config["model"]["full_obs_space"] = obs_space
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
-        self.q_values = []
+        self.reward_standardize = config["reward_standardize"]
+        self.neighbour_messages = []
+
+        agent_obs_space = obs_space.original_space
+        if isinstance(agent_obs_space, GymDict):
+            space_keys = set(agent_obs_space.spaces.keys())
+            if "obs" not in space_keys:
+                raise ValueError("Dict obs space must have subspace labeled `obs`")
+            self.obs_size = get_size(agent_obs_space.spaces["obs"])
+            if "action_mask" in space_keys:
+                mask_shape = tuple(agent_obs_space.spaces["action_mask"].shape)
+                if mask_shape != (self.n_actions,):
+                    raise ValueError(
+                        "Action mask shape must be {}, got {}".format(
+                            (self.n_actions,), mask_shape))
+                self.has_action_mask = True
+            if "state" in space_keys:
+                self.env_global_state_shape = get_size(agent_obs_space.spaces["state"])
+                self.has_env_global_state = True
+            else:
+                self.env_global_state_shape = (self.obs_size, self.n_agents)
+            # The real agent obs space is nested inside the dict
+            config["model"]["full_obs_space"] = agent_obs_space
+            agent_obs_space = agent_obs_space.spaces["obs"]
+        else:
+            self.obs_size = get_size(agent_obs_space)
+            self.env_global_state_shape = (self.obs_size, self.n_agents)
 
         # models
+        self.use_comm = self.config.get("comm_dim", 0) > 0
+        if self.use_comm:
+            com_dim = self.config["comm_dim"]
+            com_hdim = self.config["comm_dim"]
+            config["model"]["comm_dim"] = com_dim
+            self.comm_net = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
+            self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
+
+        if self.config["use_obs_encoder"]:
+            self.obs_encoder = FCNEncoder(
+                input_dim=self.obs_size + self.config.get("comm_dim", 0),
+                num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
+                device=self.device,
+            ).to(self.device)
+            self.obs_encoder_target = FCNEncoder(
+                input_dim=self.obs_size + self.config.get("comm_dim", 0),
+                num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
+                device=self.device,
+            ).to(self.device)
+        else:
+            self.obs_encoder = None
         self.model = ModelCatalog.get_model_v2(
-            config["obs_space"],
+            agent_obs_space,
             action_space,
             self.n_actions,
             config["model"],
@@ -77,21 +126,23 @@ class WBQLPolicy(Policy):
         ).to(self.device)
 
         self.auxiliary_model = ModelCatalog.get_model_v2(
-            config['obs_space'],
+            agent_obs_space,
             action_space,
             self.n_actions,
             config["model"],
             framework="torch",
             name="model",
+            default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
         ).to(self.device)
 
-        self.auxiliary_target_model = ModelCatalog.get_model_v2(
-            config['obs_space'],
+        self.auxiliary_model_target = ModelCatalog.get_model_v2(
+            agent_obs_space,
             action_space,
             self.n_actions,
             config["model"],
             framework="torch",
             name="model",
+            default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
         ).to(self.device)
 
         self.exploration = self._create_exploration()
@@ -103,16 +154,20 @@ class WBQLPolicy(Policy):
         self._global_update_count = 0
 
         # optimizer
-        self.grad_clip_params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
+        self.params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
+        if self.obs_encoder:
+            self.params += list(self.obs_encoder.parameters())
+
+        if self.use_comm:
+            self.params += list(self.comm_net.parameters())
+
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
-            self.optimiser_e = RMSprop(params=self.auxiliary_model.parameters(), lr=config["lr"])
-            self.optimiser_i = RMSprop(params=self.model.parameters(), lr=config["lr"])
+            self.optimiser = RMSprop(params=self.params, lr=config["lr"])
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
-            self.optimiser_e = Adam(params=self.auxiliary_model.parameters(), lr=config["lr"])
-            self.optimiser_i = Adam(params=self.model.parameters(), lr=config["lr"])
+            self.optimiser = Adam(params=self.params, lr=config["lr"])
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -139,23 +194,18 @@ class WBQLPolicy(Policy):
             **kwargs) -> Tuple[TensorType, List[TensorType], Dict[str, TensorType]]:
         explore = explore if explore is not None else self.config["explore"]
         timestep = timestep if timestep is not None else self.global_timestep
+        obs_batch, action_mask, _ = unpack_observation(self, obs_batch)
 
         # Switch to eval mode.
         if self.model:
             self.model.eval()
+            if self.obs_encoder:
+                self.obs_encoder.eval()
+            if self.use_comm:
+                self.comm_net.eval()
 
         with torch.no_grad():
-            seq_lens = torch.ones(len(obs_batch), dtype=torch.int32)
-            obs_batch = SampleBatch({
-                SampleBatch.CUR_OBS: obs_batch
-            })
-            obs_batch.set_get_interceptor(
-                functools.partial(convert_to_torch_tensor, device=self.device)
-            )
-            if prev_action_batch is not None:
-                obs_batch[SampleBatch.PREV_ACTIONS] = np.asarray(prev_action_batch)
-            if prev_reward_batch is not None:
-                obs_batch[SampleBatch.PREV_REWARDS] = np.asarray(prev_reward_batch)
+            obs_batch = convert_to_torch_tensor(obs_batch, self.device)
             state_batches = [
                 convert_to_torch_tensor(s, self.device) for s in (state_batches or [])
             ]
@@ -163,24 +213,46 @@ class WBQLPolicy(Policy):
             # Call the exploration before_compute_actions hook.
             self.exploration.before_compute_actions(explore=explore, timestep=timestep)
 
+            if self.use_comm:
+                msg = self.comm_net(obs_batch)
+                if self.neighbour_messages:
+                    n = len(self.neighbour_messages)
+                    local_msg = msg.reshape(1, 1, -1)
+                    neighbour_msgs = convert_to_torch_tensor(
+                        np.array(self.neighbour_messages).reshape(1, n, -1), self.device)
+                    msg = torch.cat([local_msg, neighbour_msgs], axis=1)
+                    msg = self.aggregate_messages(msg)
+                    self.neighbour_messages.clear()
+                obs_batch = torch.cat([obs_batch, msg], dim=-1)
+
+            if self.config["use_obs_encoder"]:
+                obs_batch = convert_to_torch_tensor(obs_batch, self.device)
+                obs_batch, _ = self.obs_encoder(obs_batch)
+            else:
+                obs_batch = convert_to_torch_tensor(obs_batch, self.device)
+
             # predict q-vals
-            dist_inputs, state_out = self.model(obs_batch, state_batches, seq_lens)
+            q_values, hiddens = _mac(self.model, obs_batch, state_batches)
+            avail_actions = convert_to_torch_tensor(action_mask, self.device)
+            masked_q_values = q_values.clone()
+            masked_q_values[avail_actions == 0.0] = -float("inf")
+            masked_q_values_folded = torch.reshape(masked_q_values, [-1] + list(masked_q_values.shape)[2:])
 
             # select action
-            action_dist = self.dist_class(dist_inputs, self.model)
+            action_dist = self.dist_class(masked_q_values_folded, self.model)
             actions, logp = self.exploration.get_exploration_action(
                 action_distribution=action_dist,
                 timestep=timestep,
                 explore=explore,
             )
 
-            # assign selection actions
-            obs_batch[SampleBatch.ACTIONS] = actions
+            actions = actions.cpu().numpy()
+            hiddens = [s.view(self.n_agents, -1).cpu().numpy() for s in hiddens]
 
-            # Update our global timestep by the batch size.
-            self.global_timestep += len(obs_batch[SampleBatch.CUR_OBS])
-            q_values = dist_inputs.squeeze().cpu().detach().numpy().tolist()
-            results = convert_to_non_torch_type((actions, state_out, {'q-values': [q_values]}))
+            # store q values selected in this time step for callbacks
+            q_values = masked_q_values.squeeze().cpu().detach().numpy().tolist()
+
+            results = convert_to_non_torch_type((actions, hiddens, {'q-values': [q_values]}))
 
         return results
 
@@ -195,6 +267,22 @@ class WBQLPolicy(Policy):
             other_agent_batches: Optional[Dict[AgentID, Tuple[
                 "Policy", SampleBatch]]] = None,
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
+        # observation sharing
+        if len(other_agent_batches) > 0:
+            sample_batch = sample_batch.copy()
+            n_obs = []
+            n_next_obs = []
+            for n_id, (policy, batch) in other_agent_batches.items():
+                n_obs.append(
+                    policy.get_message(batch[SampleBatch.OBS])
+                )
+                n_next_obs.append(
+                    policy.get_message(batch[SampleBatch.NEXT_OBS])
+                )
+            sample_batch[NEIGHBOUR_OBS] = np.array(n_obs).reshape(
+                len(sample_batch), len(other_agent_batches), -1)
+            sample_batch[NEIGHBOUR_NEXT_OBS] = np.array(n_next_obs).reshape(
+                len(sample_batch), len(other_agent_batches), -1)
         return sample_batch
 
     def learn_on_batch(self, samples: SampleBatch) -> Dict[str, TensorType]:
@@ -202,6 +290,10 @@ class WBQLPolicy(Policy):
         if self.model:
             self.model.train()
             self.auxiliary_model.train()
+            if self.obs_encoder:
+                self.obs_encoder.train()
+            if self.use_comm:
+                self.comm_net.train()
 
         # Callback handling.
         learn_stats = {}
@@ -211,32 +303,48 @@ class WBQLPolicy(Policy):
             result=learn_stats,
         )
 
-        # compute loss
-        loss_qi, loss_qe, td_error_abs, qt_selected_mean, qt_target_mean = self.compute_q_losses(samples)
+        (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
+         next_obs, obs, rewards, terminated, n_obs, n_next_obs) = preprocess_trajectory_batch(
+            policy=self,
+            samples=samples,
+            has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
+        )
+
+        loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
+            rewards,
+            actions,
+            terminated,
+            mask,
+            obs,
+            next_obs,
+            action_mask,
+            next_action_mask,
+            env_global_state,
+            next_env_global_state,
+            n_obs,
+            n_next_obs,
+        )
 
         # Optimise
-        self.optimiser_e.zero_grad()
-        self.optimiser_i.zero_grad()
-        loss_qe.backward()
-        loss_qi.backward()
+        self.optimiser.zero_grad()
+        loss_out.backward()
         grad_norm_clipping_ = self.config["grad_clip"]
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.grad_clip_params, grad_norm_clipping_)
-        self.optimiser_i.step()
-        self.optimiser_e.step()
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.params, grad_norm_clipping_)
+        self.optimiser.step()
 
+        mask_elems = mask.sum().item()
         stats = {
-            "loss": loss_qi.item(),
-            "loss_aux": loss_qe.item(),
+            "loss": loss_out.item(),
             "grad_norm": grad_norm if isinstance(grad_norm, float) else grad_norm.item(),
-            "td_error_abs": td_error_abs,
-            "q_taken_mean": qt_selected_mean,
-            "target_mean": qt_target_mean,
+            "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
+            "q_taken_mean": (chosen_action_qvals * mask).sum().item() / mask_elems,
+            "target_mean": (targets * mask).sum().item() / mask_elems,
         }
-        data = {LEARNER_STATS_KEY: stats}
-
-        if self.model:
-            data["model"] = self.model.metrics()
-        data.update({"custom_metrics": learn_stats})
+        data = {
+            LEARNER_STATS_KEY: stats,
+            "model": self.model.metrics(),
+            "custom_metrics": learn_stats
+        }
         return data
 
     @override(Policy)
@@ -250,15 +358,32 @@ class WBQLPolicy(Policy):
     def set_weights(self, weights):
         self.model.load_state_dict(self._device_dict(weights["model"]))
         self.auxiliary_model.load_state_dict(self._device_dict(weights["auxiliary_model"]))
-        self.auxiliary_target_model.load_state_dict(self._device_dict(weights["auxiliary_model_target"]))
+        self.auxiliary_model_target.load_state_dict(self._device_dict(weights["auxiliary_model_target"]))
+
+        if "obs_encoder" in weights and self.obs_encoder:
+            self.obs_encoder.load_state_dict(self._device_dict(weights["obs_encoder"]))
+            self.obs_encoder_target.load_state_dict(self._device_dict(weights["obs_encoder_target"]))
+
+        if self.use_comm and "comm_net" in weights:
+            self.comm_net.load_state_dict(self._device_dict(weights["comm_net"]))
+            self.comm_net_target.load_state_dict(self._device_dict(weights["comm_net_target"]))
 
     @override(Policy)
     def get_weights(self):
-        return {
+        wts = {
             "model": self._cpu_dict(self.model.state_dict()),
             "auxiliary_model": self._cpu_dict(self.auxiliary_model.state_dict()),
-            "auxiliary_model_target": self._cpu_dict(self.auxiliary_target_model.state_dict()),
+            "auxiliary_model_target": self._cpu_dict(self.auxiliary_model_target.state_dict()),
         }
+
+        if self.obs_encoder:
+            wts["obs_encoder"] = self._cpu_dict(self.obs_encoder.state_dict())
+            wts["obs_encoder_target"] = self._cpu_dict(self.obs_encoder_target.state_dict())
+
+        if self.use_comm:
+            wts["comm_net"] = self._cpu_dict(self.comm_net.state_dict())
+            wts["comm_net_target"] = self._cpu_dict(self.comm_net_target.state_dict())
+        return wts
 
     @override(Policy)
     def is_recurrent(self) -> bool:
@@ -274,77 +399,11 @@ class WBQLPolicy(Policy):
         }
 
     def update_target(self):
-        self.auxiliary_target_model = soft_update(self.auxiliary_target_model, self.auxiliary_model, self.tau)
-
-    def compute_q_losses(self, train_batch: SampleBatch) -> TensorType:
-        # reward reconciliation
-        if self.config["reconcile_rewards"]:
-            train_batch = distance_metrics.batch_cosine_similarity_reward_update(train_batch)
-
-        # batch preprocessing ops
-        obs = self.convert_batch_to_tensor({
-            SampleBatch.OBS: train_batch[SampleBatch.OBS]
-        })
-        next_obs = self.convert_batch_to_tensor({
-            SampleBatch.OBS: train_batch[SampleBatch.NEXT_OBS]
-        })
-        train_batch.set_get_interceptor(
-            functools.partial(convert_to_torch_tensor, device=self.device)
-        )
-        state_batches_h, state_batches_h_prime = self.get_rnn_states(train_batch)
-        seq_lens = train_batch.get(SampleBatch.SEQ_LENS)
-
-        # q scores for actions which we know were selected in the given state.
-        one_hot_selection = F.one_hot(train_batch[SampleBatch.ACTIONS].long(), num_classes=self.action_space.n)
-        one_hot_selection = one_hot_selection.to(self.device)
-
-        # ----------------------- Auxiliary model objective --------------
-        # compute q-vals
-        q_e, _ = self.auxiliary_model(obs, state_batches_h, seq_lens)
-        q_e = torch.sum(q_e * one_hot_selection, dim=1)
-
-        # compute estimate of the best possible value starting from state at t + 1
-        q, _ = self.model(next_obs, state_batches_h_prime, seq_lens)
-        dones = train_batch[SampleBatch.DONES].float()
-        q_best = self._get_max_q(q)
-        q_best = (1.0 - dones) * q_best
-
-        # compute RHS of bellman equation
-        q_e_target = train_batch[SampleBatch.REWARDS] + self.config["gamma"] * q_best
-        q_e_weight = torch.where(q_e_target > q_e, 1.0, self.lamda)
-
-        # Compute the error (Square/Huber).
-        td_error_q_e = q_e - q_e_target.detach()
-        loss_qe = torch.mean(q_e_weight * huber_loss(td_error_q_e))
-        self.model.tower_stats["loss_qe"] = loss_qe
-        self.model.tower_stats["td_error"] = td_error_q_e
-
-        # --------------------------- Main model -------------------------
-        qt, _ = self.model(obs, state_batches_h, seq_lens)
-        qt_selected = torch.sum(qt * one_hot_selection, dim=1)
-        q_bar_e, _ = self.auxiliary_target_model(obs, state_batches_h, seq_lens)
-        q_bar_e_selected = torch.sum(q_bar_e * one_hot_selection, dim=1)
-        qt_weight = torch.where(q_bar_e_selected > qt_selected, 1.0, self.lamda)
-        loss = qt_weight * huber_loss(qt_selected - q_bar_e_selected.detach())
-
-        # state-value loss
-        # if "state_value_batch" in train_batch:
-        #     sv_batch = train_batch["state_value_batch"]
-        #     sv_batch.set_get_interceptor(
-        #         functools.partial(convert_to_torch_tensor, device=self.device)
-        #     )
-        #     sv_seq_lens = sv_batch.get(SampleBatch.SEQ_LENS)
-        #     state_in, _ = self.get_rnn_states(sv_batch)
-        #     sv_out, _ = self.model(sv_batch, state_in, sv_seq_lens)
-        #     sv_best = self._get_max_q(sv_out)
-        #     sv_loss = huber_loss(sv_best - sv_batch[SampleBatch.VF_PREDS])
-        #     loss = self.beta * sv_loss + (1 - self.beta) * loss
-
-        # final loss
-        loss = torch.mean(loss)
-        self.model.tower_stats["loss"] = loss
-
-        return loss, loss_qe, td_error_q_e.abs().sum().item(), qt_selected.mean().item(), q_e_target.mean().item()
+        self.auxiliary_model_target = soft_update(self.auxiliary_model_target, self.auxiliary_model, self.tau)
+        if self.obs_encoder:
+            self.obs_encoder_target = soft_update(self.obs_encoder_target, self.obs_encoder, self.tau)
+        if self.use_comm:
+            self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
 
     def convert_batch_to_tensor(self, data_dict):
         obs_batch = SampleBatch(data_dict)
@@ -353,66 +412,139 @@ class WBQLPolicy(Policy):
         )
         return obs_batch
 
-    def compute_state_values_from_batch(self, batch: SampleBatch) -> SampleBatch:
-        # data preprocessing
-        obs = SampleBatch({
-            SampleBatch.OBS: batch[SampleBatch.OBS],
-        })
-        next_obs = SampleBatch({
-            SampleBatch.OBS: batch[SampleBatch.NEXT_OBS],
-        })
-        obs = SampleBatch.concat_samples([obs, next_obs])
-        state_batches_h, state_batches_h_prime = self.get_rnn_states(batch)
-        state_batches_h += state_batches_h_prime
-        obs.set_get_interceptor(
-            functools.partial(convert_to_torch_tensor, device=self.device)
+    def compute_trajectory_q_loss(self,
+                                  rewards,
+                                  actions,
+                                  terminated,
+                                  mask,
+                                  obs,
+                                  next_obs,
+                                  action_mask,
+                                  next_action_mask,
+                                  state=None,
+                                  next_state=None,
+                                  neighbour_obs=None,
+                                  neighbour_next_obs=None):
+        """
+        Computes the Q loss.
+
+        Args:
+            rewards: Tensor of shape [B, T]
+            actions: Tensor of shape [B, T]
+            terminated: Tensor of shape [B, T]
+            mask: Tensor of shape [B, T]
+            obs: Tensor of shape [B, T, obs_size]
+            next_obs: Tensor of shape [B, T, obs_size]
+            action_mask: Tensor of shape [B, T, n_actions]
+            next_action_mask: Tensor of shape [B, T, n_actions]
+            state: Tensor of shape [B, T, state_dim] (optional)
+            next_state: Tensor of shape [B, T, state_dim] (optional)
+            neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+            neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+        """
+        B, T = obs.shape[0], obs.shape[1]
+        target_obs, raw_obs = obs, obs
+        target_next_obs, raw_next_obs = next_obs, next_obs
+
+        if self.use_comm:
+            def add_comm_msg(model, ob, next_ob):
+                local_msg = model(ob).unsqueeze(2)
+                msgs = torch.cat([local_msg, neighbour_obs], dim=2)
+                agg_msg = self.aggregate_messages(msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
+                ob = torch.cat([ob, agg_msg], dim=-1)
+
+                next_local_msg = model(next_ob).unsqueeze(2)
+                next_msgs = torch.cat([next_local_msg, neighbour_next_obs], dim=2)
+                agg_next_msg = self.aggregate_messages(next_msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
+                next_ob = torch.cat([next_ob, agg_next_msg], dim=-1)
+
+                return ob, next_ob
+            obs, next_obs = add_comm_msg(self.comm_net, obs, next_obs)
+            target_obs, target_next_obs = add_comm_msg(self.comm_net_target, target_obs, target_next_obs)
+
+        # reward reconciliation
+        if self.config.get("use_obs_encoder", False):  # and neighbour_obs is not None and neighbour_next_obs is not None:
+            def projection(x, target=False):
+                x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
+                encoder = self.obs_encoder_target if target else self.obs_encoder
+                x, enc = encoder(x.view(B * T, *x.shape[2:]))
+                x = x.view(B, T, -1)
+                return x, enc
+
+            obs, encoding = projection(obs)
+            target_obs, _ = projection(target_obs, target=True)
+            next_obs, _ = projection(next_obs)
+            target_next_obs, _ = projection(target_next_obs, target=True)
+
+        # append the first element of obs + next_obs to get new one
+        whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
+        whole_obs = whole_obs.unsqueeze(2)
+        target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
+        target_whole_obs = target_whole_obs.unsqueeze(2)
+
+        # Auxiliary encoder objective
+        # Qe(s, a_i)
+        qe_out = _unroll_mac(self.auxiliary_model, whole_obs).squeeze(2)
+        qe_qvals = torch.gather(qe_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
+
+        # Qi(s', a'_i*)
+        qi_out = _unroll_mac(self.model, whole_obs).squeeze(2)
+        qi_out_sp = qi_out[:, 1:]
+        # Mask out unavailable actions for the t+1 step
+        ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
+        qi_out_sp[ignore_action_tp1] = -np.inf
+        qi_out_sp_qvals = qi_out_sp.max(dim=2)[0]
+
+        # Calculate 1-step Q-Learning targets
+        targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
+        targets_flat = targets.view(-1,)
+        targets_count = Counter(targets_flat.cpu().detach().squeeze().numpy().tolist())
+        weights = targets_flat.detach().clone()
+        # for tgt, freq in targets_count.items():
+        pos = targets_flat[targets_flat >= 0]
+        w = len(pos) / len(targets_flat)
+        weights[targets_flat >= 0] = 1 - w
+        weights[targets_flat < 0] = w
+        weights = weights.view(*targets.shape)
+
+        # Qe_i TD error
+        qe_td_error = weights * (qe_qvals - targets.detach())
+        mask = mask.expand_as(qe_td_error)
+        # 0-out the targets that came from padded data
+        masked_td_error = qe_td_error * mask
+        qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
+        self.model.tower_stats["Qe_loss"] = qe_loss
+        self.model.tower_stats["td_error"] = qe_td_error
+
+        # Qi function objective
+        # Qi(s, a)
+        qi_out_s_qvals = torch.gather(qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
+        # Qe_bar(s, a)
+        qe_bar_out = _unroll_mac(self.auxiliary_model_target, target_whole_obs).squeeze(2)
+        qe_bar_out_qvals = torch.gather(qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
+        qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
+        qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
+        qi_loss = torch.sum(qi_loss * mask) / mask.sum()
+        self.model.tower_stats["Qi_loss"] = qi_loss
+
+        # combine losses
+        loss = qe_loss + qi_loss
+        self.model.tower_stats["loss"] = loss
+
+        return loss, mask, masked_td_error, qi_out_s_qvals, targets
+
+    def get_message(self, obs):
+        if obs.ndim < 2:
+            obs = np.expand_dims(obs, axis=0)
+        obs, _, _ = unpack_observation(
+            self,
+            obs,
         )
+        if self.use_comm:
+            obs = convert_to_torch_tensor(obs, self.device).float()
+            obs = self.comm_net(obs).cpu().detach().numpy()
+        return obs
 
-        seq_lens = batch.get(SampleBatch.SEQ_LENS)
-
-        # eval mode for forward propagation
-        self.auxiliary_model.eval()
-        self.model.eval()
-
-        # optimal state-value outputs
-        q_i, _ = self.model(obs, state_batches_h, seq_lens)
-        v_i = self._get_max_q(q_i)
-        q_e, _ = self.auxiliary_model(obs, state_batches_h, seq_lens)
-        v_e = self._get_max_q(q_e)
-
-        # optimal state values
-        state_vals = torch.maximum(v_i, v_e).view(-1, 1)
-
-        # constitute a joint sample batch
-        new_batch = SampleBatch({
-            SampleBatch.OBS: obs[SampleBatch.OBS].cpu().detach().numpy(),
-            SampleBatch.VF_PREDS: state_vals.cpu().detach().numpy(),
-            SampleBatch.SEQ_LENS: seq_lens,
-        })
-        if state_batches_h:
-            new_batch["state_in_0"] = state_batches_h
-
-        return new_batch
-
-    def get_rnn_states(self, batch):
-        # get hidden states for RNN case
-        i = 0
-        state_batches_h = []
-        while "state_in_{}".format(i) in batch:
-            state_batches_h.append(batch["state_in_{}".format(i)])
-            i += 1
-        if self._is_recurrent:
-            assert state_batches_h
-        i = 0
-        state_batches_h_prime = []
-        while "state_out_{}".format(i) in batch:
-            state_batches_h_prime.append(batch["state_out_{}".format(i)])
-            i += 1
-        if self._is_recurrent:
-            assert state_batches_h_prime
-        return state_batches_h, state_batches_h_prime
-
-    def _get_max_q(self, q):
-        q_best_one_hot_selection = F.one_hot(torch.argmax(q, 1), self.action_space.n)
-        q_best = torch.sum(q * q_best_one_hot_selection, 1, keepdim=True)
-        return q_best
+    def aggregate_messages(self, msg):
+        agg_msg = torch.sum(msg, dim=1, keepdim=True)
+        return agg_msg

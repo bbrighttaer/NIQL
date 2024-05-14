@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-a', '--algo',
-        choices=['bql', 'dbql'],
+        choices=['bql', 'wbql'],
         default='bql',
         help='The algorithm to use.',
     )
@@ -88,7 +88,7 @@ if __name__ == '__main__':
     )
 
     # initialize algorithm
-    bql = marl.algos.dbql if args.algo == "dbql" else marl.algos.bql  # (hyperparam_source="mpe")
+    bql = marl.algos.wbql if args.algo == "wbql" else marl.algos.bql  # (hyperparam_source="mpe")
     bql.algo_parameters = exp_config['algo_parameters']
     bql.algo_parameters["algo_args"]["reconcile_rewards"] = args.reconcile_rewards
     bql.algo_parameters["algo_args"][

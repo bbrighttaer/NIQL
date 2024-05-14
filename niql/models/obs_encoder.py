@@ -56,9 +56,9 @@ class MultiHeadSelfAttentionEncoder(nn.Module):
 
 class FCNEncoder(nn.Module):
 
-    def __init__(self, input_dim, num_tiling=3, **kwargs):
+    def __init__(self, input_dim, num_tiling=1, **kwargs):
         super().__init__()
-        self.encoding_dim = 8
+        self.encoding_dim = 32
         self.ste = StraightThroughEstimator()
         self.lin_projection = nn.Linear(input_dim, input_dim)
         self.tiling_id = torch.eye(num_tiling).to(kwargs.get("device", "cpu"))
