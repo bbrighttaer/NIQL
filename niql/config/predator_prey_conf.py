@@ -9,7 +9,7 @@ PREDATOR_PREY = {
             'buffer_size': 10000,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
-            'epsilon_timesteps': 100000,
+            'epsilon_timesteps': 50000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
@@ -19,7 +19,7 @@ PREDATOR_PREY = {
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
-            'comm_dim': 10,
+            'comm_dim': 0,
         }
     },
     'model_preference': {

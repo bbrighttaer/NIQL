@@ -153,7 +153,7 @@ if __name__ == '__main__':
             with torch.no_grad():
                 while not done["__all__"]:
                     action_dict = {}
-                    cur_state = np.array([0, 0, 1+1])
+                    cur_state = np.array([0, 0, 1])
                     neighbour_state = cur_state  # np.array([0, 0, 0])
                     for agent_id in obs.keys():
                         policy = agent.get_policy(pmap(agent_id))
