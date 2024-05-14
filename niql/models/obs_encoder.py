@@ -85,6 +85,7 @@ class FCNEncoder(nn.Module):
 
         # res-link
         x = F.elu(self.lin_reduce(encoding) + x)
+        # print(x.squeeze().detach().numpy().tolist(), encoding.squeeze().detach().numpy().tolist())
         return x, encoding
 
 

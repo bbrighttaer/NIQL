@@ -584,21 +584,21 @@ class BQLPolicy(Policy):
                 next_obs, _ = projection(next_obs)
                 target_next_obs, _ = projection(target_next_obs, target=True)
 
-                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
-                    obs=encoding.clone().detach().reshape(B * T, -1),
-                    actions=actions.reshape(-1, 1),
-                    rewards=rewards.reshape(-1, 1),
-                    threshold=threshold,
-                )
-                rewards = batch_rewards.view(*rewards.shape)
-            else:
-                batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
-                    obs=obs.clone().detach().reshape(B * T, -1),
-                    actions=actions.reshape(-1, 1),
-                    rewards=rewards.reshape(-1, 1),
-                    threshold=threshold,
-                )
-                rewards = batch_rewards.view(*rewards.shape)
+                # batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
+                #     obs=encoding.clone().detach().reshape(B * T, -1),
+                #     actions=actions.reshape(-1, 1),
+                #     rewards=rewards.reshape(-1, 1),
+                #     threshold=threshold,
+                # )
+                # rewards = batch_rewards.view(*rewards.shape)
+            # else:
+            #     batch_rewards = distance_metrics.batch_cosine_similarity_reward_update_torch(
+            #         obs=obs.clone().detach().reshape(B * T, -1),
+            #         actions=actions.reshape(-1, 1),
+            #         rewards=rewards.reshape(-1, 1),
+            #         threshold=threshold,
+            #     )
+            #     rewards = batch_rewards.view(*rewards.shape)
 
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)

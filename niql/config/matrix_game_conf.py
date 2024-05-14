@@ -13,13 +13,13 @@ MATRIX_GAME = {
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
             'gamma': 0.99,
-            'lambda': 0.6,
+            'lambda': 0.1,
             'tau': 0.5,
             'beta': 0,
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
-            'comm_dim': 10,
+            'comm_dim': 0,
         }
     },
     'model_preference': {
