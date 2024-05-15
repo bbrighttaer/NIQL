@@ -1,9 +1,12 @@
+import numpy as np
 import tree
 from ray.rllib.execution.replay_buffer import *
 from ray.rllib.models.modelv2 import _unpack_obs
 from ray.rllib.models.preprocessors import get_preprocessor
 import torch
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
+from scipy.ndimage import gaussian_filter1d, convolve1d
+from scipy.stats import triang
 
 
 # -----------------------------------------------------------------------------------------------
@@ -84,7 +87,7 @@ def unpack_observation(policy, obs_batch):
     return obs, action_mask, state
 
 
-def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data=False):
+def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data=False, **kwargs):
     shared_obs_batch, shared_next_obs_batch = None, None
     # preprocess training data
     obs_batch, action_mask, env_global_state = unpack_observation(
@@ -95,24 +98,6 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
         policy,
         samples[SampleBatch.NEXT_OBS],
     )
-
-    # if has_neighbour_data:
-    #     n_samples = samples[NEIGHBOUR_OBS]
-    #     n_shape = n_samples.shape
-    #     n_samples = n_samples.reshape(-1, n_shape[-1])
-    #     shared_obs_batch, _, _ = unpack_observation(
-    #         policy,
-    #         n_samples,
-    #     )
-    #     shared_obs_batch = shared_obs_batch.reshape(*n_shape[:2], -1)
-    #
-    #     n_next_samples = samples[NEIGHBOUR_NEXT_OBS]
-    #     n_next_samples = n_next_samples.reshape(-1, n_shape[-1])
-    #     shared_next_obs_batch, _, _ = unpack_observation(
-    #         policy,
-    #         n_next_samples,
-    #     )
-    #     shared_next_obs_batch = shared_next_obs_batch.reshape(*n_shape[:2], -1)
 
     input_list = [
         samples[SampleBatch.REWARDS], action_mask, next_action_mask,
@@ -138,6 +123,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
         max_seq_len=policy.config["model"]["max_seq_len"],
         dynamic_max=True,
     )
+
     # These will be padded to shape [B * T, ...]
     if policy.has_env_global_state and has_neighbour_data:
         (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
@@ -196,3 +182,63 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
 
 NEIGHBOUR_NEXT_OBS = "n_next_obs"
 NEIGHBOUR_OBS = "n_obs"
+LDS_WEIGHTS = "lds_weights"
+
+
+def calibrate_mean_var(matrix, m1, v1, m2, v2, clip_min=0.5, clip_max=2.):
+    if torch.sum(v1) < 1e-10:
+        return matrix
+    if (v1 <= 0.).any() or (v2 < 0.).any():
+        valid_pos = (((v1 > 0.) + (v2 >= 0.)) == 2)
+        factor = torch.clamp(v2[valid_pos] / v1[valid_pos], clip_min, clip_max)
+        matrix[:, valid_pos] = (matrix[:, valid_pos] - m1[valid_pos]) * torch.sqrt(factor) + m2[valid_pos]
+        return matrix
+
+    factor = torch.clamp(v2 / v1, clip_min, clip_max)
+    return (matrix - m1) * torch.sqrt(factor) + m2
+
+
+def get_lds_kernel_window(kernel, ks, sigma):
+    assert kernel in ['gaussian', 'triang', 'laplace']
+    half_ks = (ks - 1) // 2
+    if kernel == 'gaussian':
+        base_kernel = [0.] * half_ks + [1.] + [0.] * half_ks
+        kernel_window = gaussian_filter1d(base_kernel, sigma=sigma) / max(gaussian_filter1d(base_kernel, sigma=sigma))
+        # kernel = gaussian(ks)
+    elif kernel == 'triang':
+        kernel_window = triang(ks)
+    else:
+        laplace = lambda x: np.exp(-abs(x) / sigma) / (2. * sigma)
+        kernel_window = list(map(laplace, np.arange(-half_ks, half_ks + 1))) / max(
+            map(laplace, np.arange(-half_ks, half_ks + 1)))
+
+    return kernel_window
+
+
+def get_lds_weights(
+        samples: SampleBatch,
+        lds_kernel="gaussian",
+        lds_ks=50,
+        lds_sigma=2,
+        num_bins=50,
+) -> np.array:
+    # consider all data in buffer
+    rewards = samples[SampleBatch.REWARDS]
+
+    # create bins
+    hist, bins = np.histogram(rewards, bins=num_bins)
+    bin_index_per_label = np.digitize(rewards, bins, right=True)
+    Nb = max(bin_index_per_label) + 1
+    num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
+    emp_label_dist = [num_samples_of_bins.get(i, 0) for i in range(Nb)]
+
+    # compute effective label distribution
+    lds_kernel_window = get_lds_kernel_window(lds_kernel, lds_ks, lds_sigma)
+    eff_label_dist = convolve1d(emp_label_dist, weights=lds_kernel_window, mode='constant')
+
+    # Use re-weighting based on effective label distribution, sample-wise weights: [Ns,]
+    eff_num_per_label = [eff_label_dist[bin_idx] for bin_idx in bin_index_per_label]
+    weights = [np.float32(1 / (x + 1e-6)) for x in eff_num_per_label]
+    scaling = len(weights) / np.sum(weights)
+    lds_weights = np.array(weights).reshape(len(samples), -1)
+    return lds_weights

@@ -3,17 +3,17 @@ from niql.callbacks import NIQLCallbacks
 MPE = {
     'algo_parameters': {
         'algo_args': {
-            'batch_episode': 256,
+            'batch_episode': 2048,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
-            'epsilon_timesteps': 200000,
+            'epsilon_timesteps': 50000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
             'gamma': 0.99,
-            'lambda': 0.5,
+            'lambda': 0.6,
             'tau': 0.5,  # target network soft update
             'beta': 0,
             'callbacks': NIQLCallbacks,

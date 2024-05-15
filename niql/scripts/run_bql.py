@@ -16,7 +16,7 @@ from ray.util.ml_utils.dict import merge_dicts
 
 from niql.algo import BQLTrainer, BQLPolicy
 from niql.callbacks import ObservationCommWrapper
-from niql.execution_plans import joint_episode_execution_plan
+from niql.execution_plans import joint_episode_execution_plan, lds_episode_execution_plan
 
 
 def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, *args, **kwargs):
@@ -117,10 +117,14 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
         trainer = trainer.with_updates(
             get_policy_class=lambda c: BQLPolicy,
         )
-    if _param["enable_joint_buffer"]:
+    if _param.get("enable_joint_buffer", False):
         trainer = trainer.with_updates(
             execution_plan=joint_episode_execution_plan,
         )
+    # elif _param.get("enable_lds", False):
+    #     trainer = trainer.with_updates(
+    #         execution_plan=lds_episode_execution_plan,
+    #     )
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]

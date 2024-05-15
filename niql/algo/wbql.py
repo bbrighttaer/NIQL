@@ -19,7 +19,8 @@ from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_to
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.models import DRQNModel, FCNEncoder, SimpleCommNet
-from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS
+from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, \
+    get_lds_weights
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class WBQLPolicy(Policy):
         self.has_action_mask = False
         self.device = (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
         config["model"]["full_obs_space"] = obs_space
+        config["model"]["device"] = self.device
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
         self.reward_standardize = config["reward_standardize"]
         self.neighbour_messages = []
@@ -308,6 +310,13 @@ class WBQLPolicy(Policy):
             policy=self,
             samples=samples,
             has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
+            use_lds_weights=True,
+            lds_args={
+                "lds_kernel": "gaussian",
+                "lds_ks": 10,
+                "lds_sigma": 2,
+                "num_bins": 100,
+            }
         )
 
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
@@ -441,6 +450,7 @@ class WBQLPolicy(Policy):
             next_state: Tensor of shape [B, T, state_dim] (optional)
             neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
             neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+            lds_weights: Tensor of shape [B, T]
         """
         B, T = obs.shape[0], obs.shape[1]
         target_obs, raw_obs = obs, obs
@@ -459,28 +469,30 @@ class WBQLPolicy(Policy):
                 next_ob = torch.cat([next_ob, agg_next_msg], dim=-1)
 
                 return ob, next_ob
+
             obs, next_obs = add_comm_msg(self.comm_net, obs, next_obs)
             target_obs, target_next_obs = add_comm_msg(self.comm_net_target, target_obs, target_next_obs)
 
         # reward reconciliation
-        if self.config.get("use_obs_encoder", False):  # and neighbour_obs is not None and neighbour_next_obs is not None:
-            def projection(x, target=False):
-                x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
-                encoder = self.obs_encoder_target if target else self.obs_encoder
-                x, enc = encoder(x.view(B * T, *x.shape[2:]))
-                x = x.view(B, T, -1)
-                return x, enc
-
-            obs, encoding = projection(obs)
-            target_obs, _ = projection(target_obs, target=True)
-            next_obs, _ = projection(next_obs)
-            target_next_obs, _ = projection(target_next_obs, target=True)
+        # if self.config.get("use_obs_encoder", False):  # and neighbour_obs is not None and neighbour_next_obs is not None:
+        #     def projection(x, target=False):
+        #         x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
+        #         encoder = self.obs_encoder_target if target else self.obs_encoder
+        #         x, enc = encoder(x.view(B * T, *x.shape[2:]))
+        #         x = x.view(B, T, -1)
+        #         return x, enc
+        #
+        #     obs, encoding = projection(obs)
+        #     target_obs, _ = projection(target_obs, target=True)
+        #     next_obs, _ = projection(next_obs)
+        #     target_next_obs, _ = projection(target_next_obs, target=True)
 
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
         target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
         target_whole_obs = target_whole_obs.unsqueeze(2)
+        qe_bar_out = _unroll_mac(self.auxiliary_model_target, target_whole_obs).squeeze(2)
 
         # Auxiliary encoder objective
         # Qe(s, a_i)
@@ -497,18 +509,26 @@ class WBQLPolicy(Policy):
 
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
-        targets_flat = targets.view(-1,)
-        targets_count = Counter(targets_flat.cpu().detach().squeeze().numpy().tolist())
-        weights = targets_flat.detach().clone()
-        # for tgt, freq in targets_count.items():
-        pos = targets_flat[targets_flat >= 0]
-        w = len(pos) / len(targets_flat)
-        weights[targets_flat >= 0] = 1 - w
-        weights[targets_flat < 0] = w
-        weights = weights.view(*targets.shape)
+
+        # Get LDS weights
+        lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
+        lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
+        lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
+        lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
+        targets_flat = lds_targets.cpu().detach().numpy().reshape(-1,)
+        lds_weights = get_lds_weights(
+            samples=SampleBatch({
+                SampleBatch.REWARDS: targets_flat,
+            }),
+            lds_kernel=self.config.get("lds_kernel", "gaussian"),
+            lds_ks=self.config.get("lds_ks", 50),
+            lds_sigma=self.config.get("lds_sigma", 20),
+            num_bins=self.config.get("num_bins", 1000),
+        )
+        lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
 
         # Qe_i TD error
-        qe_td_error = weights * (qe_qvals - targets.detach())
+        qe_td_error = lds_weights * (qe_qvals - targets.detach())
         mask = mask.expand_as(qe_td_error)
         # 0-out the targets that came from padded data
         masked_td_error = qe_td_error * mask
@@ -520,7 +540,7 @@ class WBQLPolicy(Policy):
         # Qi(s, a)
         qi_out_s_qvals = torch.gather(qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         # Qe_bar(s, a)
-        qe_bar_out = _unroll_mac(self.auxiliary_model_target, target_whole_obs).squeeze(2)
+        # qe_bar_out = _unroll_mac(self.auxiliary_model_target, target_whole_obs).squeeze(2)
         qe_bar_out_qvals = torch.gather(qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
