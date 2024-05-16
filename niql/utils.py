@@ -1,5 +1,7 @@
 import numpy as np
+import pandas as pd
 import tree
+from ray.rllib.agents.qmix.qmix_policy import _mac
 from ray.rllib.execution.replay_buffer import *
 from ray.rllib.models.modelv2 import _unpack_obs
 from ray.rllib.models.preprocessors import get_preprocessor
@@ -7,6 +9,7 @@ import torch
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from scipy.ndimage import gaussian_filter1d, convolve1d
 from scipy.stats import triang
+
 
 
 # -----------------------------------------------------------------------------------------------
@@ -242,3 +245,84 @@ def get_lds_weights(
     scaling = len(weights) / np.sum(weights)
     lds_weights = np.array(weights).reshape(len(samples), -1)
     return lds_weights
+
+
+def _unroll_mac(model, obs_tensor):
+    """Computes the estimated Q values for an entire trajectory batch"""
+    B = obs_tensor.size(0)
+    T = obs_tensor.size(1)
+    n_agents = obs_tensor.size(2)
+
+    mac_out = []
+    mac_h_out = []
+    h = [s.expand([B, n_agents, -1]) for s in model.get_initial_state()]
+    for t in range(T):
+        q, h = _mac(model, obs_tensor[:, t], h)
+        mac_out.append(q)
+        mac_h_out.extend(h)
+    mac_out = torch.stack(mac_out, dim=1)  # Concat over time
+    mac_h_out = torch.stack(mac_h_out, dim=1)
+
+    return mac_out, mac_h_out
+
+
+def soft_update(target_net, source_net, tau):
+    """
+    Soft update the parameters of the target network with those of the source network.
+
+    Args:
+    - target_net: Target network.
+    - source_net: Source network.
+    - tau: Soft update parameter (0 < tau <= 1).
+
+    Returns:
+    - target_net: Updated target network.
+    """
+    for target_param, source_param in zip(target_net.parameters(), source_net.parameters()):
+        target_param.data.copy_(tau * source_param.data + (1.0 - tau) * target_param.data)
+
+    return target_net
+
+
+def to_numpy(tensor):
+    return tensor.cpu().detach().numpy()
+
+
+def save_representations(obs, latent_rep, model_out, target, reward):
+    """
+    Saves the observation and model predictions for analysis.
+
+    :param obs: Tensor of shape [B,T,obs_dim]
+    :param latent_rep: Tensor of shape [B,T,latent_dim]
+    :param model_out:  Tensor of shape [B,T]
+    :param target:  Tensor of shape [B,T]
+    :param reward:  Tensor of shape [B,T]
+    """
+    # prep data
+    obs = to_numpy(obs).reshape(-1, obs.shape[-1])
+    latent_rep = to_numpy(latent_rep).reshape(-1, latent_rep.shape[-1])
+    model_out = to_numpy(model_out).reshape(-1, 1)
+    target = to_numpy(target).reshape(-1, 1)
+    reward = to_numpy(reward).reshape(-1, 1)
+    data = np.concatenate([obs, latent_rep, model_out, target, reward], axis=-1)
+
+    # prepare column labels
+    obs_col_labels = [f"obs_{i + 1}" for i in range(obs.shape[1])]
+    latent_rep_col_labels = [f"latent_{i + 1}" for i in range(latent_rep.shape[1])]
+    model_out_col = "prediction"
+    target_col = "target"
+    reward = "reward"
+    cols = obs_col_labels + latent_rep_col_labels
+    cols.append(model_out_col)
+    cols.append(target_col)
+    cols.append(reward)
+
+    # save data to csv
+    df = pd.DataFrame(data=data, columns=cols)
+    df.to_csv("representation_analysis_data.csv", index=False)
+
+    print("Data saved")
+
+
+
+

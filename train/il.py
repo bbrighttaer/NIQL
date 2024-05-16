@@ -64,6 +64,13 @@ if __name__ == '__main__':
 
     gpu_count = torch.cuda.device_count()
 
+    # register new algorithm
+    marl.algos.register_algo(
+        algo_name=args.algo,
+        style="il",
+        script=scripts.run_iql if mode == 'train' else niql.trainer_loaders.load_iql_checkpoint,
+    )
+
     # initialise algorithm with hyperparameters
     if args.algo == 'ippo':
         algo = marl.algos.ippo
@@ -71,13 +78,6 @@ if __name__ == '__main__':
         algo = marl.algos.iql
     # initialize algorithm
     algo.algo_parameters = exp_config['algo_parameters']
-
-    # register new algorithm
-    marl.algos.register_algo(
-        algo_name=args.algo,
-        style="il",
-        script=scripts.run_iql if mode == 'train' else niql.trainer_loaders.load_iql_checkpoint,
-    )
 
     # build agent model based on env + algorithms + user preference if checked available
     model_config = exp_config['model_preference']

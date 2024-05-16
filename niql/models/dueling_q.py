@@ -6,14 +6,11 @@ import logging
 
 import gym
 import numpy as np
-from ray.rllib.models.torch.misc import normc_initializer
+from ray.rllib.models.torch.misc import normc_initializer, SlimFC
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.typing import Dict, TensorType, List, ModelConfigDict
-
-from niql.models.fds import FDS
-from niql.models.slim_fc import SlimFC
 
 torch, nn = try_import_torch()
 
@@ -47,7 +44,6 @@ class DuelingQFCN(TorchModelV2, nn.Module):
                     out_size=size,
                     initializer=normc_initializer(1.0),
                     activation_fn=activation,
-                    batch_norm=True,
                 )
             )
             prev_layer_size = size
@@ -60,7 +56,6 @@ class DuelingQFCN(TorchModelV2, nn.Module):
                     out_size=hiddens[-1],
                     initializer=normc_initializer(1.0),
                     activation_fn=activation,
-                    batch_norm=True,
                 )
             )
             prev_layer_size = hiddens[-1]
@@ -72,15 +67,6 @@ class DuelingQFCN(TorchModelV2, nn.Module):
             out_size=num_outputs,
             initializer=normc_initializer(0.01),
             activation_fn=None)
-
-        self.FDS = FDS(
-            feature_dim=prev_layer_size,
-            bucket_num=model_config.get("num_bins", 500),
-            kernel=model_config.get("lds_kernel", "gaussian"),
-            ks=model_config.get("lds_ks", 5),
-            sigma=model_config.get("lds_sigma", 2),
-            device=model_config.get("device"),
-        )
 
         self.value_layer = SlimFC(
             in_size=prev_layer_size,
@@ -94,8 +80,6 @@ class DuelingQFCN(TorchModelV2, nn.Module):
                 seq_lens: TensorType) -> (TensorType, List[TensorType]):
         obs = input_dict["obs_flat"].float()
         x = self.base_model(obs)
-        # if self.training:
-        #     x = self.FDS.smooth(x, )
         advantages = self.advantage_layer(x)
         values = self.value_layer(x)
         q_values = values + (advantages - advantages.mean())

@@ -7,9 +7,8 @@ import torch
 from gym.spaces import Dict as GymDict
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
-from ray.rllib.agents.qmix.qmix_policy import _unroll_mac, _mac
+from ray.rllib.agents.qmix.qmix_policy import _mac
 from ray.rllib.models import ModelCatalog
-from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.utils import override
@@ -18,31 +17,10 @@ from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_to
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.models import DRQNModel
-from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS
+from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, get_size, \
+    _unroll_mac, soft_update, save_representations, to_numpy
 
 logger = logging.getLogger(__name__)
-
-
-def get_size(obs_space):
-    return get_preprocessor(obs_space)(obs_space).size
-
-
-def soft_update(target_net, source_net, tau):
-    """
-    Soft update the parameters of the target network with those of the source network.
-
-    Args:
-    - target_net: Target network.
-    - source_net: Source network.
-    - tau: Soft update parameter (0 < tau <= 1).
-
-    Returns:
-    - target_net: Updated target network.
-    """
-    for target_param, source_param in zip(target_net.parameters(), source_net.parameters()):
-        target_param.data.copy_(tau * source_param.data + (1.0 - tau) * target_param.data)
-
-    return target_net
 
 
 class BQLPolicy(Policy):
@@ -200,7 +178,7 @@ class BQLPolicy(Policy):
             hiddens = [s.view(self.n_agents, -1).cpu().numpy() for s in hiddens]
 
             # store q values selected in this time step for callbacks
-            q_values = masked_q_values.squeeze().cpu().detach().numpy().tolist()
+            q_values = to_numpy(masked_q_values.squeeze()).tolist()
 
             results = convert_to_non_torch_type((actions, hiddens, {'q-values': [q_values]}))
 
@@ -305,7 +283,7 @@ class BQLPolicy(Policy):
 
     @staticmethod
     def _cpu_dict(state_dict):
-        return {k: v.cpu().detach().numpy() for k, v in state_dict.items()}
+        return {k: to_numpy(v) for k, v in state_dict.items()}
 
     def _device_dict(self, state_dict):
         return {
@@ -356,13 +334,17 @@ class BQLPolicy(Policy):
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
 
+        def unroll_mac_squeeze_wrapper(model_outputs):
+            pred, hs = model_outputs
+            return pred.squeeze(2), hs.squeeze(2)
+
         # Auxiliary encoder objective
         # Qe(s, a_i)
-        qe_out = _unroll_mac(self.auxiliary_model, whole_obs).squeeze(2)
+        qe_out, qe_h_out = unroll_mac_squeeze_wrapper(_unroll_mac(self.auxiliary_model, whole_obs))
         qe_qvals = torch.gather(qe_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
 
         # Qi(s', a'_i*)
-        qi_out = _unroll_mac(self.model, whole_obs).squeeze(2)
+        qi_out, qi_h_out = unroll_mac_squeeze_wrapper(_unroll_mac(self.model, whole_obs))
         qi_out_sp = qi_out[:, 1:]
         # Mask out unavailable actions for the t+1 step
         ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
@@ -385,7 +367,7 @@ class BQLPolicy(Policy):
         # Qi(s, a)
         qi_out_s_qvals = torch.gather(qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         # Qe_bar(s, a)
-        qe_bar_out = _unroll_mac(self.auxiliary_model_target, whole_obs).squeeze(2)
+        qe_bar_out, qe_bar_h_out = unroll_mac_squeeze_wrapper(_unroll_mac(self.auxiliary_model_target, whole_obs))
         qe_bar_out_qvals = torch.gather(qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
@@ -395,5 +377,13 @@ class BQLPolicy(Policy):
         # combine losses
         loss = qe_loss + qi_loss
         self.model.tower_stats["loss"] = loss
+
+        save_representations(
+            obs=obs,
+            latent_rep=qe_h_out[:, :-1],
+            model_out=qe_qvals,
+            target=targets,
+            reward=rewards,
+        )
 
         return loss, mask, masked_td_error, qi_out_s_qvals, targets

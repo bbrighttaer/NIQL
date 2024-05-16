@@ -20,7 +20,7 @@ from ray.rllib.utils.torch_ops import huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.config import FINGERPRINT_SIZE
-from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch
+from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch, to_numpy
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,7 @@ class IQLPolicy(Policy):
             hiddens = [s.view(self.n_agents, -1).cpu().numpy() for s in hiddens]
 
             # store q values selected in this time step for callbacks
-            q_values = masked_q_values.squeeze().cpu().detach().numpy().tolist()
+            q_values = to_numpy(masked_q_values.squeeze()).tolist()
 
             results = (actions, hiddens, {'q-values': [q_values]})
 
@@ -270,7 +270,7 @@ class IQLPolicy(Policy):
 
     @staticmethod
     def _cpu_dict(state_dict):
-        return {k: v.cpu().detach().numpy() for k, v in state_dict.items()}
+        return {k: to_numpy(v) for k, v in state_dict.items()}
 
     def _device_dict(self, state_dict):
         return {

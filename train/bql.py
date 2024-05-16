@@ -101,6 +101,12 @@ if __name__ == '__main__':
     if model_config['model']:
         model = (eval(model_config['model']), model[1])
 
+    base = 'exp_results/bql_gru_all_scenario/BQL_PredatorPrey_all_scenario_61377_00000_0_2024-05-16_11-12-35'
+    restore_path = {
+        'params_path': f'{base}/params.json',  # experiment configuration
+        'model_path': f'{base}/checkpoint_000680/checkpoint-680',  # checkpoint path
+        # 'render': False
+    }
     if mode == 'train':
         # start learning + extra experiment settings if needed. remember to check ray.yaml before use
         bql.fit(
@@ -114,14 +120,9 @@ if __name__ == '__main__':
             checkpoint_freq=10,
             info_sharing=not args.no_sharing,
             use_fingerprint=args.use_fingerprint,
+            # restore_path=restore_path
         )
     else:
-        base = 'exp_results/bql_mlp_all_scenario/BQL_OneStepCoopMatrixGame_all_scenario_9ce24_00000_0_2024-05-14_13-32-38'
-        restore_path = {
-            'params_path': f'{base}/params.json',  # experiment configuration
-            'model_path': f'{base}/checkpoint_000010/checkpoint-10',  # checkpoint path
-        }
-
         results = bql.fit(
             env,
             model,

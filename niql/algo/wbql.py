@@ -20,7 +20,7 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.models import DRQNModel, FCNEncoder, SimpleCommNet
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, \
-    get_lds_weights
+    get_lds_weights, to_numpy
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +252,7 @@ class WBQLPolicy(Policy):
             hiddens = [s.view(self.n_agents, -1).cpu().numpy() for s in hiddens]
 
             # store q values selected in this time step for callbacks
-            q_values = masked_q_values.squeeze().cpu().detach().numpy().tolist()
+            q_values = to_numpy(masked_q_values.squeeze()).tolist()
 
             results = convert_to_non_torch_type((actions, hiddens, {'q-values': [q_values]}))
 
@@ -400,7 +400,7 @@ class WBQLPolicy(Policy):
 
     @staticmethod
     def _cpu_dict(state_dict):
-        return {k: v.cpu().detach().numpy() for k, v in state_dict.items()}
+        return {k: to_numpy(v) for k, v in state_dict.items()}
 
     def _device_dict(self, state_dict):
         return {
@@ -511,11 +511,11 @@ class WBQLPolicy(Policy):
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
         # Get LDS weights
-        lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
-        lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
-        lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
-        lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
-        targets_flat = lds_targets.cpu().detach().numpy().reshape(-1,)
+        # lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
+        # lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
+        # lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
+        # lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
+        targets_flat = to_numpy(targets).reshape(-1,)
         lds_weights = get_lds_weights(
             samples=SampleBatch({
                 SampleBatch.REWARDS: targets_flat,
@@ -523,7 +523,7 @@ class WBQLPolicy(Policy):
             lds_kernel=self.config.get("lds_kernel", "gaussian"),
             lds_ks=self.config.get("lds_ks", 50),
             lds_sigma=self.config.get("lds_sigma", 20),
-            num_bins=self.config.get("num_bins", 1000),
+            num_bins=self.config.get("num_bins", len(Counter(targets_flat))),
         )
         lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
 
@@ -562,7 +562,7 @@ class WBQLPolicy(Policy):
         )
         if self.use_comm:
             obs = convert_to_torch_tensor(obs, self.device).float()
-            obs = self.comm_net(obs).cpu().detach().numpy()
+            obs = to_numpy(self.comm_net(obs))
         return obs
 
     def aggregate_messages(self, msg):

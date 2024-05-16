@@ -3,7 +3,7 @@ from niql.callbacks import NIQLCallbacks
 MPE = {
     'algo_parameters': {
         'algo_args': {
-            'batch_episode': 2048,
+            'batch_episode': 64,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
@@ -27,8 +27,8 @@ MPE = {
         "encode_layer": "64",  # for RNN model
         'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
-        # 'model': 'DRQNModel',
-        'model': 'DuelingQFCN',
+        'model': 'DRQNModel',
+        # 'model': 'DuelingQFCN',
         'hidden_layer_dims': [64, 64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'mha_num_heads': 2,

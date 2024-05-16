@@ -22,6 +22,7 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.comm import CommMsg
 from niql.config import FINGERPRINT_SIZE
+from niql.utils import to_numpy
 
 logger = logging.getLogger(__name__)
 
@@ -302,7 +303,7 @@ class IMIX(Policy):
 
     @staticmethod
     def _cpu_dict(state_dict):
-        return {k: v.cpu().detach().numpy() for k, v in state_dict.items()}
+        return {k: to_numpy(v) for k, v in state_dict.items()}
 
     def _device_dict(self, state_dict):
         return {

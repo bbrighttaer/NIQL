@@ -22,6 +22,7 @@ from niql.algo import IMIXTrainer, BQLTrainer, BQLPolicy, IQLTrainer
 from niql.algo.vdn_qmix import JointQPolicy
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 from niql.execution_plans import joint_episode_execution_plan
+from niql.utils import to_numpy
 
 
 def determine_multiagent_policy_mapping(exp_info, env_info):
@@ -405,14 +406,14 @@ def vdn_qmix_custom_compute_actions(policy,
             q_tot = policy.mixer(chosen_action_qvals, state)
 
             info = {
-                'agent_1_q_val': [agent_1_q_val.cpu().detach().numpy().tolist()],
-                'agent_2_q_val': [agent_2_q_val.cpu().detach().numpy().tolist()],
+                'agent_1_q_val': [to_numpy(agent_1_q_val).tolist()],
+                'agent_2_q_val': [to_numpy(agent_2_q_val).tolist()],
                 'q-values': [[agent_1_q.item(), agent_2_q.item()]],
                 'q_tot': [q_tot.squeeze().item() * 2],
             }
         else:
             info = {
-                'agent_1_q_val': [agent_1_q_val.detach().numpy().tolist()],
-                'agent_2_q_val': [agent_2_q_val.detach().numpy().tolist()],
+                'agent_1_q_val': [to_numpy(agent_1_q_val).tolist()],
+                'agent_2_q_val': [to_numpy(agent_2_q_val).tolist()],
             }
     return tuple(actions.transpose([1, 0])), hiddens, info
