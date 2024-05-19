@@ -48,6 +48,13 @@ def soft_update(target_net, source_net, tau):
     return target_net
 
 
+def pairwise_l2_distance(tensor):
+    # Calculate pairwise L2 distances
+    diff = tensor.unsqueeze(1) - tensor.unsqueeze(0)  # Broadcasting to compute differences
+    l2_distances = torch.sqrt(torch.sum(diff ** 2, dim=2))  # L2 distance calculation
+    return l2_distances
+
+
 def cosine_embedding_loss(embeddings, bucket_indices, margin=0.5):
     """
     Function for the cosine embedding loss.
@@ -76,6 +83,42 @@ def cosine_embedding_loss(embeddings, bucket_indices, margin=0.5):
     # Compute loss components
     positive_loss = 1 - similarities[positive_mask]
     negative_loss = torch.clamp(similarities[negative_mask] - margin, min=0.0)
+
+    # Combine loss components
+    loss = torch.mean(torch.cat((positive_loss, negative_loss), dim=0))
+
+    return loss
+
+
+def l2_embedding_loss(embeddings, bucket_indices, margin=2):
+    """
+    Function for the L2 embedding loss.
+
+    Args:
+    - embeddings (Tensor): Embedding tensor of shape (N, embedding_dim)
+    - bucket_indices (Tensor): Tensor of shape (N, 1) representing the bucket index of each representation's Q value
+
+    Returns:
+    - loss (Tensor): The computed cosine embedding loss.
+    """
+    B, dim = embeddings.shape
+
+    # construct NxN labels tensor
+    labels = torch.zeros((B, B), device=embeddings.device, dtype=torch.float) - 1.
+    for i, b_idx in enumerate(bucket_indices):
+        labels[i, bucket_indices == b_idx] = 1.
+
+    # Compute cosine similarities between all pairs
+    distances = pairwise_l2_distance(embeddings)
+    # distances = F.normalize(distances)
+
+    # Masks for similar and dissimilar pairs
+    positive_mask = labels == 1.
+    negative_mask = labels == -1.
+
+    # Compute loss components
+    positive_loss = distances[positive_mask]
+    negative_loss = torch.clamp(margin - distances[negative_mask], min=0)
 
     # Combine loss components
     loss = torch.mean(torch.cat((positive_loss, negative_loss), dim=0))
@@ -566,7 +609,7 @@ class WBQLPolicy(Policy):
         lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
 
         # Representation loss
-        rep_loss = cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), bin_index_per_label)
+        rep_loss = l2_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), bin_index_per_label)
 
         # Qe_i TD error
         qe_td_error = lds_weights * (qe_qvals - targets.detach())
