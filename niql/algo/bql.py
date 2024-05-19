@@ -18,7 +18,7 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.models import DRQNModel
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, get_size, \
-    _unroll_mac, soft_update, save_representations, to_numpy
+    unroll_mac, soft_update, save_representations, to_numpy, unroll_mac_squeeze_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -334,17 +334,13 @@ class BQLPolicy(Policy):
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
 
-        def unroll_mac_squeeze_wrapper(model_outputs):
-            pred, hs = model_outputs
-            return pred.squeeze(2), hs.squeeze(2)
-
         # Auxiliary encoder objective
         # Qe(s, a_i)
-        qe_out, qe_h_out = unroll_mac_squeeze_wrapper(_unroll_mac(self.auxiliary_model, whole_obs))
+        qe_out, qe_h_out = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model, whole_obs))
         qe_qvals = torch.gather(qe_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
 
         # Qi(s', a'_i*)
-        qi_out, qi_h_out = unroll_mac_squeeze_wrapper(_unroll_mac(self.model, whole_obs))
+        qi_out, qi_h_out = unroll_mac_squeeze_wrapper(unroll_mac(self.model, whole_obs))
         qi_out_sp = qi_out[:, 1:]
         # Mask out unavailable actions for the t+1 step
         ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
@@ -367,7 +363,7 @@ class BQLPolicy(Policy):
         # Qi(s, a)
         qi_out_s_qvals = torch.gather(qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         # Qe_bar(s, a)
-        qe_bar_out, qe_bar_h_out = unroll_mac_squeeze_wrapper(_unroll_mac(self.auxiliary_model_target, whole_obs))
+        qe_bar_out, qe_bar_h_out = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model_target, whole_obs))
         qe_bar_out_qvals = torch.gather(qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
@@ -378,12 +374,12 @@ class BQLPolicy(Policy):
         loss = qe_loss + qi_loss
         self.model.tower_stats["loss"] = loss
 
-        save_representations(
-            obs=obs,
-            latent_rep=qe_h_out[:, :-1],
-            model_out=qe_qvals,
-            target=targets,
-            reward=rewards,
-        )
+        # save_representations(
+        #     obs=obs,
+        #     latent_rep=qe_h_out[:, :-1],
+        #     model_out=qe_qvals,
+        #     target=targets,
+        #     reward=rewards,
+        # )
 
         return loss, mask, masked_td_error, qi_out_s_qvals, targets

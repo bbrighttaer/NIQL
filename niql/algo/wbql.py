@@ -5,10 +5,11 @@ from typing import Union, List, Optional, Dict, Tuple
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from gym.spaces import Dict as GymDict
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
-from ray.rllib.agents.qmix.qmix_policy import _unroll_mac, _mac
+from ray.rllib.agents.qmix.qmix_policy import _mac
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
@@ -20,7 +21,7 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.models import DRQNModel, FCNEncoder, SimpleCommNet
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, \
-    get_lds_weights, to_numpy
+    get_lds_weights, to_numpy, unroll_mac, unroll_mac_squeeze_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,41 @@ def soft_update(target_net, source_net, tau):
         target_param.data.copy_(tau * source_param.data + (1.0 - tau) * target_param.data)
 
     return target_net
+
+
+def cosine_embedding_loss(embeddings, bucket_indices, margin=0.5):
+    """
+    Function for the cosine embedding loss.
+
+    Args:
+    - embeddings (Tensor): Embedding tensor of shape (N, embedding_dim)
+    - bucket_indices (Tensor): Tensor of shape (N, 1) representing the bucket index of each representation's Q value
+
+    Returns:
+    - loss (Tensor): The computed cosine embedding loss.
+    """
+    B, dim = embeddings.shape
+
+    # construct NxN labels tensor
+    labels = torch.zeros((B, B), device=embeddings.device, dtype=torch.float) - 1.
+    for i, b_idx in enumerate(bucket_indices):
+        labels[i, bucket_indices == b_idx] = 1.
+
+    # Compute cosine similarities between all pairs
+    similarities = F.cosine_similarity(embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2)
+
+    # Masks for similar and dissimilar pairs
+    positive_mask = labels == 1.
+    negative_mask = labels == -1.
+
+    # Compute loss components
+    positive_loss = 1 - similarities[positive_mask]
+    negative_loss = torch.clamp(similarities[negative_mask] - margin, min=0.0)
+
+    # Combine loss components
+    loss = torch.mean(torch.cat((positive_loss, negative_loss), dim=0))
+
+    return loss
 
 
 class WBQLPolicy(Policy):
@@ -319,7 +355,7 @@ class WBQLPolicy(Policy):
             }
         )
 
-        loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
+        loss_out, mask, masked_td_error, rep_loss, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
             rewards,
             actions,
             terminated,
@@ -348,6 +384,7 @@ class WBQLPolicy(Policy):
             "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() / mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
+            "rep_loss": rep_loss.item(),
         }
         data = {
             LEARNER_STATS_KEY: stats,
@@ -492,15 +529,15 @@ class WBQLPolicy(Policy):
         whole_obs = whole_obs.unsqueeze(2)
         target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
         target_whole_obs = target_whole_obs.unsqueeze(2)
-        qe_bar_out = _unroll_mac(self.auxiliary_model_target, target_whole_obs).squeeze(2)
+        qe_bar_out, qe_bar_h = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model_target, target_whole_obs))
 
         # Auxiliary encoder objective
         # Qe(s, a_i)
-        qe_out = _unroll_mac(self.auxiliary_model, whole_obs).squeeze(2)
+        qe_out, qe_h = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model, whole_obs))
         qe_qvals = torch.gather(qe_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
 
         # Qi(s', a'_i*)
-        qi_out = _unroll_mac(self.model, whole_obs).squeeze(2)
+        qi_out, qi_h = unroll_mac_squeeze_wrapper(unroll_mac(self.model, whole_obs))
         qi_out_sp = qi_out[:, 1:]
         # Mask out unavailable actions for the t+1 step
         ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
@@ -515,8 +552,8 @@ class WBQLPolicy(Policy):
         # lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
         # lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
         # lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
-        targets_flat = to_numpy(targets).reshape(-1,)
-        lds_weights = get_lds_weights(
+        targets_flat = to_numpy(targets).reshape(-1, )
+        lds_weights, bin_index_per_label = get_lds_weights(
             samples=SampleBatch({
                 SampleBatch.REWARDS: targets_flat,
             }),
@@ -525,7 +562,11 @@ class WBQLPolicy(Policy):
             lds_sigma=self.config.get("lds_sigma", 20),
             num_bins=self.config.get("num_bins", len(Counter(targets_flat))),
         )
+        bin_index_per_label = convert_to_torch_tensor(bin_index_per_label, self.device)
         lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
+
+        # Representation loss
+        rep_loss = cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), bin_index_per_label)
 
         # Qe_i TD error
         qe_td_error = lds_weights * (qe_qvals - targets.detach())
@@ -535,6 +576,7 @@ class WBQLPolicy(Policy):
         qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
         self.model.tower_stats["Qe_loss"] = qe_loss
         self.model.tower_stats["td_error"] = qe_td_error
+        self.model.tower_stats["rep_error"] = rep_loss
 
         # Qi function objective
         # Qi(s, a)
@@ -548,10 +590,10 @@ class WBQLPolicy(Policy):
         self.model.tower_stats["Qi_loss"] = qi_loss
 
         # combine losses
-        loss = qe_loss + qi_loss
+        loss = qe_loss + qi_loss + 0.3 * rep_loss
         self.model.tower_stats["loss"] = loss
 
-        return loss, mask, masked_td_error, qi_out_s_qvals, targets
+        return loss, mask, masked_td_error, rep_loss, qi_out_s_qvals, targets
 
     def get_message(self, obs):
         if obs.ndim < 2:

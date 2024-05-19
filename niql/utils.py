@@ -188,19 +188,6 @@ NEIGHBOUR_OBS = "n_obs"
 LDS_WEIGHTS = "lds_weights"
 
 
-def calibrate_mean_var(matrix, m1, v1, m2, v2, clip_min=0.5, clip_max=2.):
-    if torch.sum(v1) < 1e-10:
-        return matrix
-    if (v1 <= 0.).any() or (v2 < 0.).any():
-        valid_pos = (((v1 > 0.) + (v2 >= 0.)) == 2)
-        factor = torch.clamp(v2[valid_pos] / v1[valid_pos], clip_min, clip_max)
-        matrix[:, valid_pos] = (matrix[:, valid_pos] - m1[valid_pos]) * torch.sqrt(factor) + m2[valid_pos]
-        return matrix
-
-    factor = torch.clamp(v2 / v1, clip_min, clip_max)
-    return (matrix - m1) * torch.sqrt(factor) + m2
-
-
 def get_lds_kernel_window(kernel, ks, sigma):
     assert kernel in ['gaussian', 'triang', 'laplace']
     half_ks = (ks - 1) // 2
@@ -244,10 +231,10 @@ def get_lds_weights(
     weights = [np.float32(1 / (x + 1e-6)) for x in eff_num_per_label]
     scaling = len(weights) / np.sum(weights)
     lds_weights = np.array(weights).reshape(len(samples), -1)
-    return lds_weights
+    return lds_weights, bin_index_per_label
 
 
-def _unroll_mac(model, obs_tensor):
+def unroll_mac(model, obs_tensor):
     """Computes the estimated Q values for an entire trajectory batch"""
     B = obs_tensor.size(0)
     T = obs_tensor.size(1)
@@ -264,6 +251,11 @@ def _unroll_mac(model, obs_tensor):
     mac_h_out = torch.stack(mac_h_out, dim=1)
 
     return mac_out, mac_h_out
+
+
+def unroll_mac_squeeze_wrapper(model_outputs):
+    pred, hs = model_outputs
+    return pred.squeeze(2), hs.squeeze(2)
 
 
 def soft_update(target_net, source_net, tau):

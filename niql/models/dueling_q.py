@@ -83,4 +83,4 @@ class DuelingQFCN(TorchModelV2, nn.Module):
         advantages = self.advantage_layer(x)
         values = self.value_layer(x)
         q_values = values + (advantages - advantages.mean())
-        return q_values, state
+        return q_values, x  # return latent representation
