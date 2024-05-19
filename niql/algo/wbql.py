@@ -609,7 +609,7 @@ class WBQLPolicy(Policy):
         lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
 
         # Representation loss
-        rep_loss = l2_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), bin_index_per_label)
+        rep_loss = cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), bin_index_per_label)
 
         # Qe_i TD error
         qe_td_error = lds_weights * (qe_qvals - targets.detach())
@@ -633,7 +633,7 @@ class WBQLPolicy(Policy):
         self.model.tower_stats["Qi_loss"] = qi_loss
 
         # combine losses
-        loss = qe_loss + qi_loss + 0.3 * rep_loss
+        loss = qe_loss + qi_loss + rep_loss
         self.model.tower_stats["loss"] = loss
 
         return loss, mask, masked_td_error, rep_loss, qi_out_s_qvals, targets
