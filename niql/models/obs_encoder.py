@@ -111,3 +111,35 @@ class StraightThroughEstimator(nn.Module):
     def forward(self, x):
         x = STEFunction.apply(x)
         return x
+
+
+class HyperEncoder(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.comm_dim = config["comm_dim"]
+        self.hyper_W = nn.Linear(self.comm_dim * 2, self.comm_dim ** 2 * 2)
+        self.hyper_b = nn.Linear(self.comm_dim * 2, 1)
+
+    def forward(self, messages):
+        """
+        Encodes the messages.
+
+        :param messages: tensor of shape [B, num_msgs, comm_dim]
+        :return: tensor of shape [B, comm_dim]
+        """
+        batch_size = messages.shape[0]
+        agg_msg = torch.sum(messages, dim=1)
+        enc_msgs = []
+        for i in range(messages.shape[1]):
+            msg = messages[:, i, :]
+            x = torch.cat([msg, agg_msg], dim=-1).unsqueeze(1)
+            W = self.hyper_W(x).view(batch_size, -1, self.comm_dim)
+            b = self.hyper_b(x)
+            x = F.elu(x @ W + b)
+            enc_msgs.append(x)
+        out = torch.sum(torch.stack(enc_msgs), dim=0)
+        return out
+
+
+

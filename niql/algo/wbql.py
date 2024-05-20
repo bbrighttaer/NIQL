@@ -19,7 +19,7 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
-from niql.models import DRQNModel, FCNEncoder, SimpleCommNet
+from niql.models import DRQNModel, FCNEncoder, SimpleCommNet, HyperEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, \
     get_lds_weights, to_numpy, unroll_mac, unroll_mac_squeeze_wrapper
 
@@ -182,20 +182,22 @@ class WBQLPolicy(Policy):
             config["model"]["comm_dim"] = com_dim
             self.comm_net = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
             self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
+            self.comm_agg = HyperEncoder(config["model"]).to(self.device)
+            self.comm_agg_target = HyperEncoder(config["model"]).to(self.device)
 
-        if self.config["use_obs_encoder"]:
-            self.obs_encoder = FCNEncoder(
-                input_dim=self.obs_size + self.config.get("comm_dim", 0),
-                num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
-                device=self.device,
-            ).to(self.device)
-            self.obs_encoder_target = FCNEncoder(
-                input_dim=self.obs_size + self.config.get("comm_dim", 0),
-                num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
-                device=self.device,
-            ).to(self.device)
-        else:
-            self.obs_encoder = None
+        # if self.config["use_obs_encoder"]:
+        #     self.obs_encoder = FCNEncoder(
+        #         input_dim=self.obs_size + self.config.get("comm_dim", 0),
+        #         num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
+        #         device=self.device,
+        #     ).to(self.device)
+        #     self.obs_encoder_target = FCNEncoder(
+        #         input_dim=self.obs_size + self.config.get("comm_dim", 0),
+        #         num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
+        #         device=self.device,
+        #     ).to(self.device)
+        # else:
+        self.obs_encoder = None
         self.model = ModelCatalog.get_model_v2(
             agent_obs_space,
             action_space,
@@ -241,6 +243,7 @@ class WBQLPolicy(Policy):
 
         if self.use_comm:
             self.params += list(self.comm_net.parameters())
+            self.params += list(self.comm_agg.parameters())
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
@@ -284,6 +287,7 @@ class WBQLPolicy(Policy):
                 self.obs_encoder.eval()
             if self.use_comm:
                 self.comm_net.eval()
+                self.comm_agg.eval()
 
         with torch.no_grad():
             obs_batch = convert_to_torch_tensor(obs_batch, self.device)
@@ -301,16 +305,16 @@ class WBQLPolicy(Policy):
                     local_msg = msg.reshape(1, 1, -1)
                     neighbour_msgs = convert_to_torch_tensor(
                         np.array(self.neighbour_messages).reshape(1, n, -1), self.device)
-                    msg = torch.cat([local_msg, neighbour_msgs], axis=1)
+                    msg = torch.cat([local_msg, neighbour_msgs], dim=1)
                     msg = self.aggregate_messages(msg)
                     self.neighbour_messages.clear()
                 obs_batch = torch.cat([obs_batch, msg], dim=-1)
 
-            if self.config["use_obs_encoder"]:
-                obs_batch = convert_to_torch_tensor(obs_batch, self.device)
-                obs_batch, _ = self.obs_encoder(obs_batch)
-            else:
-                obs_batch = convert_to_torch_tensor(obs_batch, self.device)
+            # if self.config["use_obs_encoder"]:
+            #     obs_batch = convert_to_torch_tensor(obs_batch, self.device)
+            #     obs_batch, _ = self.obs_encoder(obs_batch)
+            # else:
+            obs_batch = convert_to_torch_tensor(obs_batch, self.device)
 
             # predict q-vals
             q_values, hiddens = _mac(self.model, obs_batch, state_batches)
@@ -375,6 +379,7 @@ class WBQLPolicy(Policy):
                 self.obs_encoder.train()
             if self.use_comm:
                 self.comm_net.train()
+                self.comm_agg.train()
 
         # Callback handling.
         learn_stats = {}
@@ -427,7 +432,7 @@ class WBQLPolicy(Policy):
             "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() / mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
-            "rep_loss": rep_loss.item(),
+            # "rep_loss": rep_loss.item(),
         }
         data = {
             LEARNER_STATS_KEY: stats,
@@ -493,6 +498,7 @@ class WBQLPolicy(Policy):
             self.obs_encoder_target = soft_update(self.obs_encoder_target, self.obs_encoder, self.tau)
         if self.use_comm:
             self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
+            self.comm_agg_target = soft_update(self.comm_agg_target, self.comm_agg, self.tau)
 
     def convert_batch_to_tensor(self, data_dict):
         obs_batch = SampleBatch(data_dict)
@@ -545,27 +551,15 @@ class WBQLPolicy(Policy):
 
                 next_local_msg = model(next_ob).unsqueeze(2)
                 next_msgs = torch.cat([next_local_msg, neighbour_next_obs], dim=2)
-                agg_next_msg = self.aggregate_messages(next_msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
+                agg_next_msg = self.aggregate_messages(
+                    next_msgs.view(B * T, *msgs.shape[2:]), True
+                ).view(B, T, -1)
                 next_ob = torch.cat([next_ob, agg_next_msg], dim=-1)
 
                 return ob, next_ob
 
             obs, next_obs = add_comm_msg(self.comm_net, obs, next_obs)
             target_obs, target_next_obs = add_comm_msg(self.comm_net_target, target_obs, target_next_obs)
-
-        # reward reconciliation
-        # if self.config.get("use_obs_encoder", False):  # and neighbour_obs is not None and neighbour_next_obs is not None:
-        #     def projection(x, target=False):
-        #         x = convert_to_torch_tensor(x, self.device).unsqueeze(2)
-        #         encoder = self.obs_encoder_target if target else self.obs_encoder
-        #         x, enc = encoder(x.view(B * T, *x.shape[2:]))
-        #         x = x.view(B, T, -1)
-        #         return x, enc
-        #
-        #     obs, encoding = projection(obs)
-        #     target_obs, _ = projection(target_obs, target=True)
-        #     next_obs, _ = projection(next_obs)
-        #     target_next_obs, _ = projection(target_next_obs, target=True)
 
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
@@ -609,7 +603,7 @@ class WBQLPolicy(Policy):
         lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
 
         # Representation loss
-        rep_loss = cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), bin_index_per_label)
+        rep_loss = 0.  # cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), bin_index_per_label)
 
         # Qe_i TD error
         qe_td_error = lds_weights * (qe_qvals - targets.detach())
@@ -650,6 +644,7 @@ class WBQLPolicy(Policy):
             obs = to_numpy(self.comm_net(obs))
         return obs
 
-    def aggregate_messages(self, msg):
-        agg_msg = torch.sum(msg, dim=1, keepdim=True)
+    def aggregate_messages(self, msg, is_target=False):
+        # agg_msg = torch.sum(msg, dim=1, keepdim=True)
+        agg_msg = self.comm_agg_target(msg) if is_target else self.comm_agg(msg)
         return agg_msg
