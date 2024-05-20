@@ -1,6 +1,5 @@
 import functools
 import logging
-from collections import Counter
 from typing import Union, List, Optional, Dict, Tuple
 
 import numpy as np
@@ -19,9 +18,9 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
-from niql.models import DRQNModel, FCNEncoder, SimpleCommNet, HyperEncoder
+from niql.models import DRQNModel, SimpleCommNet, HyperEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, \
-    get_lds_weights, to_numpy, unroll_mac, unroll_mac_squeeze_wrapper
+    to_numpy, unroll_mac, unroll_mac_squeeze_wrapper, save_representations
 
 logger = logging.getLogger(__name__)
 
@@ -185,19 +184,6 @@ class WBQLPolicy(Policy):
             self.comm_agg = HyperEncoder(config["model"]).to(self.device)
             self.comm_agg_target = HyperEncoder(config["model"]).to(self.device)
 
-        # if self.config["use_obs_encoder"]:
-        #     self.obs_encoder = FCNEncoder(
-        #         input_dim=self.obs_size + self.config.get("comm_dim", 0),
-        #         num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
-        #         device=self.device,
-        #     ).to(self.device)
-        #     self.obs_encoder_target = FCNEncoder(
-        #         input_dim=self.obs_size + self.config.get("comm_dim", 0),
-        #         num_heads=config["model"]["custom_model_config"]["model_arch_args"]["mha_num_heads"],
-        #         device=self.device,
-        #     ).to(self.device)
-        # else:
-        self.obs_encoder = None
         self.model = ModelCatalog.get_model_v2(
             agent_obs_space,
             action_space,
@@ -238,9 +224,6 @@ class WBQLPolicy(Policy):
 
         # optimizer
         self.params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
-        if self.obs_encoder:
-            self.params += list(self.obs_encoder.parameters())
-
         if self.use_comm:
             self.params += list(self.comm_net.parameters())
             self.params += list(self.comm_agg.parameters())
@@ -283,8 +266,6 @@ class WBQLPolicy(Policy):
         # Switch to eval mode.
         if self.model:
             self.model.eval()
-            if self.obs_encoder:
-                self.obs_encoder.eval()
             if self.use_comm:
                 self.comm_net.eval()
                 self.comm_agg.eval()
@@ -375,8 +356,6 @@ class WBQLPolicy(Policy):
         if self.model:
             self.model.train()
             self.auxiliary_model.train()
-            if self.obs_encoder:
-                self.obs_encoder.train()
             if self.use_comm:
                 self.comm_net.train()
                 self.comm_agg.train()
@@ -403,7 +382,7 @@ class WBQLPolicy(Policy):
             }
         )
 
-        loss_out, mask, masked_td_error, rep_loss, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
+        loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
             rewards,
             actions,
             terminated,
@@ -432,7 +411,6 @@ class WBQLPolicy(Policy):
             "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() / mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
-            # "rep_loss": rep_loss.item(),
         }
         data = {
             LEARNER_STATS_KEY: stats,
@@ -454,13 +432,11 @@ class WBQLPolicy(Policy):
         self.auxiliary_model.load_state_dict(self._device_dict(weights["auxiliary_model"]))
         self.auxiliary_model_target.load_state_dict(self._device_dict(weights["auxiliary_model_target"]))
 
-        if "obs_encoder" in weights and self.obs_encoder:
-            self.obs_encoder.load_state_dict(self._device_dict(weights["obs_encoder"]))
-            self.obs_encoder_target.load_state_dict(self._device_dict(weights["obs_encoder_target"]))
-
         if self.use_comm and "comm_net" in weights:
             self.comm_net.load_state_dict(self._device_dict(weights["comm_net"]))
             self.comm_net_target.load_state_dict(self._device_dict(weights["comm_net_target"]))
+            self.comm_agg.load_state_dict(self._device_dict(weights["comm_agg"]))
+            self.comm_agg_target.load_state_dict(self._device_dict(weights["comm_agg_target"]))
 
     @override(Policy)
     def get_weights(self):
@@ -470,13 +446,11 @@ class WBQLPolicy(Policy):
             "auxiliary_model_target": self._cpu_dict(self.auxiliary_model_target.state_dict()),
         }
 
-        if self.obs_encoder:
-            wts["obs_encoder"] = self._cpu_dict(self.obs_encoder.state_dict())
-            wts["obs_encoder_target"] = self._cpu_dict(self.obs_encoder_target.state_dict())
-
         if self.use_comm:
             wts["comm_net"] = self._cpu_dict(self.comm_net.state_dict())
             wts["comm_net_target"] = self._cpu_dict(self.comm_net_target.state_dict())
+            wts["comm_agg"] = self._cpu_dict(self.comm_agg.state_dict())
+            wts["comm_agg_target"] = self._cpu_dict(self.comm_agg_target.state_dict())
         return wts
 
     @override(Policy)
@@ -494,8 +468,6 @@ class WBQLPolicy(Policy):
 
     def update_target(self):
         self.auxiliary_model_target = soft_update(self.auxiliary_model_target, self.auxiliary_model, self.tau)
-        if self.obs_encoder:
-            self.obs_encoder_target = soft_update(self.obs_encoder_target, self.obs_encoder, self.tau)
         if self.use_comm:
             self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
             self.comm_agg_target = soft_update(self.comm_agg_target, self.comm_agg, self.tau)
@@ -584,36 +556,14 @@ class WBQLPolicy(Policy):
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
-        # Get LDS weights
-        # lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
-        # lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
-        # lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
-        # lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
-        targets_flat = to_numpy(targets).reshape(-1, )
-        lds_weights, bin_index_per_label = get_lds_weights(
-            samples=SampleBatch({
-                SampleBatch.REWARDS: targets_flat,
-            }),
-            lds_kernel=self.config.get("lds_kernel", "gaussian"),
-            lds_ks=self.config.get("lds_ks", 50),
-            lds_sigma=self.config.get("lds_sigma", 20),
-            num_bins=self.config.get("num_bins", len(Counter(targets_flat))),
-        )
-        bin_index_per_label = convert_to_torch_tensor(bin_index_per_label, self.device)
-        lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
-
-        # Representation loss
-        rep_loss = 0.  # cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), bin_index_per_label)
-
         # Qe_i TD error
-        qe_td_error = lds_weights * (qe_qvals - targets.detach())
+        qe_td_error = (qe_qvals - targets.detach())
         mask = mask.expand_as(qe_td_error)
         # 0-out the targets that came from padded data
         masked_td_error = qe_td_error * mask
         qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
         self.model.tower_stats["Qe_loss"] = qe_loss
         self.model.tower_stats["td_error"] = qe_td_error
-        self.model.tower_stats["rep_error"] = rep_loss
 
         # Qi function objective
         # Qi(s, a)
@@ -627,10 +577,18 @@ class WBQLPolicy(Policy):
         self.model.tower_stats["Qi_loss"] = qi_loss
 
         # combine losses
-        loss = qe_loss + qi_loss + rep_loss
+        loss = qe_loss + qi_loss
         self.model.tower_stats["loss"] = loss
 
-        return loss, mask, masked_td_error, rep_loss, qi_out_s_qvals, targets
+        save_representations(
+            obs=obs,
+            latent_rep=qe_h[:, :-1],
+            model_out=qe_qvals,
+            target=targets,
+            reward=rewards,
+        )
+
+        return loss, mask, masked_td_error, qi_out_s_qvals, targets
 
     def get_message(self, obs):
         if obs.ndim < 2:

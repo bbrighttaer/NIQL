@@ -101,10 +101,10 @@ if __name__ == '__main__':
     if model_config['model']:
         model = (eval(model_config['model']), model[1])
 
-    base = 'exp_results/bql_gru_all_scenario/BQL_PredatorPrey_all_scenario_61377_00000_0_2024-05-16_11-12-35'
+    base = 'exp_results/wbql_gru_all_scenario/WBQL_PredatorPrey_all_scenario_9d20f_00000_0_2024-05-20_10-40-53'
     restore_path = {
         'params_path': f'{base}/params.json',  # experiment configuration
-        'model_path': f'{base}/checkpoint_000680/checkpoint-680',  # checkpoint path
+        'model_path': f'{base}/checkpoint_001060/checkpoint-1060',  # checkpoint path
         # 'render': False
     }
     if mode == 'train':
