@@ -101,7 +101,7 @@ if __name__ == '__main__':
             num_gpus=gpu_count,
             num_workers=1,
             share_policy='individual',
-            checkpoint_freq=1000,
+            checkpoint_freq=100,
             info_sharing=not args.no_sharing,
             use_fingerprint=args.use_fingerprint,
             # restore_path=restore_path
