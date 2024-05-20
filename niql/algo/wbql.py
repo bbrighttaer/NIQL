@@ -585,11 +585,11 @@ class WBQLPolicy(Policy):
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
         # Get LDS weights
-        lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
-        lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
-        lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
-        lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
-        targets_flat = to_numpy(lds_targets).reshape(-1, )
+        # lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
+        # lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
+        # lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
+        # lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
+        targets_flat = to_numpy(targets).reshape(-1, )
         lds_weights, bin_index_per_label = get_lds_weights(
             samples=SampleBatch({
                 SampleBatch.REWARDS: targets_flat,
