@@ -180,7 +180,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
     mask = torch.as_tensor(filled, dtype=torch.float, device=policy.device)
 
     return (action_mask, actions, env_global_state, mask, next_action_mask,
-            next_env_global_state, next_obs, obs, rewards, terminated, n_obs, n_next_obs)
+            next_env_global_state, next_obs, obs, rewards, terminated, n_obs, n_next_obs, seq_lens)
 
 
 NEIGHBOUR_NEXT_OBS = "n_next_obs"
@@ -313,37 +313,43 @@ def save_representations(obs, latent_rep, model_out, target, reward):
     df = pd.DataFrame(data=data, columns=cols)
     df.to_csv("representation_analysis_data.csv", index=False)
 
-    print("Data saved")
-
 
 def get_priority_update_func(local_replay_buffer, config):
     """
     Returns the function for updating priorities in a prioritised experience replay buffer.
     Adapted from rllib.
-
-    :param local_replay_buffer:
-    :param config:
-    :return:
     """
     def update_prio(item):
         samples, info_dict = item
         if config.get("prioritized_replay"):
             prio_dict = {}
             for policy_id, info in info_dict.items():
-                td_error = info.get("td_error",
-                                    info[LEARNER_STATS_KEY].get("td_error"))
+                td_error = info.get("td_error", info[LEARNER_STATS_KEY].get("td_error"))
                 samples.policy_batches[policy_id].set_get_interceptor(None)
-                batch_indices = samples.policy_batches[policy_id].get(
-                    "batch_indexes")
+                batch_indices = samples.policy_batches[policy_id].get("batch_indexes")
+
                 # In case the buffer stores sequences, TD-error could already
                 # be calculated per sequence chunk.
                 if len(batch_indices) != len(td_error):
                     T = local_replay_buffer.replay_sequence_length
                     assert len(batch_indices) > len(
                         td_error) and len(batch_indices) % T == 0
-                    batch_indices = batch_indices.reshape([-1, T])[:, 0]
-                    td_error = td_error.reshape([-1, T])[:, 0]
-                    assert len(batch_indices) == len(td_error)
+                    full_seq = td_error.shape[-1]
+                    batch_indices = batch_indices.reshape(-1,)
+                    td_error = td_error.reshape(-1,)
+
+                    if len(batch_indices) != len(td_error):
+                        # fallback on sequence lengths
+                        seq_lens = info.get("seq_lens")
+                        td_error = td_error.reshape(-1, full_seq)
+                        if seq_lens is not None:
+                            td_error_list = []
+                            for traj, s_len in zip(td_error, seq_lens):
+                                td_error_list.extend(traj[:s_len].tolist())
+                            td_error = np.array(td_error_list)
+
+                        assert len(batch_indices) == len(td_error)
+
                 prio_dict[policy_id] = (batch_indices, td_error)
             local_replay_buffer.update_priorities(prio_dict)
         return info_dict

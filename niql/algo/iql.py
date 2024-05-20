@@ -208,7 +208,7 @@ class IQLPolicy(Policy):
         )
 
         (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
-         next_obs, obs, rewards, terminated, _, _) = preprocess_trajectory_batch(self, samples)
+         next_obs, obs, rewards, terminated, _, _, seq_lens) = preprocess_trajectory_batch(self, samples)
 
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
             rewards,
@@ -241,7 +241,8 @@ class IQLPolicy(Policy):
         data = {
             LEARNER_STATS_KEY: stats,
             "model": self.model.metrics(),
-            "custom_metrics": learn_stats
+            "custom_metrics": learn_stats,
+            "seq_lens": seq_lens,
         }
         data.update(self.model.tower_stats)
         return data

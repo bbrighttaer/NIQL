@@ -105,8 +105,6 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     BQL_Config["enable_joint_buffer"] = _param["enable_joint_buffer"]
     BQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
     BQL_Config["algorithm"] = algorithm
-    BQL_Config["reconcile_rewards"] = _param["reconcile_rewards"]
-    BQL_Config["use_obs_encoder"] = _param["use_obs_encoder"]
 
     # create trainer
     trainer = BQLTrainer.with_updates(

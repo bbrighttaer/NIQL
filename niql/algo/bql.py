@@ -212,7 +212,7 @@ class BQLPolicy(Policy):
         )
 
         (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
-         next_obs, obs, rewards, terminated, n_obs, n_next_obs) = preprocess_trajectory_batch(
+         next_obs, obs, rewards, terminated, n_obs, n_next_obs, seq_lens) = preprocess_trajectory_batch(
             policy=self,
             samples=samples,
             has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
@@ -251,7 +251,8 @@ class BQLPolicy(Policy):
         data = {
             LEARNER_STATS_KEY: stats,
             "model": self.model.metrics(),
-            "custom_metrics": learn_stats
+            "custom_metrics": learn_stats,
+            "seq_lens": seq_lens,
         }
         data.update(self.model.tower_stats)
         return data
