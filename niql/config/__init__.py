@@ -4,6 +4,6 @@ from .predator_prey_conf import PREDATOR_PREY
 from .smac_conf import SMAC
 
 FINGERPRINT_SIZE = 2
-
+MODEL_CHECKPOINT_FREQ = 100
 
 

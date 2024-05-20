@@ -11,6 +11,7 @@ from marllib import marl
 from ray.rllib.policy.sample_batch import DEFAULT_POLICY_ID
 
 from niql import envs, utils, trainer_loaders, scripts, seed
+from niql.config import MODEL_CHECKPOINT_FREQ
 from niql.models import *  # noqa
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ if __name__ == '__main__':
             num_gpus=gpu_count,
             num_workers=0,
             share_policy='all',
-            checkpoint_freq=10,
+            checkpoint_freq=MODEL_CHECKPOINT_FREQ,
         )
     else:
         base = 'exp_results/qmix_mlp_all_scenario/QMIX_grouped_TwoStepsCoopMatrixGame_all_scenario_af63e_00000_0_2024-04-26_10-19-45'
