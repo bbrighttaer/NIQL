@@ -1,4 +1,4 @@
-from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan
+from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan as basic_execution_plan  # noqa
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
 from ray.rllib.agents.trainer_template import build_trainer
 
@@ -6,7 +6,7 @@ from .bql import BQLPolicy
 from .wbql import WBQLPolicy
 from .imix import IMIX
 from .iql import IQLPolicy
-from ..execution_plans import imix_episode_execution_plan, bql_episode_execution_plan
+from ..execution_plans import imix_episode_execution_plan, episode_execution_plan
 
 IQLTrainer = build_trainer(
     name="IQLTrainer",

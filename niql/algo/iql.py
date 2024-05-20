@@ -243,6 +243,7 @@ class IQLPolicy(Policy):
             "model": self.model.metrics(),
             "custom_metrics": learn_stats
         }
+        data.update(self.model.tower_stats)
         return data
 
     @override(Policy)
@@ -447,7 +448,8 @@ class IQLPolicy(Policy):
         targets = rewards + self.config["gamma"] * (1 - terminated) * target_max_qvals
 
         # Td-error
-        td_error = (chosen_action_qvals - targets.detach())
+        td_error = chosen_action_qvals - targets.detach()
+        self.model.tower_stats["td_error"] = to_numpy(td_error)
 
         mask = mask.expand_as(td_error)
 
@@ -456,4 +458,5 @@ class IQLPolicy(Policy):
 
         # Normal L2 loss, take mean over actual data
         loss = huber_loss(masked_td_error).sum() / mask.sum()
+        self.model.tower_stats["loss"] = to_numpy(loss)
         return loss, mask, masked_td_error, chosen_action_qvals, targets

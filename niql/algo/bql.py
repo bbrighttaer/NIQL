@@ -253,6 +253,7 @@ class BQLPolicy(Policy):
             "model": self.model.metrics(),
             "custom_metrics": learn_stats
         }
+        data.update(self.model.tower_stats)
         return data
 
     @override(Policy)
@@ -356,8 +357,8 @@ class BQLPolicy(Policy):
         # 0-out the targets that came from padded data
         masked_td_error = qe_td_error * mask
         qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
-        self.model.tower_stats["Qe_loss"] = qe_loss
-        self.model.tower_stats["td_error"] = qe_td_error
+        self.model.tower_stats["Qe_loss"] = to_numpy(qe_loss)
+        self.model.tower_stats["td_error"] = to_numpy(qe_td_error)
 
         # Qi function objective
         # Qi(s, a)
@@ -368,11 +369,11 @@ class BQLPolicy(Policy):
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
         qi_loss = torch.sum(qi_loss * mask) / mask.sum()
-        self.model.tower_stats["Qi_loss"] = qi_loss
+        self.model.tower_stats["Qi_loss"] = to_numpy(qi_loss)
 
         # combine losses
         loss = qe_loss + qi_loss
-        self.model.tower_stats["loss"] = loss
+        self.model.tower_stats["loss"] = to_numpy(loss)
 
         # save_representations(
         #     obs=obs,
