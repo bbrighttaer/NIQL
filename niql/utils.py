@@ -286,7 +286,7 @@ def to_numpy(tensor):
     return tensor.cpu().detach().numpy()
 
 
-def save_representations(obs, latent_rep, model_out, target, reward):
+def save_representations(obs, latent_rep, model_out, target, reward, filename_prefix=""):
     """
     Saves the observation and model predictions for analysis.
 
@@ -317,7 +317,7 @@ def save_representations(obs, latent_rep, model_out, target, reward):
 
     # save data to csv
     df = pd.DataFrame(data=data, columns=cols)
-    df.to_csv("representation_analysis_data.csv", index=False)
+    df.to_csv(f"{filename_prefix}representation_analysis_data.csv", index=False)
 
 
 def get_priority_update_func(local_replay_buffer, config):

@@ -1,6 +1,7 @@
 import functools
 import logging
-from collections import Counter
+import random
+import string
 from typing import Union, List, Optional, Dict, Tuple
 
 import numpy as np
@@ -21,7 +22,7 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.models import DRQNModel, SimpleCommNet, HyperEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, \
-    to_numpy, unroll_mac, unroll_mac_squeeze_wrapper, save_representations, get_lds_weights
+    to_numpy, unroll_mac, unroll_mac_squeeze_wrapper, save_representations
 
 logger = logging.getLogger(__name__)
 
@@ -55,30 +56,27 @@ def pairwise_l2_distance(tensor):
     return l2_distances
 
 
-def cosine_embedding_loss(embeddings, bucket_indices, margin=0.5):
+def cosine_embedding_loss(embeddings, labels, margin=0.5):
     """
     Function for the cosine embedding loss.
 
     Args:
     - embeddings (Tensor): Embedding tensor of shape (N, embedding_dim)
-    - bucket_indices (Tensor): Tensor of shape (N, 1) representing the bucket index of each representation's Q value
+    - labels (Tensor): Tensor of shape (N, 1)
 
     Returns:
     - loss (Tensor): The computed cosine embedding loss.
     """
-    B, dim = embeddings.shape
-
-    # construct NxN labels tensor
-    labels = torch.zeros((B, B), device=embeddings.device, dtype=torch.float) - 1.
-    for i, b_idx in enumerate(bucket_indices):
-        labels[i, bucket_indices == b_idx] = 1.
+    # compute abs differences in labels
+    labels_xx, labels_yy = torch.meshgrid(labels, labels)
+    abs_diff = torch.abs(labels_xx - labels_yy)
 
     # Compute cosine similarities between all pairs
     similarities = F.cosine_similarity(embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2)
 
     # Masks for similar and dissimilar pairs
-    positive_mask = labels == 1.
-    negative_mask = labels == -1.
+    positive_mask = abs_diff <= 0.0005
+    negative_mask = ~positive_mask
 
     # Compute loss components
     positive_loss = 1 - similarities[positive_mask]
@@ -136,6 +134,7 @@ class WBQLPolicy(Policy):
         config = dict(DEFAULT_CONFIG, **config)
         super().__init__(obs_space, action_space, config)
         self.n_agents = 1
+        self.agent_id = "agent_" + "".join(random.choices(string.ascii_letters, k=4))
         config["model"]["n_agents"] = self.n_agents
         self.lamda = config["lambda"]
         self.tau = config["tau"]
@@ -559,35 +558,18 @@ class WBQLPolicy(Policy):
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
-        # Get LDS weights
-        # lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
-        # lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
-        # lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
-        # lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
-        targets_flat = to_numpy(targets).reshape(-1, )
-        lds_weights, bin_index_per_label = get_lds_weights(
-            samples=SampleBatch({
-                SampleBatch.REWARDS: targets_flat,
-            }),
-            lds_kernel=self.config.get("lds_kernel", "gaussian"),
-            lds_ks=self.config.get("lds_ks", 50),
-            lds_sigma=self.config.get("lds_sigma", 20),
-            num_bins=self.config.get("num_bins", 100)  # len(Counter(targets_flat))),
-        )
-        bin_index_per_label = convert_to_torch_tensor(bin_index_per_label, self.device)
-        lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
-
         # Representation loss
-        rep_loss = 0.  # cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), bin_index_per_label)
+        rep_loss = cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), targets.view(-1,))
 
         # Qe_i TD error
-        qe_td_error = lds_weights * (qe_qvals - targets.detach())
+        qe_td_error = (qe_qvals - targets.detach())
         mask = mask.expand_as(qe_td_error)
         # 0-out the targets that came from padded data
         masked_td_error = qe_td_error * mask
         qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
         self.model.tower_stats["Qe_loss"] = to_numpy(qe_loss)
         self.model.tower_stats["td_error"] = to_numpy(qe_td_error)
+        self.model.tower_stats["rep_loss"] = to_numpy(rep_loss)
 
         # Qi function objective
         # Qi(s, a)
@@ -601,16 +583,17 @@ class WBQLPolicy(Policy):
         self.model.tower_stats["Qi_loss"] = to_numpy(qi_loss)
 
         # combine losses
-        loss = qe_loss + qi_loss
+        loss = qe_loss + qi_loss + rep_loss
         self.model.tower_stats["loss"] = to_numpy(loss)
 
-        # save_representations(
-        #     obs=obs,
-        #     latent_rep=qe_h[:, :-1],
-        #     model_out=qe_qvals,
-        #     target=targets,
-        #     reward=rewards,
-        # )
+        save_representations(
+            obs=obs,
+            latent_rep=qe_h[:, :-1],
+            model_out=qe_qvals,
+            target=targets,
+            reward=rewards,
+            filename_prefix=self.agent_id + "_",
+        )
 
         return loss, mask, masked_td_error, qi_out_s_qvals, targets
 
