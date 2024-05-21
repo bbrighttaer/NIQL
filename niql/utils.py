@@ -205,6 +205,10 @@ def get_lds_kernel_window(kernel, ks, sigma):
     return kernel_window
 
 
+def standardize(r):
+    return (r - r.mean()) / (r.std() + 1e-5)
+
+
 def get_lds_weights(
         samples: SampleBatch,
         lds_kernel="gaussian",
@@ -216,7 +220,7 @@ def get_lds_weights(
     rewards = samples[SampleBatch.REWARDS]
 
     # create bins
-    hist, bins = np.histogram(rewards, bins=num_bins)
+    hist, bins = np.histogram(a=np.array([], dtype=np.float32), bins=num_bins, range=(-10, 10))
     bin_index_per_label = np.digitize(rewards, bins, right=True)
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
@@ -230,7 +234,9 @@ def get_lds_weights(
     eff_num_per_label = [eff_label_dist[bin_idx] for bin_idx in bin_index_per_label]
     weights = [np.float32(1 / (x + 1e-6)) for x in eff_num_per_label]
     scaling = len(weights) / np.sum(weights)
+    weights = [scaling * x for x in weights]
     lds_weights = np.array(weights).reshape(len(samples), -1)
+    lds_weights = standardize(lds_weights)
     return lds_weights, bin_index_per_label
 
 
@@ -319,6 +325,7 @@ def get_priority_update_func(local_replay_buffer, config):
     Returns the function for updating priorities in a prioritised experience replay buffer.
     Adapted from rllib.
     """
+
     def update_prio(item):
         samples, info_dict = item
         if config.get("prioritized_replay"):
@@ -335,8 +342,8 @@ def get_priority_update_func(local_replay_buffer, config):
                     assert len(batch_indices) > len(
                         td_error) and len(batch_indices) % T == 0
                     full_seq = td_error.shape[-1]
-                    batch_indices = batch_indices.reshape(-1,)
-                    td_error = td_error.reshape(-1,)
+                    batch_indices = batch_indices.reshape(-1, )
+                    td_error = td_error.reshape(-1, )
 
                     if len(batch_indices) != len(td_error):
                         # fallback on sequence lengths

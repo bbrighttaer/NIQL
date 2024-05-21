@@ -1,5 +1,6 @@
 import functools
 import logging
+from collections import Counter
 from typing import Union, List, Optional, Dict, Tuple
 
 import numpy as np
@@ -20,7 +21,7 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.models import DRQNModel, SimpleCommNet, HyperEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, \
-    to_numpy, unroll_mac, unroll_mac_squeeze_wrapper, save_representations
+    to_numpy, unroll_mac, unroll_mac_squeeze_wrapper, save_representations, get_lds_weights
 
 logger = logging.getLogger(__name__)
 
@@ -558,8 +559,29 @@ class WBQLPolicy(Policy):
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
+        # Get LDS weights
+        # lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
+        # lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
+        # lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
+        # lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
+        targets_flat = to_numpy(targets).reshape(-1, )
+        lds_weights, bin_index_per_label = get_lds_weights(
+            samples=SampleBatch({
+                SampleBatch.REWARDS: targets_flat,
+            }),
+            lds_kernel=self.config.get("lds_kernel", "gaussian"),
+            lds_ks=self.config.get("lds_ks", 50),
+            lds_sigma=self.config.get("lds_sigma", 20),
+            num_bins=self.config.get("num_bins", 100)  # len(Counter(targets_flat))),
+        )
+        bin_index_per_label = convert_to_torch_tensor(bin_index_per_label, self.device)
+        lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
+
+        # Representation loss
+        rep_loss = 0.  # cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), bin_index_per_label)
+
         # Qe_i TD error
-        qe_td_error = (qe_qvals - targets.detach())
+        qe_td_error = lds_weights * (qe_qvals - targets.detach())
         mask = mask.expand_as(qe_td_error)
         # 0-out the targets that came from padded data
         masked_td_error = qe_td_error * mask
