@@ -35,6 +35,6 @@ PREDATOR_PREY = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 100000,
+        'timesteps_total': 1000000,
     }
 }

@@ -559,7 +559,7 @@ class WBQLPolicy(Policy):
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
         # Representation loss
-        rep_loss = cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), targets.view(-1,))
+        rep_loss = cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), targets.detach().view(-1,))
 
         # Qe_i TD error
         qe_td_error = (qe_qvals - targets.detach())
@@ -569,7 +569,6 @@ class WBQLPolicy(Policy):
         qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
         self.model.tower_stats["Qe_loss"] = to_numpy(qe_loss)
         self.model.tower_stats["td_error"] = to_numpy(qe_td_error)
-        self.model.tower_stats["rep_loss"] = to_numpy(rep_loss)
 
         # Qi function objective
         # Qi(s, a)
@@ -580,7 +579,10 @@ class WBQLPolicy(Policy):
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
         qi_loss = torch.sum(qi_loss * mask) / mask.sum()
+        rep_loss += cosine_embedding_loss(qi_h[:, :-1].reshape(B * T, -1), qi_out_s_qvals.detach().view(-1,))
+
         self.model.tower_stats["Qi_loss"] = to_numpy(qi_loss)
+        self.model.tower_stats["rep_loss"] = to_numpy(rep_loss)
 
         # combine losses
         loss = qe_loss + qi_loss + rep_loss
