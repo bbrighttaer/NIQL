@@ -6,7 +6,7 @@ PREDATOR_PREY = {
             'batch_episode': 64,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
-            'buffer_size': 10000,
+            'buffer_size': 5000,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
