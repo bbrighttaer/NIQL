@@ -31,7 +31,7 @@ from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.utils.typing import TrainerConfigDict
 from ray.util.iter import LocalIterator
 
-from niql.utils import get_priority_update_func
+from niql.utils import get_priority_update_func, UpdateFDSStatistics
 
 
 def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
@@ -83,7 +83,8 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
         .for_each(lambda x: post_fn(x, workers, config)) \
         .for_each(train_step_op) \
         .for_each(get_priority_update_func(local_replay_buffer, config)) \
-        .for_each(UpdateTargetNetwork(workers, config["target_network_update_freq"]))
+        .for_each(UpdateTargetNetwork(workers, config["target_network_update_freq"])) \
+        .for_each(UpdateFDSStatistics(workers, local_replay_buffer, config.get("fds_stats_update_freq", 10)))
 
     # Alternate deterministically between (1) and (2). Only return the output
     # of (2) since training metrics are not available until (2) runs.

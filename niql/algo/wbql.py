@@ -10,7 +10,6 @@ import torch.nn.functional as F
 from gym.spaces import Dict as GymDict
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
-from ray.rllib.agents.qmix.qmix_policy import _mac
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
@@ -19,11 +18,10 @@ from ray.rllib.utils import override
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
-from sklearn.model_selection import StratifiedKFold
 
 from niql.models import DRQNModel, SimpleCommNet, HyperEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, \
-    to_numpy, unroll_mac, unroll_mac_squeeze_wrapper, save_representations
+    to_numpy, unroll_mac, unroll_mac_squeeze_wrapper, save_representations, mac, get_lds_weights
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +158,7 @@ class WBQLPolicy(Policy):
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
         self.reward_standardize = config["reward_standardize"]
         self.neighbour_messages = []
+        self._fds_epoch = 0
 
         agent_obs_space = obs_space.original_space
         if isinstance(agent_obs_space, GymDict):
@@ -197,11 +196,21 @@ class WBQLPolicy(Policy):
             self.comm_agg = HyperEncoder(config["model"]).to(self.device)
             self.comm_agg_target = HyperEncoder(config["model"]).to(self.device)
 
+        fds_model_config = dict(config["model"])
+        self.fds_config = {
+            "bucket_num": 100,
+            "kernel": "gaussian",
+            "ks": 5,
+            "sigma": 2,
+            "momentum": 0.9,
+            "device": self.device,
+        }
+        fds_model_config["fds"] = self.fds_config
         self.model = ModelCatalog.get_model_v2(
             agent_obs_space,
             action_space,
             self.n_actions,
-            config["model"],
+            fds_model_config,
             framework="torch",
             name="model",
             default_model=FullyConnectedNetwork if core_arch == "mlp" else DRQNModel
@@ -311,7 +320,7 @@ class WBQLPolicy(Policy):
             obs_batch = convert_to_torch_tensor(obs_batch, self.device)
 
             # predict q-vals
-            q_values, hiddens = _mac(self.model, obs_batch, state_batches)
+            q_values, hiddens = mac(self.model, obs_batch, state_batches)
             avail_actions = convert_to_torch_tensor(action_mask, self.device)
             masked_q_values = q_values.clone()
             masked_q_values[avail_actions == 0.0] = -float("inf")
@@ -386,13 +395,6 @@ class WBQLPolicy(Policy):
             policy=self,
             samples=samples,
             has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
-            use_lds_weights=True,
-            lds_args={
-                "lds_kernel": "gaussian",
-                "lds_ks": 10,
-                "lds_sigma": 2,
-                "num_bins": 100,
-            }
         )
 
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
@@ -494,6 +496,21 @@ class WBQLPolicy(Policy):
         )
         return obs_batch
 
+    def add_comm_msg(self, model, ob, next_ob, B, T, n_obs, n_next_obs):
+        local_msg = model(ob).unsqueeze(2)
+        msgs = torch.cat([local_msg, n_obs], dim=2)
+        agg_msg = self.aggregate_messages(msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
+        ob = torch.cat([ob, agg_msg], dim=-1)
+
+        next_local_msg = model(next_ob).unsqueeze(2)
+        next_msgs = torch.cat([next_local_msg, n_next_obs], dim=2)
+        agg_next_msg = self.aggregate_messages(
+            next_msgs.view(B * T, *msgs.shape[2:]), True
+        ).view(B, T, -1)
+        next_ob = torch.cat([next_ob, agg_next_msg], dim=-1)
+
+        return ob, next_ob
+
     def compute_trajectory_q_loss(self,
                                   rewards,
                                   actions,
@@ -530,23 +547,12 @@ class WBQLPolicy(Policy):
         target_next_obs, raw_next_obs = next_obs, next_obs
 
         if self.use_comm:
-            def add_comm_msg(model, ob, next_ob):
-                local_msg = model(ob).unsqueeze(2)
-                msgs = torch.cat([local_msg, neighbour_obs], dim=2)
-                agg_msg = self.aggregate_messages(msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
-                ob = torch.cat([ob, agg_msg], dim=-1)
-
-                next_local_msg = model(next_ob).unsqueeze(2)
-                next_msgs = torch.cat([next_local_msg, neighbour_next_obs], dim=2)
-                agg_next_msg = self.aggregate_messages(
-                    next_msgs.view(B * T, *msgs.shape[2:]), True
-                ).view(B, T, -1)
-                next_ob = torch.cat([next_ob, agg_next_msg], dim=-1)
-
-                return ob, next_ob
-
-            obs, next_obs = add_comm_msg(self.comm_net, obs, next_obs)
-            target_obs, target_next_obs = add_comm_msg(self.comm_net_target, target_obs, target_next_obs)
+            obs, next_obs = self.add_comm_msg(
+                self.comm_net, obs, next_obs, B, T, neighbour_obs, neighbour_next_obs
+            )
+            target_obs, target_next_obs = self.add_comm_msg(
+                self.comm_net_target, target_obs, target_next_obs, B, T, neighbour_obs, neighbour_next_obs
+            )
 
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
@@ -554,25 +560,40 @@ class WBQLPolicy(Policy):
         target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
         target_whole_obs = target_whole_obs.unsqueeze(2)
         qe_bar_out, qe_bar_h = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model_target, target_whole_obs))
+        ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
 
         # Auxiliary encoder objective
         # Qe(s, a_i)
         qe_out, qe_h = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model, whole_obs))
         qe_qvals = torch.gather(qe_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
 
+        # Get LDS weights
+        lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
+        lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
+        lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
+        lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
+        lds_targets = lds_targets / torch.clamp(torch.max(lds_targets), 1e-6)
+        targets_flat = to_numpy(lds_targets).reshape(-1, )
+        lds_weights, bin_index_per_label = get_lds_weights(
+            samples=SampleBatch({
+                SampleBatch.REWARDS: targets_flat,
+            }),
+            **self.fds_config,
+        )
+        bin_index_per_label = convert_to_torch_tensor(bin_index_per_label, self.device)
+        # lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*lds_targets.shape)
+
         # Qi(s', a'_i*)
-        qi_out, qi_h = unroll_mac_squeeze_wrapper(unroll_mac(self.model, whole_obs))
+        qi_out, qi_h = unroll_mac_squeeze_wrapper(
+            unroll_mac(self.model, whole_obs, lds_labels=bin_index_per_label, epoch=self._fds_epoch),
+        )
         qi_out_sp = qi_out[:, 1:]
         # Mask out unavailable actions for the t+1 step
-        ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
         qi_out_sp[ignore_action_tp1] = -np.inf
         qi_out_sp_qvals = qi_out_sp.max(dim=2)[0]
 
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
-
-        # Representation loss
-        rep_loss = cosine_embedding_loss(qe_h[:, :-1].reshape(B * T, -1), targets.detach().view(-1,))
 
         # Qe_i TD error
         qe_td_error = (qe_qvals - targets.detach())
@@ -592,13 +613,11 @@ class WBQLPolicy(Policy):
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
         qi_loss = torch.sum(qi_loss * mask) / mask.sum()
-        rep_loss += cosine_embedding_loss(qi_h[:, :-1].reshape(B * T, -1), qi_out_s_qvals.detach().view(-1,))
 
         self.model.tower_stats["Qi_loss"] = to_numpy(qi_loss)
-        self.model.tower_stats["rep_loss"] = to_numpy(rep_loss)
 
         # combine losses
-        loss = qe_loss + qi_loss + rep_loss
+        loss = qe_loss + qi_loss
         self.model.tower_stats["loss"] = to_numpy(loss)
 
         save_representations(
@@ -628,3 +647,60 @@ class WBQLPolicy(Policy):
         # agg_msg = torch.sum(msg, dim=1, keepdim=True)
         agg_msg = self.comm_agg_target(msg) if is_target else self.comm_agg(msg)
         return agg_msg
+
+    @torch.no_grad()
+    def update_fds_running_stats(self, samples: SampleBatch):
+        if hasattr(self.model, "FDS"):
+            self.model.eval()
+            if self.use_comm:
+                self.comm_net.eval()
+                self.comm_agg.eval()
+
+            (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
+             next_obs, obs, rewards, terminated, n_obs, n_next_obs, seq_lens) = preprocess_trajectory_batch(
+                policy=self,
+                samples=samples,
+                has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
+            )
+
+            B, T = obs.shape[0], obs.shape[1]
+            target_obs, raw_obs = obs, obs
+            target_next_obs, raw_next_obs = next_obs, next_obs
+
+            if self.use_comm:
+                obs, next_obs = self.add_comm_msg(
+                    self.comm_net, obs, next_obs, B, T, n_obs, n_next_obs
+                )
+                target_obs, target_next_obs = self.add_comm_msg(
+                    self.comm_net_target, target_obs, target_next_obs, B, T, n_obs, n_next_obs
+                )
+
+            # append the first element of obs + next_obs to get new one
+            whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
+            whole_obs = whole_obs.unsqueeze(2)
+            target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
+            target_whole_obs = target_whole_obs.unsqueeze(2)
+            qe_bar_out, qe_bar_h = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model_target, target_whole_obs))
+            ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
+            # Qi(s', a'_i*)
+            _, qi_h = unroll_mac_squeeze_wrapper(unroll_mac(self.model, whole_obs))
+
+            # Get LDS weights
+            lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
+            lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
+            lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
+            lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
+            lds_targets = lds_targets / torch.clamp(torch.max(lds_targets), 1e-6)
+            targets_flat = to_numpy(lds_targets).reshape(-1, )
+            lds_weights, bin_index_per_label = get_lds_weights(
+                samples=SampleBatch({
+                    SampleBatch.REWARDS: targets_flat,
+                }),
+                **self.fds_config,
+            )
+            bin_index_per_label = convert_to_torch_tensor(bin_index_per_label, self.device)
+
+            # stats update
+            self.model.FDS.update_last_epoch_stats(self._fds_epoch)
+            self.model.FDS.update_running_stats(qi_h[:, :-1].reshape(B * T, -1), bin_index_per_label, self._fds_epoch)
+            self._fds_epoch += 1

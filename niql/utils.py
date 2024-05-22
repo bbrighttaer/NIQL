@@ -1,15 +1,17 @@
-import time
-
 import pandas as pd
 import torch
 import torch.nn.functional as F
 import tree
-from ray.rllib.agents.qmix.qmix_policy import _mac
+from ray.rllib.agents.qmix.qmix_policy import _drop_agent_dim
+from ray.rllib.evaluation.worker_set import WorkerSet
+from ray.rllib.execution.common import STEPS_TRAINED_COUNTER, STEPS_SAMPLED_COUNTER, _get_shared_metrics, \
+    LAST_TARGET_UPDATE_TS
 from ray.rllib.execution.replay_buffer import *
 from ray.rllib.models.modelv2 import _unpack_obs
 from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
+from ray.rllib.utils.typing import PolicyID
 from scipy.ndimage import gaussian_filter1d, convolve1d
 from scipy.stats import triang
 
@@ -92,7 +94,7 @@ def unpack_observation(policy, obs_batch):
     return obs, action_mask, state
 
 
-def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data=False, **kwargs):
+def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data=False):
     shared_obs_batch, shared_next_obs_batch = None, None
     # preprocess training data
     obs_batch, action_mask, env_global_state = unpack_observation(
@@ -213,23 +215,24 @@ def standardize(r):
 
 def get_lds_weights(
         samples: SampleBatch,
-        lds_kernel="gaussian",
-        lds_ks=50,
-        lds_sigma=2,
+        kernel="gaussian",
+        ks=50,
+        sigma=2,
         num_bins=50,
+        **kwargs,
 ) -> np.array:
     # consider all data in buffer
     rewards = samples[SampleBatch.REWARDS]
 
     # create bins
-    hist, bins = np.histogram(a=np.array([], dtype=np.float32), bins=num_bins, range=(-10, 10))
+    hist, bins = np.histogram(a=np.array([], dtype=np.float32), bins=num_bins, range=(-1, 1))
     bin_index_per_label = np.digitize(rewards, bins, right=True)
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
     emp_label_dist = [num_samples_of_bins.get(i, 0) for i in range(Nb)]
 
     # compute effective label distribution
-    lds_kernel_window = get_lds_kernel_window(lds_kernel, lds_ks, lds_sigma)
+    lds_kernel_window = get_lds_kernel_window(kernel, ks, sigma)
     eff_label_dist = convolve1d(emp_label_dist, weights=lds_kernel_window, mode='constant')
 
     # Use re-weighting based on effective label distribution, sample-wise weights: [Ns,]
@@ -242,7 +245,29 @@ def get_lds_weights(
     return lds_weights, bin_index_per_label
 
 
-def unroll_mac(model, obs_tensor):
+def mac(model, obs, h, **kwargs):
+    """Forward pass of the multi-agent controller.
+
+    Args:
+        model: TorchModelV2 class
+        obs: Tensor of shape [B, n_agents, obs_size]
+        h: List of tensors of shape [B, n_agents, h_size]
+
+    Returns:
+        q_vals: Tensor of shape [B, n_agents, n_actions]
+        h: Tensor of shape [B, n_agents, h_size]
+    """
+    B, n_agents = obs.size(0), obs.size(1)
+    if not isinstance(obs, dict):
+        obs = {"obs": obs}
+    obs_agents_as_batches = {k: _drop_agent_dim(v) for k, v in obs.items()}
+    h_flat = [s.reshape([B * n_agents, -1]) for s in h]
+    q_flat, h_flat = model(obs_agents_as_batches, h_flat, None, **kwargs)
+    return q_flat.reshape(
+        [B, n_agents, -1]), [s.reshape([B, n_agents, -1]) for s in h_flat]
+
+
+def unroll_mac(model, obs_tensor, **kwargs):
     """Computes the estimated Q values for an entire trajectory batch"""
     B = obs_tensor.size(0)
     T = obs_tensor.size(1)
@@ -251,8 +276,15 @@ def unroll_mac(model, obs_tensor):
     mac_out = []
     mac_h_out = []
     h = [s.expand([B, n_agents, -1]) for s in model.get_initial_state()]
+    lds_labels = None
+    max_t = 1
+    if "lds_labels" in kwargs:
+        lds_labels = kwargs.pop("lds_labels").reshape(B, -1)
+        max_t = lds_labels.shape[-1]
     for t in range(T):
-        q, h = _mac(model, obs_tensor[:, t], h)
+        if lds_labels is not None:
+            kwargs["labels"] = lds_labels[:, min(t, max_t - 1)]
+        q, h = mac(model, obs_tensor[:, t], h, **kwargs)
         mac_out.append(q)
         mac_h_out.extend(h)
     mac_out = torch.stack(mac_out, dim=1)  # Concat over time
@@ -322,7 +354,7 @@ def save_representations(obs, latent_rep, model_out, target, reward, filename_pr
     df.to_csv(f"{filename_prefix}representation_analysis_data.csv", index=False)
 
 
-def get_priority_update_func(local_replay_buffer, config):
+def get_priority_update_func(local_replay_buffer: LocalReplayBuffer, config: Dict[str, Any]):
     """
     Returns the function for updating priorities in a prioritised experience replay buffer.
     Adapted from rllib.
@@ -394,3 +426,42 @@ def pairwise_cosine_similarity(x, batch_size=1000):
             similarity_matrix[i:end_i, j:end_j] = torch.mm(norm_i, norm_j.t())
 
     return similarity_matrix
+
+
+class UpdateFDSStatistics:
+    """
+    Function for handling FDS statistics update across agents
+    """
+
+    LAST_FDS_STATS_UPDATE_TS = "last_fds_statistics_update_timestep"
+    NUM_FDS_STATS_UPDATE = "num_fds_stats_update"
+
+    def __init__(self,
+                 workers: WorkerSet,
+                 local_replay_buffer: LocalReplayBuffer,
+                 fds_stats_update_freq: int,
+                 policies: List[PolicyID] = frozenset([])):
+        self.workers = workers
+        self.local_replay_buffer = local_replay_buffer
+        self.local_worker = workers.local_worker()
+        self.fds_stats_update_freq = fds_stats_update_freq
+        self.policies = policies
+        self.metric = STEPS_TRAINED_COUNTER
+        self.actual_batch_size = self.local_replay_buffer.replay_batch_size
+        self.factor = 5
+
+    def __call__(self, _: Any) -> None:
+        metrics = _get_shared_metrics()
+        cur_ts = metrics.counters[self.metric]
+        last_update = metrics.counters.get(self.LAST_FDS_STATS_UPDATE_TS, 0)
+        if cur_ts - last_update > self.fds_stats_update_freq:
+            self.local_replay_buffer.replay_batch_size = self.factor * self.actual_batch_size
+            samples = self.local_replay_buffer.replay()
+            self.local_replay_buffer.replay_batch_size = self.actual_batch_size
+            to_update = self.policies or self.local_worker.policies_to_train
+            self.workers.local_worker().foreach_trainable_policy(
+                lambda p, p_id: p_id in to_update and hasattr(p, "update_fds_running_stats")
+                                and p.update_fds_running_stats(samples.policy_batches[p_id])
+            )
+            metrics.counters[self.NUM_FDS_STATS_UPDATE] += 1
+            metrics.counters[self.LAST_FDS_STATS_UPDATE_TS] = cur_ts
