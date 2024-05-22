@@ -3,7 +3,7 @@ from niql.callbacks import NIQLCallbacks
 PREDATOR_PREY = {
     'algo_parameters': {
         'algo_args': {
-            'batch_episode': 32,
+            'batch_episode': 64,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
             'buffer_size': 10000,
@@ -19,7 +19,7 @@ PREDATOR_PREY = {
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
-            'comm_dim': 0,
+            'comm_dim': 5,
         }
     },
     'model_preference': {

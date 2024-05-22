@@ -19,6 +19,7 @@ from ray.rllib.utils import override
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
+from sklearn.model_selection import StratifiedKFold
 
 from niql.models import DRQNModel, SimpleCommNet, HyperEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, \
@@ -67,23 +68,35 @@ def cosine_embedding_loss(embeddings, labels, margin=0.5):
     Returns:
     - loss (Tensor): The computed cosine embedding loss.
     """
-    # compute abs differences in labels
-    labels_xx, labels_yy = torch.meshgrid(labels, labels)
-    abs_diff = torch.abs(labels_xx - labels_yy)
+    emb_chunks = torch.split(embeddings, 64)
+    lbl_chunks = torch.split(labels, 64)
 
-    # Compute cosine similarities between all pairs
-    similarities = F.cosine_similarity(embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2)
+    positive_losses = []
+    negative_losses = []
 
-    # Masks for similar and dissimilar pairs
-    positive_mask = abs_diff <= 0.0005
-    negative_mask = ~positive_mask
+    def sim_loss(emb, lbl):
+        # compute abs differences in labels
+        labels_xx, labels_yy = torch.meshgrid(lbl, lbl)
+        abs_diff = torch.abs(labels_xx - labels_yy)
 
-    # Compute loss components
-    positive_loss = 1 - similarities[positive_mask]
-    negative_loss = torch.clamp(similarities[negative_mask] - margin, min=0.0)
+        # Compute cosine similarities between all pairs
+        similarities = F.cosine_similarity(emb.unsqueeze(1), emb.unsqueeze(0), dim=2)
+
+        # Masks for similar and dissimilar pairs
+        positive_mask = abs_diff <= 0.0005
+        negative_mask = ~positive_mask
+
+        # Compute loss components
+        positive_loss = 1 - similarities[positive_mask]
+        negative_loss = torch.clamp(similarities[negative_mask] - margin, min=0.0)
+        positive_losses.append(positive_loss)
+        negative_losses.append(negative_loss)
+
+    for sub_emb, sub_lbl in zip(emb_chunks, lbl_chunks):
+        sim_loss(sub_emb, sub_lbl)
 
     # Combine loss components
-    loss = torch.mean(torch.cat((positive_loss, negative_loss), dim=0))
+    loss = torch.mean(torch.cat(positive_losses + negative_losses, dim=0))
 
     return loss
 

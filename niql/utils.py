@@ -1,11 +1,13 @@
-import numpy as np
+import time
+
 import pandas as pd
+import torch
+import torch.nn.functional as F
 import tree
 from ray.rllib.agents.qmix.qmix_policy import _mac
 from ray.rllib.execution.replay_buffer import *
 from ray.rllib.models.modelv2 import _unpack_obs
 from ray.rllib.models.preprocessors import get_preprocessor
-import torch
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from scipy.ndimage import gaussian_filter1d, convolve1d
@@ -362,3 +364,33 @@ def get_priority_update_func(local_replay_buffer, config):
         return info_dict
 
     return update_prio
+
+
+def pairwise_cosine_similarity(x, batch_size=1000):
+    """
+    Computes pairwise cosine similarity in a scalable manner using batch processing.
+
+    Args:
+        x (torch.Tensor): Input tensor of shape (N, D), where N is the number of samples and D is the feature dimension.
+        batch_size (int): The size of each batch for processing.
+
+    Returns:
+        torch.Tensor: Pairwise cosine similarity matrix of shape (N, N).
+    """
+    N, D = x.shape
+    similarity_matrix = torch.zeros(N, N, device=x.device)
+
+    for i in range(0, N, batch_size):
+        end_i = min(i + batch_size, N)
+        x_i = x[i:end_i]
+
+        for j in range(0, N, batch_size):
+            end_j = min(j + batch_size, N)
+            x_j = x[j:end_j]
+
+            # Compute cosine similarity between batches
+            norm_i = F.normalize(x_i, p=2, dim=1)
+            norm_j = F.normalize(x_j, p=2, dim=1)
+            similarity_matrix[i:end_i, j:end_j] = torch.mm(norm_i, norm_j.t())
+
+    return similarity_matrix
