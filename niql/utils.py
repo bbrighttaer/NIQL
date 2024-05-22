@@ -455,13 +455,15 @@ class UpdateFDSStatistics:
         cur_ts = metrics.counters[self.metric]
         last_update = metrics.counters.get(self.LAST_FDS_STATS_UPDATE_TS, 0)
         if cur_ts - last_update > self.fds_stats_update_freq:
-            self.local_replay_buffer.replay_batch_size = self.factor * self.actual_batch_size
+            size = self.factor * self.actual_batch_size
+            self.local_replay_buffer.replay_batch_size = min(size, self.local_replay_buffer.num_added)
             samples = self.local_replay_buffer.replay()
-            self.local_replay_buffer.replay_batch_size = self.actual_batch_size
-            to_update = self.policies or self.local_worker.policies_to_train
-            self.workers.local_worker().foreach_trainable_policy(
-                lambda p, p_id: p_id in to_update and hasattr(p, "update_fds_running_stats")
-                                and p.update_fds_running_stats(samples.policy_batches[p_id])
-            )
-            metrics.counters[self.NUM_FDS_STATS_UPDATE] += 1
-            metrics.counters[self.LAST_FDS_STATS_UPDATE_TS] = cur_ts
+            if samples is not None:
+                self.local_replay_buffer.replay_batch_size = self.actual_batch_size
+                to_update = self.policies or self.local_worker.policies_to_train
+                self.workers.local_worker().foreach_trainable_policy(
+                    lambda p, p_id: p_id in to_update and hasattr(p, "update_fds_running_stats")
+                                    and p.update_fds_running_stats(samples.policy_batches[p_id])
+                )
+                metrics.counters[self.NUM_FDS_STATS_UPDATE] += 1
+                metrics.counters[self.LAST_FDS_STATS_UPDATE_TS] = cur_ts
