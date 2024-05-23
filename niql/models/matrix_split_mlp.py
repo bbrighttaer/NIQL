@@ -27,10 +27,12 @@ from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 
+from niql.models.base_torch_model import BaseTorchModel
+
 torch, nn = try_import_torch()
 
 
-class MatrixGameSplitQMLP(TorchModelV2, nn.Module):
+class MatrixGameSplitQMLP(BaseTorchModel):
     """sneaky gru-like mlp"""
 
     def __init__(self, obs_space, action_space, num_outputs, model_config,

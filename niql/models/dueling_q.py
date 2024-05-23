@@ -12,12 +12,14 @@ from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.typing import Dict, TensorType, List, ModelConfigDict
 
+from niql.models.base_torch_model import BaseTorchModel
+
 torch, nn = try_import_torch()
 
 logger = logging.getLogger(__name__)
 
 
-class DuelingQFCN(TorchModelV2, nn.Module):
+class DuelingQFCN(BaseTorchModel):
     """Generic dueling fully connected network."""
 
     def __init__(self, obs_space: gym.spaces.Space,
@@ -77,7 +79,7 @@ class DuelingQFCN(TorchModelV2, nn.Module):
     @override(TorchModelV2)
     def forward(self, input_dict: Dict[str, TensorType],
                 state: List[TensorType],
-                seq_lens: TensorType) -> (TensorType, List[TensorType]):
+                seq_lens: TensorType, labels=None, epoch=None) -> (TensorType, List[TensorType]):
         obs = input_dict["obs_flat"].float()
         x = self.base_model(obs)
         advantages = self.advantage_layer(x)

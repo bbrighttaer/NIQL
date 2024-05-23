@@ -212,7 +212,7 @@ class BQLPolicy(Policy):
         )
 
         (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
-         next_obs, obs, rewards, terminated, n_obs, n_next_obs, seq_lens) = preprocess_trajectory_batch(
+         next_obs, obs, rewards, weights, terminated, n_obs, n_next_obs, seq_lens) = preprocess_trajectory_batch(
             policy=self,
             samples=samples,
             has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
@@ -220,6 +220,7 @@ class BQLPolicy(Policy):
 
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
             rewards,
+            weights,
             actions,
             terminated,
             mask,
@@ -304,6 +305,7 @@ class BQLPolicy(Policy):
 
     def compute_trajectory_q_loss(self,
                                   rewards,
+                                  weights,
                                   actions,
                                   terminated,
                                   mask,
@@ -320,6 +322,7 @@ class BQLPolicy(Policy):
 
         Args:
             rewards: Tensor of shape [B, T]
+            weights: Tensor of shape [B, T]
             actions: Tensor of shape [B, T]
             terminated: Tensor of shape [B, T]
             mask: Tensor of shape [B, T]

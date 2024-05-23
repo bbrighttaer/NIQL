@@ -107,7 +107,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
     )
 
     input_list = [
-        samples[SampleBatch.REWARDS], action_mask, next_action_mask,
+        samples[SampleBatch.REWARDS], samples["weights"], action_mask, next_action_mask,
         samples[SampleBatch.ACTIONS], samples[SampleBatch.DONES],
         obs_batch, next_obs_batch
     ]
@@ -133,16 +133,16 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
 
     # These will be padded to shape [B * T, ...]
     if policy.has_env_global_state and has_neighbour_data:
-        (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
+        (rew, wts, action_mask, next_action_mask, act, dones, obs, next_obs,
          env_global_state, next_env_global_state, n_obs, n_next_obs) = output_list
     elif policy.has_env_global_state:
-        (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
+        (rew, wts, action_mask, next_action_mask, act, dones, obs, next_obs,
          env_global_state, next_env_global_state) = output_list
     elif has_neighbour_data:
-        (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
+        (rew, wts, action_mask, next_action_mask, act, dones, obs, next_obs,
          n_obs, n_next_obs) = output_list
     else:
-        (rew, action_mask, next_action_mask, act, dones, obs,
+        (rew, wts, action_mask, next_action_mask, act, dones, obs,
          next_obs) = output_list
     B, T = len(seq_lens), max(seq_lens)
 
@@ -170,6 +170,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
     action_mask = to_batches(action_mask, torch.float)
     next_action_mask = to_batches(next_action_mask, torch.float)
     terminated = to_batches(dones.reshape(-1, 1), torch.float)
+    weights = to_batches(wts.reshape(-1, 1), torch.float)
 
     if policy.has_env_global_state:
         env_global_state = to_batches(env_global_state, torch.float)
@@ -184,7 +185,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
     mask = torch.as_tensor(filled, dtype=torch.float, device=policy.device)
 
     return (action_mask, actions, env_global_state, mask, next_action_mask,
-            next_env_global_state, next_obs, obs, rewards, terminated, n_obs, n_next_obs, seq_lens)
+            next_env_global_state, next_obs, obs, rewards, weights, terminated, n_obs, n_next_obs, seq_lens)
 
 
 NEIGHBOUR_NEXT_OBS = "n_next_obs"
@@ -448,22 +449,19 @@ class UpdateFDSStatistics:
         self.policies = policies
         self.metric = STEPS_TRAINED_COUNTER
         self.actual_batch_size = self.local_replay_buffer.replay_batch_size
-        self.factor = 10
+        self.factor = 1024
 
     def __call__(self, _: Any) -> None:
         metrics = _get_shared_metrics()
         cur_ts = metrics.counters[self.metric]
         last_update = metrics.counters.get(self.LAST_FDS_STATS_UPDATE_TS, 0)
         if cur_ts - last_update > self.fds_stats_update_freq:
-            size = self.factor * self.actual_batch_size
-            self.local_replay_buffer.replay_batch_size = min(size, self.local_replay_buffer.num_added)
-            samples = self.local_replay_buffer.replay()
-            if samples is not None:
-                self.local_replay_buffer.replay_batch_size = self.actual_batch_size
-                to_update = self.policies or self.local_worker.policies_to_train
-                self.workers.local_worker().foreach_trainable_policy(
-                    lambda p, p_id: p_id in to_update and hasattr(p, "update_fds_running_stats")
-                                    and p.update_fds_running_stats(samples.policy_batches[p_id])
-                )
-                metrics.counters[self.NUM_FDS_STATS_UPDATE] += 1
-                metrics.counters[self.LAST_FDS_STATS_UPDATE_TS] = cur_ts
+            self.local_replay_buffer.replay_batch_size = self.actual_batch_size
+            to_update = self.policies or self.local_worker.policies_to_train
+            self.workers.local_worker().foreach_trainable_policy(
+                lambda p, p_id: p_id in to_update
+                                and hasattr(p, "update_fds_running_stats")
+                                and p.update_fds_running_stats()
+            )
+            metrics.counters[self.NUM_FDS_STATS_UPDATE] += 1
+            metrics.counters[self.LAST_FDS_STATS_UPDATE_TS] = cur_ts
