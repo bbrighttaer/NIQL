@@ -611,7 +611,7 @@ class WBQLPolicy(Policy):
         # qe_bar_out = _unroll_mac(self.auxiliary_model_target, target_whole_obs).squeeze(2)
         qe_bar_out_qvals = torch.gather(qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
-        qi_loss = lds_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
+        qi_loss = qi_weights * lds_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
         qi_loss = torch.sum(qi_loss * mask) / mask.sum()
 
         self.model.tower_stats["Qi_loss"] = to_numpy(qi_loss)
