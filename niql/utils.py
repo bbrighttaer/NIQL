@@ -2,7 +2,7 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import tree
-from ray.rllib.agents.qmix.qmix_policy import _drop_agent_dim
+from ray.rllib.agents.qmix.qmix_policy import _drop_agent_dim, _mac
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.execution.common import STEPS_TRAINED_COUNTER, STEPS_SAMPLED_COUNTER, _get_shared_metrics, \
     LAST_TARGET_UPDATE_TS
@@ -228,6 +228,7 @@ def get_lds_weights(
     # create bins
     hist, bins = np.histogram(a=np.array([], dtype=np.float32), bins=num_bins, range=(-1, 1))
     bin_index_per_label = np.digitize(rewards, bins, right=True)
+    bin_index_per_label = np.array([min(idx, num_bins - 1) for idx in bin_index_per_label])
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
     emp_label_dist = [num_samples_of_bins.get(i, 0) for i in range(Nb)]
@@ -277,14 +278,7 @@ def unroll_mac(model, obs_tensor, **kwargs):
     mac_out = []
     mac_h_out = []
     h = [s.expand([B, n_agents, -1]) for s in model.get_initial_state()]
-    lds_labels = None
-    max_t = 1
-    if "lds_labels" in kwargs:
-        lds_labels = kwargs.pop("lds_labels").reshape(B, -1)
-        max_t = lds_labels.shape[-1]
     for t in range(T):
-        if lds_labels is not None:
-            kwargs["labels"] = lds_labels[:, min(t, max_t - 1)]
         q, h = mac(model, obs_tensor[:, t], h, **kwargs)
         mac_out.append(q)
         mac_h_out.extend(h)
@@ -439,24 +433,19 @@ class UpdateFDSStatistics:
 
     def __init__(self,
                  workers: WorkerSet,
-                 local_replay_buffer: LocalReplayBuffer,
                  fds_stats_update_freq: int,
                  policies: List[PolicyID] = frozenset([])):
         self.workers = workers
-        self.local_replay_buffer = local_replay_buffer
         self.local_worker = workers.local_worker()
         self.fds_stats_update_freq = fds_stats_update_freq
         self.policies = policies
         self.metric = STEPS_TRAINED_COUNTER
-        self.actual_batch_size = self.local_replay_buffer.replay_batch_size
-        self.factor = 1024
 
     def __call__(self, _: Any) -> None:
         metrics = _get_shared_metrics()
         cur_ts = metrics.counters[self.metric]
         last_update = metrics.counters.get(self.LAST_FDS_STATS_UPDATE_TS, 0)
         if cur_ts - last_update > self.fds_stats_update_freq:
-            self.local_replay_buffer.replay_batch_size = self.actual_batch_size
             to_update = self.policies or self.local_worker.policies_to_train
             self.workers.local_worker().foreach_trainable_policy(
                 lambda p, p_id: p_id in to_update

@@ -9,11 +9,11 @@ MATRIX_GAME = {
             'buffer_size': 10000,
             'target_network_update_freq': 10,
             'final_epsilon': 0.01,
-            'epsilon_timesteps': 50000,
+            'epsilon_timesteps': 1000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
             'gamma': 0.99,
-            'lambda': 0.6,
+            'lambda': 0.7,
             'tau': 0.5,
             'beta': 0,
             'callbacks': NIQLCallbacks,
@@ -37,6 +37,6 @@ MATRIX_GAME = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 100000,
+        'timesteps_total': 10000,
     }
 }

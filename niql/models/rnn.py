@@ -31,7 +31,6 @@ from ray.rllib.utils.framework import try_import_torch
 
 from niql.models.base_encoder import BaseEncoder
 from niql.models.base_torch_model import BaseTorchModel
-from niql.models.fds import FDS
 
 torch, nn = try_import_torch()
 
@@ -60,13 +59,6 @@ class JointQRNN(BaseTorchModel):
         self.hidden_state_size = self.custom_config["model_arch_args"]["hidden_state_size"]
         self.rnn = nn.GRUCell(self.encoder.output_dim, self.hidden_state_size)
 
-        # Feature Distribution Smoothing
-        fds_config = model_config.get("fds", None)
-        if fds_config:
-            self.FDS = FDS(feature_dim=self.hidden_state_size, **fds_config)
-        else:
-            self.FDS = None
-
         self.q_value = SlimFC(
             in_size=self.hidden_state_size,
             out_size=num_outputs,
@@ -90,7 +82,7 @@ class JointQRNN(BaseTorchModel):
         return hidden_state
 
     @override(ModelV2)
-    def forward(self, input_dict, hidden_state, seq_lens, labels=None, epoch=None):
+    def forward(self, input_dict, hidden_state, seq_lens, **kwargs):
         inputs = input_dict["obs_flat"].float()
         if len(self.full_obs_space.shape) == 3:  # 3D
             inputs = inputs.reshape((-1,) + self.full_obs_space.shape)
@@ -98,7 +90,5 @@ class JointQRNN(BaseTorchModel):
         h_in = hidden_state[0].reshape(-1, self.hidden_state_size)
         h = self.rnn(x, h_in)
         h_smoothed = h
-        if self.training and self.FDS is not None:
-            h_smoothed = self.FDS.smooth(h, labels, epoch)
         q = self.q_value(h_smoothed)
         return q, [h]

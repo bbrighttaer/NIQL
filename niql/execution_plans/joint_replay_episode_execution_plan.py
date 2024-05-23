@@ -33,14 +33,12 @@ from ray.rllib.execution.rollout_ops import ParallelRollouts
 from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.utils.typing import TrainerConfigDict
 from ray.util.iter import LocalIterator
-from torch.utils.tensorboard import SummaryWriter
 
 from niql.replay_buffers.joint_episode_replay_buffer import JointEpisodeReplayBuffer
-from niql.utils import get_priority_update_func
 
 
 def joint_episode_execution_plan(trainer: Trainer, workers: WorkerSet,
-                                config: TrainerConfigDict, **kwargs) -> LocalIterator[dict]:
+                                 config: TrainerConfigDict, **kwargs) -> LocalIterator[dict]:
     # A copy of the DQN algorithm execution_plan.
     # Modified to be compatible with joint Q learning.
     # here we use EpisodeBasedReplayBuffer inherited from LocalReplayBuffer instead of SimpleReplayBuffer
@@ -75,15 +73,9 @@ def joint_episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     policy_map = workers.local_worker().policy_map
 
     # add callback after learning on batch
-    # workers.local_worker().learn_on_batch = notify_wrap(
-    #     workers.local_worker().learn_on_batch,
-    #
-    # )
-    summary_writer = SummaryWriter()
     replay_op = Replay(local_buffer=local_replay_buffer) \
-        .for_each(lambda x: post_fn(x, workers, config, policy_map, summary_writer)) \
+        .for_each(lambda x: post_fn(x, workers, config, policy_map)) \
         .for_each(train_step_op) \
-        .for_each(get_priority_update_func(local_replay_buffer, config)) \
         .for_each(UpdateTargetNetwork(workers, config["target_network_update_freq"]))
 
     # Alternate deterministically between (1) and (2). Only return the output

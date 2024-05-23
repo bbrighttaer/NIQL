@@ -4,11 +4,13 @@ from typing import Union, List, Optional, Dict, Tuple
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from gym.spaces import Dict as GymDict
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
-from ray.rllib.agents.qmix.qmix_policy import _mac
+from ray.rllib.agents.qmix.qmix_policy import _unroll_mac, _mac
 from ray.rllib.models import ModelCatalog
+from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.utils import override
@@ -16,11 +18,34 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
-from niql.models import DRQNModel
-from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, get_size, \
-    unroll_mac, soft_update, save_representations, to_numpy, unroll_mac_squeeze_wrapper
+from niql import distance_metrics
+from niql.models import DRQNModel, MultiHeadSelfAttentionEncoder, FCNEncoder, SimpleCommNet
+from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
+    unroll_mac_squeeze_wrapper, to_numpy
 
 logger = logging.getLogger(__name__)
+
+
+def get_size(obs_space):
+    return get_preprocessor(obs_space)(obs_space).size
+
+
+def soft_update(target_net, source_net, tau):
+    """
+    Soft update the parameters of the target network with those of the source network.
+
+    Args:
+    - target_net: Target network.
+    - source_net: Source network.
+    - tau: Soft update parameter (0 < tau <= 1).
+
+    Returns:
+    - target_net: Updated target network.
+    """
+    for target_param, source_param in zip(target_net.parameters(), source_net.parameters()):
+        target_param.data.copy_(tau * source_param.data + (1.0 - tau) * target_param.data)
+
+    return target_net
 
 
 class BQLPolicy(Policy):
@@ -178,7 +203,7 @@ class BQLPolicy(Policy):
             hiddens = [s.view(self.n_agents, -1).cpu().numpy() for s in hiddens]
 
             # store q values selected in this time step for callbacks
-            q_values = to_numpy(masked_q_values.squeeze()).tolist()
+            q_values = masked_q_values.squeeze().cpu().detach().numpy().tolist()
 
             results = convert_to_non_torch_type((actions, hiddens, {'q-values': [q_values]}))
 
@@ -252,10 +277,8 @@ class BQLPolicy(Policy):
         data = {
             LEARNER_STATS_KEY: stats,
             "model": self.model.metrics(),
-            "custom_metrics": learn_stats,
-            "seq_lens": seq_lens,
+            "custom_metrics": learn_stats
         }
-        data.update(self.model.tower_stats)
         return data
 
     @override(Policy)
@@ -286,7 +309,7 @@ class BQLPolicy(Policy):
 
     @staticmethod
     def _cpu_dict(state_dict):
-        return {k: to_numpy(v) for k, v in state_dict.items()}
+        return {k: v.cpu().detach().numpy() for k, v in state_dict.items()}
 
     def _device_dict(self, state_dict):
         return {

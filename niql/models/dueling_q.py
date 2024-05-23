@@ -82,7 +82,8 @@ class DuelingQFCN(BaseTorchModel):
                 seq_lens: TensorType, labels=None, epoch=None) -> (TensorType, List[TensorType]):
         obs = input_dict["obs_flat"].float()
         x = self.base_model(obs)
-        advantages = self.advantage_layer(x)
-        values = self.value_layer(x)
+        x_smoothed = x
+        advantages = self.advantage_layer(x_smoothed)
+        values = self.value_layer(x_smoothed)
         q_values = values + (advantages - advantages.mean())
         return q_values, [x]  # return latent representation
