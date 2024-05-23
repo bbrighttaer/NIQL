@@ -448,7 +448,7 @@ class UpdateFDSStatistics:
         self.policies = policies
         self.metric = STEPS_TRAINED_COUNTER
         self.actual_batch_size = self.local_replay_buffer.replay_batch_size
-        self.factor = 5
+        self.factor = 10
 
     def __call__(self, _: Any) -> None:
         metrics = _get_shared_metrics()
