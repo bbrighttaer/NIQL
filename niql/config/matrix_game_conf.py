@@ -3,17 +3,17 @@ from niql.callbacks import NIQLCallbacks
 MATRIX_GAME = {
     'algo_parameters': {
         'algo_args': {
-            'batch_episode': 64,
+            'batch_episode': 752,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
             'buffer_size': 10000,
             'target_network_update_freq': 10,
             'final_epsilon': 0.01,
-            'epsilon_timesteps': 1000,
+            'epsilon_timesteps': 2000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
             'gamma': 0.99,
-            'lambda': 0.7,
+            'lambda': 0.5,
             'tau': 0.5,
             'beta': 0,
             'callbacks': NIQLCallbacks,

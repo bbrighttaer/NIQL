@@ -14,6 +14,7 @@ from niql.config import MODEL_CHECKPOINT_FREQ
 from niql.models import *  # noqa
 
 os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
+# os.environ['RAY_PICKLE_VERBOSE_DEBUG'] = '1'
 
 random.seed(seed)
 np.random.seed(seed)
@@ -46,11 +47,11 @@ if __name__ == '__main__':
         help='Execution mode',
     )
 
-    # parser.add_argument(
-    #     '-d', '--disable_joint_buffer',
-    #     action='store_true',
-    #     help='If specified, separate experience buffers will be used (when using BQL).',
-    # )
+    parser.add_argument(
+        '-d', '--disable_joint_buffer',
+        action='store_true',
+        help='If specified, separate experience buffers will be used (when using BQL).',
+    )
 
     parser.add_argument(
         '-a', '--algo',
@@ -78,7 +79,9 @@ if __name__ == '__main__':
     # initialize algorithm
     bql = marl.algos.wbql if args.algo == "wbql" else marl.algos.bql  # (hyperparam_source="mpe")
     bql.algo_parameters = exp_config['algo_parameters']
-    bql.algo_parameters["algo_args"]["enable_joint_buffer"] = args.algo == "bql"
+    bql.algo_parameters["algo_args"]["enable_joint_buffer"] = False
+    if args.algo == "bql":
+        bql.algo_parameters["algo_args"]["enable_joint_buffer"] = not args.disable_joint_buffer
 
     # build agent model based on env + algorithms + user preference if checked available
     model_config = exp_config['model_preference']

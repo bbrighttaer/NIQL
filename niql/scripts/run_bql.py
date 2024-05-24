@@ -26,8 +26,10 @@ def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Di
         timestep = list(policy_map.values())[0].global_timestep
         state = [0, 0, 0]
         for policy_id, agent_batch in batch.policy_batches.items():
+            policy = policy_map[policy_id]
+            setattr(policy, "summary_writer", summary_writer)
             stats = Counter(agent_batch[SampleBatch.REWARDS])
-            summary_writer.add_scalars(policy_id, {str(k): v for k, v in stats.items()}, timestep)
+            summary_writer.add_scalars(policy_id + "/reward_dist", {str(k): v for k, v in stats.items()}, timestep)
         summary_writer.flush()
     return batch
 
@@ -63,6 +65,11 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     }
 
     config.update(run_config)
+
+    # set policy IDs
+    for policy_id, (_, obs_space, act_space, conf) in config["multiagent"]["policies"].items():
+        conf["policy_id"] = policy_id
+        config["multiagent"][policy_id] = (_, obs_space, act_space, conf)
 
     # add observation function
     config["multiagent"]["observation_fn"] = ObservationCommWrapper(config["multiagent"]["policy_mapping_fn"])
@@ -102,7 +109,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     BQL_Config["lambda"] = _param["lambda"]
     BQL_Config["tau"] = _param["tau"]
     BQL_Config["beta"] = _param["beta"]
-    BQL_Config["enable_joint_buffer"] = _param["enable_joint_buffer"]
+    # BQL_Config["enable_joint_buffer"] = _param["enable_joint_buffer"]
     BQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
     BQL_Config["algorithm"] = algorithm
 
@@ -115,7 +122,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
         trainer = trainer.with_updates(
             get_policy_class=lambda c: BQLPolicy,
         )
-    if _param.get("enable_joint_buffer", False):
+    if _param["enable_joint_buffer"]:
         trainer = trainer.with_updates(
             execution_plan=joint_episode_execution_plan,
         )

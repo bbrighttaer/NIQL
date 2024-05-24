@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from marllib.marl.algos.utils.episode_replay_buffer import EpisodeBasedReplayBuffer
+# from marllib.marl.algos.utils.episode_replay_buffer import EpisodeBasedReplayBuffer
 from ray.rllib.agents.trainer import Trainer
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.execution.concurrency_ops import Concurrently
@@ -31,6 +31,7 @@ from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.utils.typing import TrainerConfigDict
 from ray.util.iter import LocalIterator
 
+from niql.replay_buffers import EpisodeBasedReplayBuffer
 from niql.utils import get_priority_update_func
 
 
@@ -55,9 +56,6 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
         replay_sequence_length=config.get("replay_sequence_length", 1),
         replay_burn_in=config.get("burn_in", 0),
         replay_zero_init_states=config.get("zero_init_states", True),
-        prioritized_replay_alpha=config.get("prioritized_replay_alpha", 0.6),
-        prioritized_replay_beta=config.get("prioritized_replay_beta", 0.4),
-        prioritized_replay_eps=config.get("prioritized_replay_eps", 1e-6),
     )
 
     # Assign to Trainer, so we can store the LocalReplayBuffer's
@@ -82,7 +80,6 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     replay_op = Replay(local_buffer=local_replay_buffer) \
         .for_each(lambda x: post_fn(x, workers, config)) \
         .for_each(train_step_op) \
-        .for_each(get_priority_update_func(local_replay_buffer, config)) \
         .for_each(UpdateTargetNetwork(workers, config.get("target_network_update_freq", 200)))
 
     # Alternate deterministically between (1) and (2). Only return the output

@@ -1,2 +1,2 @@
-from .joint_episode_replay_buffer import JointEpisodeReplayBuffer
+from .episode_based_replay_buffer import EpisodeBasedReplayBuffer
 from .aug_episode_replay_buffer import AugmentedEpisodeReplayBuffer

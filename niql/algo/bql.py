@@ -1,16 +1,17 @@
 import functools
 import logging
+import random
+import string
+from collections import Counter
 from typing import Union, List, Optional, Dict, Tuple
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from gym.spaces import Dict as GymDict
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
-from ray.rllib.agents.qmix.qmix_policy import _unroll_mac, _mac
+from ray.rllib.agents.qmix.qmix_policy import _mac
 from ray.rllib.models import ModelCatalog
-from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.utils import override
@@ -18,34 +19,11 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
-from niql import distance_metrics
-from niql.models import DRQNModel, MultiHeadSelfAttentionEncoder, FCNEncoder, SimpleCommNet
+from niql.models import DRQNModel
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
-    unroll_mac_squeeze_wrapper, to_numpy
+    unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, tb_add_scalar, tb_add_scalars
 
 logger = logging.getLogger(__name__)
-
-
-def get_size(obs_space):
-    return get_preprocessor(obs_space)(obs_space).size
-
-
-def soft_update(target_net, source_net, tau):
-    """
-    Soft update the parameters of the target network with those of the source network.
-
-    Args:
-    - target_net: Target network.
-    - source_net: Source network.
-    - tau: Soft update parameter (0 < tau <= 1).
-
-    Returns:
-    - target_net: Updated target network.
-    """
-    for target_param, source_param in zip(target_net.parameters(), source_net.parameters()):
-        target_param.data.copy_(tau * source_param.data + (1.0 - tau) * target_param.data)
-
-    return target_net
 
 
 class BQLPolicy(Policy):
@@ -58,6 +36,8 @@ class BQLPolicy(Policy):
         config = dict(DEFAULT_CONFIG, **config)
         super().__init__(obs_space, action_space, config)
         self.n_agents = 1
+        # self.agent_id = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
+        self.policy_id = config["policy_id"]
         config["model"]["n_agents"] = self.n_agents
         self.lamda = config["lambda"]
         self.tau = config["tau"]
@@ -220,6 +200,7 @@ class BQLPolicy(Policy):
             other_agent_batches: Optional[Dict[AgentID, Tuple[
                 "Policy", SampleBatch]]] = None,
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
+        sample_batch["agent_ids"] = np.array([self.policy_id] * len(sample_batch))
         return sample_batch
 
     def learn_on_batch(self, samples: SampleBatch) -> Dict[str, TensorType]:
@@ -273,12 +254,14 @@ class BQLPolicy(Policy):
             "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() / mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
+            "qe_loss": self.model.tower_stats["Qe_loss"],
         }
         data = {
             LEARNER_STATS_KEY: stats,
             "model": self.model.metrics(),
             "custom_metrics": learn_stats
         }
+        data.update(self.model.tower_stats)
         return data
 
     @override(Policy)
@@ -386,6 +369,15 @@ class BQLPolicy(Policy):
         qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
         self.model.tower_stats["Qe_loss"] = to_numpy(qe_loss)
         self.model.tower_stats["td_error"] = to_numpy(qe_td_error)
+        tb_add_scalar(self, "qe_loss", qe_loss.item())
+
+        # gather td error for each unique target for analysis (matrix game case - discrete reward)
+        unique_targets = torch.unique(targets.int())
+        mean_td_stats = {
+           t.item(): torch.mean(torch.abs(masked_td_error).view(-1,)[targets.view(-1,).int() == t]).item()
+            for t in unique_targets
+        }
+        tb_add_scalars(self, "td-error_dist", mean_td_stats)
 
         # Qi function objective
         # Qi(s, a)
@@ -397,10 +389,12 @@ class BQLPolicy(Policy):
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
         qi_loss = torch.sum(qi_loss * mask) / mask.sum()
         self.model.tower_stats["Qi_loss"] = to_numpy(qi_loss)
+        tb_add_scalar(self, "qi_loss", qi_loss.item())
 
         # combine losses
         loss = qe_loss + qi_loss
         self.model.tower_stats["loss"] = to_numpy(loss)
+        tb_add_scalar(self, "loss", loss.item())
 
         # save_representations(
         #     obs=obs,

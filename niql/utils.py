@@ -214,6 +214,18 @@ def standardize(r):
     return (r - r.mean()) / (r.std() + 1e-5)
 
 
+def tb_add_scalar(policy, label, value):
+    if hasattr(policy, "summary_writer") and hasattr(policy, "policy_id"):
+        policy.summary_writer.add_scalar(policy.policy_id + "/" + label, value, policy.global_timestep)
+
+
+def tb_add_scalars(policy, label, values_dict):
+    if hasattr(policy, "summary_writer") and hasattr(policy, "policy_id"):
+        policy.summary_writer.add_scalars(
+            policy.policy_id + "/" + label, {str(k): v for k, v in values_dict.items()}, policy.global_timestep
+        )
+
+
 def get_lds_weights(
         samples: SampleBatch,
         kernel="gaussian",

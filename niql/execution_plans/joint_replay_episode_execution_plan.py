@@ -33,8 +33,9 @@ from ray.rllib.execution.rollout_ops import ParallelRollouts
 from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.utils.typing import TrainerConfigDict
 from ray.util.iter import LocalIterator
+from torch.utils.tensorboard import SummaryWriter
 
-from niql.replay_buffers.joint_episode_replay_buffer import JointEpisodeReplayBuffer
+from niql.replay_buffers.episode_based_replay_buffer import EpisodeBasedReplayBuffer
 
 
 def joint_episode_execution_plan(trainer: Trainer, workers: WorkerSet,
@@ -43,14 +44,14 @@ def joint_episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     # Modified to be compatible with joint Q learning.
     # here we use EpisodeBasedReplayBuffer inherited from LocalReplayBuffer instead of SimpleReplayBuffer
 
-    local_replay_buffer = JointEpisodeReplayBuffer(
+    local_replay_buffer = EpisodeBasedReplayBuffer(
         learning_starts=config["learning_starts"],
         capacity=config["buffer_size"],
         replay_batch_size=config["train_batch_size"],
         replay_sequence_length=config.get("replay_sequence_length", 1),
         replay_burn_in=config.get("burn_in", 0),
         replay_zero_init_states=config.get("zero_init_states", True),
-        enable_joint_buffer=config["enable_joint_buffer"],
+        enable_joint_buffer=True,
     )
     # Assign to Trainer, so we can store the LocalReplayBuffer's
     # data when we save checkpoints.
@@ -72,9 +73,11 @@ def joint_episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     train_step_op = TrainOneStep(workers)
     policy_map = workers.local_worker().policy_map
 
+    summary_writer = SummaryWriter()
+
     # add callback after learning on batch
     replay_op = Replay(local_buffer=local_replay_buffer) \
-        .for_each(lambda x: post_fn(x, workers, config, policy_map)) \
+        .for_each(lambda x: post_fn(x, workers, config, policy_map=policy_map, summary_writer=summary_writer)) \
         .for_each(train_step_op) \
         .for_each(UpdateTargetNetwork(workers, config["target_network_update_freq"]))
 
