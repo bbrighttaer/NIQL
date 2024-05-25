@@ -32,7 +32,6 @@ class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
                          prioritized_replay_eps, replay_mode, replay_sequence_length, replay_burn_in,
                          replay_zero_init_states,
                          buffer_size)
-
         if enable_joint_buffer:
             # change experience replay buffer setup to joint for all agents
             # joint_replay_buffer = PrioritizedReplayBuffer(self.capacity, alpha=prioritized_replay_alpha)
@@ -42,6 +41,16 @@ class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
                 return joint_replay_buffer
 
             self.replay_buffers = collections.defaultdict(new_buffer)
+
+    def plot_statistics(self, summary_writer, timestep):
+        for policy_id, replay_buffer in self.replay_buffers.items():
+            samples = SampleBatch.concat_samples(replay_buffer._storage)
+            rewards = samples[SampleBatch.REWARDS]
+            stats = collections.Counter(rewards)
+            if summary_writer is not None:
+                summary_writer.add_scalars(
+                    policy_id + "/exp_buffer_dist", {str(k): v for k, v in stats.items()}, timestep
+                )
 
 
 class SimpleReplayBuffer(ReplayBuffer):

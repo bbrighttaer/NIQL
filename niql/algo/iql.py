@@ -20,7 +20,8 @@ from ray.rllib.utils.torch_ops import huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.config import FINGERPRINT_SIZE
-from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch, to_numpy
+from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch, to_numpy, tb_add_scalar, \
+    tb_add_scalars
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class IQLPolicy(Policy):
         config = dict(DEFAULT_CONFIG, **config)
         super().__init__(obs_space, action_space, config)
         self.n_agents = 1
+        self.policy_id = config["policy_id"]
         config["model"]["n_agents"] = self.n_agents
         self.use_fingerprint = config.get("use_fingerprint", False)
         self.info_sharing = config.get("info_sharing", False)
@@ -208,10 +210,11 @@ class IQLPolicy(Policy):
         )
 
         (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
-         next_obs, obs, rewards, terminated, _, _, seq_lens) = preprocess_trajectory_batch(self, samples)
+         next_obs, obs, rewards, weights, terminated, _, _, seq_lens) = preprocess_trajectory_batch(self, samples)
 
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
             rewards,
+            weights,
             actions,
             terminated,
             mask,
@@ -282,11 +285,6 @@ class IQLPolicy(Policy):
     def update_target(self):
         self.target_model.load_state_dict(self.model.state_dict())
         logger.debug("Updated target networks")
-
-    def on_global_var_update(self, global_vars: Dict[str, TensorType]) -> None:
-        self._global_update_count += 1
-        if self._global_update_count % self.config["timesteps_per_iteration"] == 0:
-            self._training_iteration_num += 1
 
     def convert_batch_to_tensor(self, data_dict):
         obs_batch = SampleBatch(data_dict)
@@ -381,6 +379,7 @@ class IQLPolicy(Policy):
 
     def compute_trajectory_q_loss(self,
                                   rewards,
+                                  weights,
                                   actions,
                                   terminated,
                                   mask,
@@ -396,6 +395,7 @@ class IQLPolicy(Policy):
 
         Args:
             rewards: Tensor of shape [B, T]
+            weights: Tensor of shape [B, T]
             actions: Tensor of shape [B, T]
             terminated: Tensor of shape [B, T]
             mask: Tensor of shape [B, T]
@@ -449,7 +449,7 @@ class IQLPolicy(Policy):
         targets = rewards + self.config["gamma"] * (1 - terminated) * target_max_qvals
 
         # Td-error
-        td_error = chosen_action_qvals - targets.detach()
+        td_error = weights * (chosen_action_qvals - targets.detach())
         self.model.tower_stats["td_error"] = to_numpy(td_error)
 
         mask = mask.expand_as(td_error)
@@ -460,4 +460,14 @@ class IQLPolicy(Policy):
         # Normal L2 loss, take mean over actual data
         loss = huber_loss(masked_td_error).sum() / mask.sum()
         self.model.tower_stats["loss"] = to_numpy(loss)
+        tb_add_scalar(self, "loss", loss.item())
+
+        # gather td error for each unique target for analysis (matrix game case - discrete reward)
+        unique_targets = torch.unique(targets.int())
+        mean_td_stats = {
+            t.item(): torch.mean(torch.abs(masked_td_error).view(-1, )[targets.view(-1, ).int() == t]).item()
+            for t in unique_targets
+        }
+        tb_add_scalars(self, "td-error_dist", mean_td_stats)
+
         return loss, mask, masked_td_error, chosen_action_qvals, targets

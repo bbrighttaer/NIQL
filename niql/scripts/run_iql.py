@@ -1,4 +1,6 @@
 import copy
+from collections import Counter
+from typing import Dict
 
 from gym.spaces import Tuple
 from marllib.envs.base_env import ENV_REGISTRY
@@ -8,7 +10,9 @@ from marllib.marl.algos.utils.log_dir_util import available_local_dir
 from marllib.marl.algos.utils.setup_utils import AlgVar
 from ray import tune
 from ray.rllib.agents.dqn import DEFAULT_CONFIG as IQL_Config
+from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.models import ModelCatalog
+from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from ray.tune import CLIReporter, register_env
 from ray.util.ml_utils.dict import merge_dicts
 
@@ -17,8 +21,21 @@ from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 from niql.trainer_loaders import determine_multiagent_policy_mapping
 
 
-def before_learn_on_batch(batch, *args):
-    # print('before_learn_on_batch')
+def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, *args, **kwargs):
+    if "summary_writer" in kwargs:
+        summary_writer = kwargs["summary_writer"]
+        policy_map = kwargs["policy_map"]
+        timestep = list(policy_map.values())[0].global_timestep
+        state = [0, 0, 0]
+        for policy_id, agent_batch in batch.policy_batches.items():
+            policy = policy_map[policy_id]
+            setattr(policy, "summary_writer", summary_writer)
+            stats = Counter(agent_batch[SampleBatch.REWARDS])
+            summary_writer.add_scalars(policy_id + "/reward_dist", {str(k): v for k, v in stats.items()}, timestep)
+        if "replay_buffer" in kwargs:
+            replay_buffer = kwargs["replay_buffer"]
+            replay_buffer.plot_statistics(summary_writer, timestep)
+        summary_writer.flush()
     return batch
 
 
@@ -81,6 +98,11 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
 
     config.update(run_config)
 
+    # set policy IDs
+    for policy_id, (_, obs_space, act_space, conf) in config["multiagent"]["policies"].items():
+        conf["policy_id"] = policy_id
+        config["multiagent"][policy_id] = (_, obs_space, act_space, conf)
+
     IQL_Config.update(
         {
             "rollout_fragment_length": 1,
@@ -102,7 +124,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
     IQL_Config["optimizer"] = optimizer
     IQL_Config["training_intensity"] = None
-    # JointQ_Config['before_learn_on_batch'] = before_learn_on_batch
+    IQL_Config['before_learn_on_batch'] = before_learn_on_batch
     IQL_Config["info_sharing"] = exp["info_sharing"]
     IQL_Config["use_fingerprint"] = exp["use_fingerprint"]
     space_obs = env["space_obs"]["obs"]

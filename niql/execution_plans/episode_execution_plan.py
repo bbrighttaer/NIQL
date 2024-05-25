@@ -49,7 +49,7 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     Returns:
         LocalIterator[dict]: A local iterator over training metrics.
     """
-
+    summary_writer = SummaryWriter()
     local_replay_buffer = EpisodeBasedReplayBuffer(
         learning_starts=config["learning_starts"],
         capacity=config["buffer_size"],
@@ -79,11 +79,14 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     train_step_op = TrainOneStep(workers)
     policy_map = workers.local_worker().policy_map
 
-    summary_writer = SummaryWriter()
-
     replay_op = Replay(local_buffer=local_replay_buffer) \
-        .for_each(lambda x: post_fn(x, workers, config, policy_map=policy_map, summary_writer=summary_writer)) \
+        .for_each(lambda x: post_fn(x, workers, config,
+                                    policy_map=policy_map,
+                                    summary_writer=summary_writer,
+                                    replay_buffer=local_replay_buffer,
+                                    )) \
         .for_each(train_step_op) \
+        .for_each(get_priority_update_func(local_replay_buffer, config)) \
         .for_each(UpdateTargetNetwork(workers, config.get("target_network_update_freq", 200)))
 
     # Alternate deterministically between (1) and (2). Only return the output

@@ -443,7 +443,7 @@ class WBQLPolicy(Policy):
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
         # Qe_i TD error
-        qe_td_error = qe_qvals - targets.detach()
+        qe_td_error = weights * (qe_qvals - targets.detach())
         mask = mask.expand_as(qe_td_error)
         # 0-out the targets that came from padded data
         masked_td_error = qe_td_error * mask
@@ -453,12 +453,12 @@ class WBQLPolicy(Policy):
         tb_add_scalar(self, "qe_loss", qe_loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
-        # unique_targets = torch.unique(targets.int())
-        # mean_td_stats = {
-        #     t.item(): torch.mean(torch.abs(masked_td_error).view(-1, )[targets.view(-1, ).int() == t]).item()
-        #     for t in unique_targets
-        # }
-        # tb_add_scalars(self, "td-error_dist", mean_td_stats)
+        unique_targets = torch.unique(targets.int())
+        mean_td_stats = {
+            t.item(): torch.mean(torch.abs(masked_td_error).view(-1, )[targets.view(-1, ).int() == t]).item()
+            for t in unique_targets
+        }
+        tb_add_scalars(self, "td-error_dist", mean_td_stats)
 
         # Qi function objective
         # Qi(s, a)
