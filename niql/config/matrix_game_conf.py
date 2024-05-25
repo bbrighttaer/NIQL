@@ -3,10 +3,10 @@ from niql.callbacks import NIQLCallbacks
 MATRIX_GAME = {
     'algo_parameters': {
         'algo_args': {
-            'batch_episode': 752,
+            'batch_episode': 64,
             'lr': 0.0005,
             'rollout_fragment_length': 1,
-            'buffer_size': 10000,
+            'buffer_size': 1000,
             'target_network_update_freq': 10,
             'final_epsilon': 0.01,
             'epsilon_timesteps': 2000,

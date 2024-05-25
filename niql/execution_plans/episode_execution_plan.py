@@ -30,6 +30,7 @@ from ray.rllib.execution.rollout_ops import ParallelRollouts
 from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.utils.typing import TrainerConfigDict
 from ray.util.iter import LocalIterator
+from torch.utils.tensorboard import SummaryWriter
 
 from niql.replay_buffers import EpisodeBasedReplayBuffer
 from niql.utils import get_priority_update_func
@@ -76,9 +77,12 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     post_fn = config.get("before_learn_on_batch") or (lambda b, *a: b)
 
     train_step_op = TrainOneStep(workers)
+    policy_map = workers.local_worker().policy_map
+
+    summary_writer = SummaryWriter()
 
     replay_op = Replay(local_buffer=local_replay_buffer) \
-        .for_each(lambda x: post_fn(x, workers, config)) \
+        .for_each(lambda x: post_fn(x, workers, config, policy_map=policy_map, summary_writer=summary_writer)) \
         .for_each(train_step_op) \
         .for_each(UpdateTargetNetwork(workers, config.get("target_network_update_freq", 200)))
 

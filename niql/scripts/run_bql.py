@@ -28,8 +28,8 @@ def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Di
         for policy_id, agent_batch in batch.policy_batches.items():
             policy = policy_map[policy_id]
             setattr(policy, "summary_writer", summary_writer)
-            stats = Counter(agent_batch[SampleBatch.REWARDS])
-            summary_writer.add_scalars(policy_id + "/reward_dist", {str(k): v for k, v in stats.items()}, timestep)
+            # stats = Counter(agent_batch[SampleBatch.REWARDS])
+            # summary_writer.add_scalars(policy_id + "/reward_dist", {str(k): v for k, v in stats.items()}, timestep)
         summary_writer.flush()
     return batch
 
