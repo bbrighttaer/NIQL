@@ -1,12 +1,18 @@
 import collections
 import random
+from typing import List
 
 import numpy as np
 from marllib.marl.algos.utils.episode_replay_buffer import EpisodeBasedReplayBuffer as EpBasedReplayBuffer
 from ray.rllib import SampleBatch
-from ray.rllib.execution import ReplayBuffer
+from ray.rllib.execution import ReplayBuffer, PrioritizedReplayBuffer
+from ray.rllib.execution.replay_buffer import warn_replay_capacity
 from ray.rllib.utils.deprecation import DEPRECATED_VALUE
 from ray.rllib.utils.typing import SampleBatchType
+import torch
+import torch.nn.functional as F
+
+from niql.utils import to_numpy
 
 
 class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
@@ -41,6 +47,11 @@ class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
                 return joint_replay_buffer
 
             self.replay_buffers = collections.defaultdict(new_buffer)
+        # else:
+        #     def new_buffer():
+        #         return PrioritizedReplayBufferWithStochasticEviction(self.capacity, alpha=prioritized_replay_alpha)
+        #
+        #     self.replay_buffers = collections.defaultdict(new_buffer)
 
     def plot_statistics(self, summary_writer, timestep):
         for policy_id, replay_buffer in self.replay_buffers.items():
@@ -92,3 +103,55 @@ class SimpleReplayBuffer(ReplayBuffer):
             batch["batch_indexes"] = np.array(batch_indexes)
 
         return batch
+
+
+class PrioritizedReplayBufferWithStochasticEviction(PrioritizedReplayBuffer):
+
+    def __init__(self, capacity: int = 10000, alpha: float = 1.0):
+        super().__init__(capacity, alpha)
+
+    def add(self, item: SampleBatchType, weight: float) -> None:
+        idx = self._next_idx
+        self._add(item, weight)
+        if weight is None:
+            weight = self._max_priority
+        self._it_sum[idx] = weight ** self._alpha
+        self._it_min[idx] = weight ** self._alpha
+
+    def _add(self, item: SampleBatchType, weight: float) -> None:
+        assert item.count > 0, item
+        warn_replay_capacity(item=item, num_items=self.capacity / item.count)
+
+        self._num_timesteps_added += item.count
+
+        if self._next_idx < self.capacity and not self._eviction_started:  # buffer is not full
+            self._storage.append(item)
+            self._est_size_bytes += item.size_bytes()
+            self._next_idx += 1
+        elif self._eviction_started:
+            self._storage[self._next_idx] = item
+            self._num_timesteps_added_wrap += 1
+            self._select_next_index()
+
+        # if next_idx is out of range update it via stochastic eviction
+        if self._next_idx >= self.capacity:
+            self._eviction_started = True
+            self._select_next_index()
+
+        if self._eviction_started:
+            self._evicted_hit_stats.push(self._hit_count[self._next_idx])
+            self._hit_count[self._next_idx] = 0
+
+    def _select_next_index(self):
+        # get current priorities
+        priorities = np.array([float(self._it_sum[i]) for i in np.arange(len(self._storage))])
+
+        # normalize
+        priorities /= np.max(priorities)
+        priorities = 1. - priorities
+
+        # calc props
+        probs = to_numpy(F.softmax(torch.from_numpy(priorities), dim=-1))
+
+        # weighted sampling
+        self._next_idx = np.random.choice(np.arange(self.capacity), p=probs)

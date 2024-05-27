@@ -1,3 +1,6 @@
+import warnings
+
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
@@ -14,6 +17,7 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.typing import PolicyID
 from scipy.ndimage import gaussian_filter1d, convolve1d
 from scipy.stats import triang
+from sklearn.cluster import KMeans
 
 
 # -----------------------------------------------------------------------------------------------
@@ -193,23 +197,6 @@ NEIGHBOUR_OBS = "n_obs"
 LDS_WEIGHTS = "lds_weights"
 
 
-def get_lds_kernel_window(kernel, ks, sigma):
-    assert kernel in ['gaussian', 'triang', 'laplace']
-    half_ks = (ks - 1) // 2
-    if kernel == 'gaussian':
-        base_kernel = [0.] * half_ks + [1.] + [0.] * half_ks
-        kernel_window = gaussian_filter1d(base_kernel, sigma=sigma) / max(gaussian_filter1d(base_kernel, sigma=sigma))
-        # kernel = gaussian(ks)
-    elif kernel == 'triang':
-        kernel_window = triang(ks)
-    else:
-        laplace = lambda x: np.exp(-abs(x) / sigma) / (2. * sigma)
-        kernel_window = list(map(laplace, np.arange(-half_ks, half_ks + 1))) / max(
-            map(laplace, np.arange(-half_ks, half_ks + 1)))
-
-    return kernel_window
-
-
 def standardize(r):
     return (r - r.mean()) / (r.std() + 1e-5)
 
@@ -229,34 +216,63 @@ def tb_add_scalars(policy, label, values_dict):
 def get_lds_weights(
         samples: SampleBatch,
         kernel="gaussian",
-        ks=50,
-        sigma=2,
-        num_bins=50,
+        ks=None,
+        sigma=None,
+        num_bins=None,
         **kwargs,
 ) -> np.array:
     # consider all data in buffer
-    rewards = samples[SampleBatch.REWARDS]
+    labels = samples[SampleBatch.REWARDS]
+    labels = standardize(labels)
+
+    # Automatically determine number of bins
+    if num_bins is None:
+        num_bins = int(np.ceil(np.sqrt(len(labels))))
 
     # create bins
-    hist, bins = np.histogram(a=np.array([], dtype=np.float32), bins=num_bins, range=(-1, 1))
-    bin_index_per_label = np.digitize(rewards, bins, right=True)
-    bin_index_per_label = np.array([min(idx, num_bins - 1) for idx in bin_index_per_label])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        kmeans = KMeans(n_clusters=10, random_state=0, n_init="auto").fit(labels.reshape(-1, 1))
+    bin_index_per_label = kmeans.labels_
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
     emp_label_dist = [num_samples_of_bins.get(i, 0) for i in range(Nb)]
 
-    # compute effective label distribution
-    lds_kernel_window = get_lds_kernel_window(kernel, ks, sigma)
-    eff_label_dist = convolve1d(emp_label_dist, weights=lds_kernel_window, mode='constant')
+    # # Automatically determine kernel size (ks) and sigma
+    # if ks is None:
+    #     ks = max(3, int(np.log2(Nb)))
+    # if sigma is None:
+    #     sigma = ks / 3
+    #
+    # # compute effective label distribution
+    # lds_kernel_window = get_lds_kernel_window(kernel, ks, sigma)
+    # eff_label_dist = convolve1d(emp_label_dist, weights=lds_kernel_window, mode='constant')
 
     # Use re-weighting based on effective label distribution, sample-wise weights: [Ns,]
-    eff_num_per_label = [eff_label_dist[bin_idx] for bin_idx in bin_index_per_label]
+    eff_num_per_label = [emp_label_dist[bin_idx] for bin_idx in bin_index_per_label]
     weights = [np.float32(1 / (x + 1e-6)) for x in eff_num_per_label]
     scaling = len(weights) / np.sum(weights)
     weights = [scaling * x for x in weights]
     lds_weights = np.array(weights).reshape(len(samples), -1)
-    lds_weights = standardize(lds_weights)
+    # lds_weights = standardize(lds_weights)
     return lds_weights, bin_index_per_label
+
+
+def get_lds_kernel_window(kernel, ks, sigma):
+    assert kernel in ['gaussian', 'triang', 'laplace']
+    half_ks = (ks - 1) // 2
+    if kernel == 'gaussian':
+        base_kernel = [0.] * half_ks + [1.] + [0.] * half_ks
+        gaussian_kernel = gaussian_filter1d(base_kernel, sigma=sigma)
+        kernel_window = gaussian_kernel / max(gaussian_kernel)
+    elif kernel == 'triang':
+        kernel_window = np.bartlett(ks)  # equivalent to triang in scipy
+    else:
+        laplace = lambda x: np.exp(-abs(x) / sigma) / (2. * sigma)
+        kernel_window = list(map(laplace, np.arange(-half_ks, half_ks + 1))) / max(
+            map(laplace, np.arange(-half_ks, half_ks + 1)))
+
+    return kernel_window
 
 
 def mac(model, obs, h, **kwargs):

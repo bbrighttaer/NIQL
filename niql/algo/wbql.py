@@ -17,7 +17,7 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.models import DRQNModel, SimpleCommNet, HyperEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
-    unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars
+    unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars, get_lds_weights
 
 logger = logging.getLogger(__name__)
 
@@ -442,14 +442,41 @@ class WBQLPolicy(Policy):
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
+        # Output of Qe_bar
+        qe_bar_out, qe_bar_h_out = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model_target, target_whole_obs))
+
+        # Get LDS weights
+        # lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
+        # lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
+        # lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
+        # lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
+        # lds_targets = lds_targets / torch.clamp(torch.max(lds_targets), 1e-6)
+        if self.global_timestep > 2000:
+            lds_weights = convert_to_torch_tensor(torch.ones_like(targets))
+        else:
+            targets_flat = to_numpy(targets).reshape(-1, )
+            lds_weights, bin_index_per_label = get_lds_weights(
+                samples=SampleBatch({
+                    SampleBatch.REWARDS: targets_flat,
+                }),
+                lds_kernel=self.config.get("lds_kernel", "gaussian"),
+                # lds_ks=self.config.get("lds_ks", 5),
+                # lds_sigma=self.config.get("lds_sigma", 4),
+                # num_bins=self.config.get("num_bins", 8),
+                epoch=self.global_timestep,
+            )
+            lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
+            # lds_weights = torch.where(rewards > 7.5, 1.0, 0.1)
+
         # Qe_i TD error
-        qe_td_error = weights * (qe_qvals - targets.detach())
+        td_delta = weights * (qe_qvals - targets.detach())
+        qe_td_error = lds_weights * td_delta
         mask = mask.expand_as(qe_td_error)
         # 0-out the targets that came from padded data
         masked_td_error = qe_td_error * mask
         qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
         self.model.tower_stats["Qe_loss"] = to_numpy(qe_loss)
-        self.model.tower_stats["td_error"] = to_numpy(qe_td_error)
+        self.model.tower_stats["td_error"] = to_numpy(td_delta)
         tb_add_scalar(self, "qe_loss", qe_loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
@@ -464,7 +491,6 @@ class WBQLPolicy(Policy):
         # Qi(s, a)
         qi_out_s_qvals = torch.gather(qi_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         # Qe_bar(s, a)
-        qe_bar_out, qe_bar_h_out = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model_target, target_whole_obs))
         qe_bar_out_qvals = torch.gather(qe_bar_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
         qi_weights = torch.where(qe_bar_out_qvals > qi_out_s_qvals, 1.0, self.lamda)
         qi_loss = qi_weights * huber_loss(qi_out_s_qvals - qe_bar_out_qvals.detach())
