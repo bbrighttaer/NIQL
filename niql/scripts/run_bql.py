@@ -52,6 +52,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     episode_limit = env["episode_limit"]
     train_batch_episode = _param["batch_episode"]
     lr = _param["lr"]
+    lr_schedule = _param.get("lr_schedule")
     buffer_size = _param["buffer_size"]
     target_network_update_frequency = _param["target_network_update_freq"]
     final_epsilon = _param["final_epsilon"]
@@ -91,6 +92,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
             "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps
             "learning_starts": episode_limit * train_batch_episode,
             "lr": lr if restore is None else 1e-10,
+            "lr_schedule": lr_schedule,
             "exploration_config": {
                 "type": "EpsilonGreedy",
                 "initial_epsilon": 1.0,

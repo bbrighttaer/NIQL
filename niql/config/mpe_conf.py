@@ -3,15 +3,20 @@ from niql.callbacks import NIQLCallbacks
 MPE = {
     'algo_parameters': {
         'algo_args': {
-            'batch_episode': 1024,
+            'batch_episode': 64,
             'lr': 0.0005,
+            'lr_schedule': [
+                [0, 0.0005],
+                [250000, 0.00005],
+                [400000, 0.00001],
+            ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
-            'epsilon_timesteps': 20000,
+            'epsilon_timesteps': 50000,
             'optimizer': 'rmsprop',  # "adam"
-            'reward_standardize': False,
+            'reward_standardize': True,
             'gamma': 0.99,
             'lambda': 0.6,
             'tau': 0.5,  # target network soft update
@@ -35,6 +40,6 @@ MPE = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 50000,
+        'timesteps_total': 500000,
     }
 }
