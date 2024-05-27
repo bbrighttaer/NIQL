@@ -1,23 +1,22 @@
 import warnings
 
-import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
 import tree
-from ray.rllib.agents.qmix.qmix_policy import _drop_agent_dim, _mac
+from ray.rllib.agents.qmix.qmix_policy import _drop_agent_dim
 from ray.rllib.evaluation.worker_set import WorkerSet
-from ray.rllib.execution.common import STEPS_TRAINED_COUNTER, STEPS_SAMPLED_COUNTER, _get_shared_metrics, \
-    LAST_TARGET_UPDATE_TS
+from ray.rllib.execution.common import STEPS_TRAINED_COUNTER, _get_shared_metrics
 from ray.rllib.execution.replay_buffer import *
 from ray.rllib.models.modelv2 import _unpack_obs
 from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.typing import PolicyID
-from scipy.ndimage import gaussian_filter1d, convolve1d
-from scipy.stats import triang
+from scipy.ndimage import gaussian_filter1d
 from sklearn.cluster import KMeans
+
+from niql import seed
 
 
 # -----------------------------------------------------------------------------------------------
@@ -213,47 +212,25 @@ def tb_add_scalars(policy, label, values_dict):
         )
 
 
-def get_lds_weights(
-        samples: SampleBatch,
-        kernel="gaussian",
-        ks=None,
-        sigma=None,
-        num_bins=None,
-        **kwargs,
-) -> np.array:
+def get_lds_weights(labels, num_clusters) -> np.array:
     # consider all data in buffer
-    labels = samples[SampleBatch.REWARDS]
     labels = standardize(labels)
 
-    # Automatically determine number of bins
-    if num_bins is None:
-        num_bins = int(np.ceil(np.sqrt(len(labels))))
-
-    # create bins
+    # clustering
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        kmeans = KMeans(n_clusters=10, random_state=0, n_init="auto").fit(labels.reshape(-1, 1))
+        kmeans = KMeans(n_clusters=num_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
     bin_index_per_label = kmeans.labels_
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
     emp_label_dist = [num_samples_of_bins.get(i, 0) for i in range(Nb)]
 
-    # # Automatically determine kernel size (ks) and sigma
-    # if ks is None:
-    #     ks = max(3, int(np.log2(Nb)))
-    # if sigma is None:
-    #     sigma = ks / 3
-    #
-    # # compute effective label distribution
-    # lds_kernel_window = get_lds_kernel_window(kernel, ks, sigma)
-    # eff_label_dist = convolve1d(emp_label_dist, weights=lds_kernel_window, mode='constant')
-
-    # Use re-weighting based on effective label distribution, sample-wise weights: [Ns,]
+    # Use re-weighting based on empirical cluster distribution, sample-wise weights: [Ns,]
     eff_num_per_label = [emp_label_dist[bin_idx] for bin_idx in bin_index_per_label]
     weights = [np.float32(1 / (x + 1e-6)) for x in eff_num_per_label]
     scaling = len(weights) / np.sum(weights)
     weights = [scaling * x for x in weights]
-    lds_weights = np.array(weights).reshape(len(samples), -1)
+    lds_weights = np.array(weights).reshape(len(labels), -1)
     # lds_weights = standardize(lds_weights)
     return lds_weights, bin_index_per_label
 

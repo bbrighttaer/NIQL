@@ -16,6 +16,7 @@ from ray.util.ml_utils.dict import merge_dicts
 
 from niql.algo import BQLTrainer, BQLPolicy
 from niql.callbacks import ObservationCommWrapper
+from niql.envs import DEBUG_ENVS
 from niql.execution_plans import joint_episode_execution_plan
 
 
@@ -24,16 +25,19 @@ def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Di
         summary_writer = kwargs["summary_writer"]
         policy_map = kwargs["policy_map"]
         timestep = list(policy_map.values())[0].global_timestep
-        state = [0, 0, 0]
         for policy_id, agent_batch in batch.policy_batches.items():
             policy = policy_map[policy_id]
             setattr(policy, "summary_writer", summary_writer)
-            stats = Counter(agent_batch[SampleBatch.REWARDS])
-            summary_writer.add_scalars(policy_id + "/reward_dist_in_batch",
-                                       {str(k): v for k, v in stats.items()}, timestep)
-        if "replay_buffer" in kwargs:
+
+            if config.get("env_name") in DEBUG_ENVS:
+                stats = Counter(agent_batch[SampleBatch.REWARDS])
+                summary_writer.add_scalars(policy_id + "/reward_dist_in_batch",
+                                           {str(k): v for k, v in stats.items()}, timestep)
+
+        if config.get("env_name") in DEBUG_ENVS and "replay_buffer" in kwargs:
             replay_buffer = kwargs["replay_buffer"]
             replay_buffer.plot_statistics(summary_writer, timestep)
+
         summary_writer.flush()
     return batch
 
@@ -116,6 +120,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     # BQL_Config["enable_joint_buffer"] = _param["enable_joint_buffer"]
     BQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
     BQL_Config["algorithm"] = algorithm
+    BQL_Config["env_name"] = exp["env"]
 
     # create trainer
     trainer = BQLTrainer.with_updates(

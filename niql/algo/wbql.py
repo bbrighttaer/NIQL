@@ -15,6 +15,7 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
+from niql.envs import DEBUG_ENVS
 from niql.models import DRQNModel, SimpleCommNet, HyperEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
     unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars, get_lds_weights
@@ -446,31 +447,20 @@ class WBQLPolicy(Policy):
         qe_bar_out, qe_bar_h_out = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model_target, target_whole_obs))
 
         # Get LDS weights
-        # lds_qe_bar_out_qvals = qe_bar_out[:, 1:]
-        # lds_qe_bar_out_qvals[ignore_action_tp1] = -np.inf
-        # lds_qe_bar_out_qvals = lds_qe_bar_out_qvals.max(dim=2)[0]
-        # lds_targets = rewards + self.config["gamma"] * (1 - terminated) * lds_qe_bar_out_qvals
-        # lds_targets = lds_targets / torch.clamp(torch.max(lds_targets), 1e-6)
-        if self.global_timestep > 2000:
+        eps_ts = self.config["exploration_config"]["epsilon_timesteps"]
+        if self.global_timestep > self.config.get("lds_timesteps", eps_ts):
             lds_weights = convert_to_torch_tensor(torch.ones_like(targets))
         else:
             targets_flat = to_numpy(targets).reshape(-1, )
             lds_weights, bin_index_per_label = get_lds_weights(
-                samples=SampleBatch({
-                    SampleBatch.REWARDS: targets_flat,
-                }),
-                lds_kernel=self.config.get("lds_kernel", "gaussian"),
-                # lds_ks=self.config.get("lds_ks", 5),
-                # lds_sigma=self.config.get("lds_sigma", 4),
-                # num_bins=self.config.get("num_bins", 8),
-                epoch=self.global_timestep,
+                labels=targets_flat,
+                num_clusters=self.config.get("num_clusters", 10),
             )
             lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
-            # lds_weights = torch.where(rewards > 7.5, 1.0, 0.1)
 
         # Qe_i TD error
-        td_delta = weights * (qe_qvals - targets.detach())
-        qe_td_error = lds_weights * td_delta
+        td_delta = qe_qvals - targets.detach()
+        qe_td_error = lds_weights * weights * td_delta
         mask = mask.expand_as(qe_td_error)
         # 0-out the targets that came from padded data
         masked_td_error = qe_td_error * mask
@@ -480,12 +470,13 @@ class WBQLPolicy(Policy):
         tb_add_scalar(self, "qe_loss", qe_loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
-        unique_targets = torch.unique(targets.int())
-        mean_td_stats = {
-            t.item(): torch.mean(torch.abs(masked_td_error).view(-1, )[targets.view(-1, ).int() == t]).item()
-            for t in unique_targets
-        }
-        tb_add_scalars(self, "td-error_dist", mean_td_stats)
+        if self.config.get("env_name") in DEBUG_ENVS:
+            unique_targets = torch.unique(targets.int())
+            mean_td_stats = {
+                t.item(): torch.mean(torch.abs(masked_td_error).view(-1, )[targets.view(-1, ).int() == t]).item()
+                for t in unique_targets
+            }
+            tb_add_scalars(self, "td-error_dist", mean_td_stats)
 
         # Qi function objective
         # Qi(s, a)

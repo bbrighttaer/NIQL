@@ -10,9 +10,11 @@ from .predator_prey import PredatorPrey
 from .utils import make_local_env
 from ..config import PREDATOR_PREY, SMAC, MPE, MATRIX_GAME
 
+DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
+
 
 def get_active_env(**kwargs):
-    return make_two_step_matrix_game_env(**kwargs)
+    return make_one_step_matrix_game_env(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
