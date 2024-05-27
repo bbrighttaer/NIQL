@@ -17,6 +17,7 @@ from ray.tune import CLIReporter, register_env
 from ray.util.ml_utils.dict import merge_dicts
 
 from niql.algo import IQLTrainer
+from niql.envs import DEBUG_ENVS
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 from niql.trainer_loaders import determine_multiagent_policy_mapping
 
@@ -26,13 +27,16 @@ def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Di
         summary_writer = kwargs["summary_writer"]
         policy_map = kwargs["policy_map"]
         timestep = list(policy_map.values())[0].global_timestep
-        state = [0, 0, 0]
+
         for policy_id, agent_batch in batch.policy_batches.items():
             policy = policy_map[policy_id]
             setattr(policy, "summary_writer", summary_writer)
-            stats = Counter(agent_batch[SampleBatch.REWARDS])
-            summary_writer.add_scalars(policy_id + "/reward_dist", {str(k): v for k, v in stats.items()}, timestep)
-        if "replay_buffer" in kwargs:
+
+            if config.get("env_name") in DEBUG_ENVS:
+                stats = Counter(agent_batch[SampleBatch.REWARDS])
+                summary_writer.add_scalars(policy_id + "/reward_dist", {str(k): v for k, v in stats.items()}, timestep)
+
+        if config.get("env_name") in DEBUG_ENVS and "replay_buffer" in kwargs:
             replay_buffer = kwargs["replay_buffer"]
             replay_buffer.plot_statistics(summary_writer, timestep)
         summary_writer.flush()
@@ -134,6 +138,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     IQL_Config["act_space"] = Tuple([action_space])
     IQL_Config["gamma"] = _param.get("gamma", IQL_Config["gamma"])
     IQL_Config["callbacks"] = _param.get("callbacks", IQL_Config["callbacks"])
+    IQL_Config["env_name"] = exp["env"]
 
     # create trainer
     trainer = IQLTrainer.with_updates(

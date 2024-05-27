@@ -20,6 +20,7 @@ from ray.rllib.utils.torch_ops import huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.config import FINGERPRINT_SIZE
+from niql.envs import DEBUG_ENVS
 from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch, to_numpy, tb_add_scalar, \
     tb_add_scalars
 
@@ -463,11 +464,12 @@ class IQLPolicy(Policy):
         tb_add_scalar(self, "loss", loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
-        unique_targets = torch.unique(targets.int())
-        mean_td_stats = {
-            t.item(): torch.mean(torch.abs(masked_td_error).view(-1, )[targets.view(-1, ).int() == t]).item()
-            for t in unique_targets
-        }
-        tb_add_scalars(self, "td-error_dist", mean_td_stats)
+        if self.config.get("env_name") in DEBUG_ENVS:
+            unique_targets = torch.unique(targets.int())
+            mean_td_stats = {
+                t.item(): torch.mean(torch.abs(masked_td_error).view(-1, )[targets.view(-1, ).int() == t]).item()
+                for t in unique_targets
+            }
+            tb_add_scalars(self, "td-error_dist", mean_td_stats)
 
         return loss, mask, masked_td_error, chosen_action_qvals, targets

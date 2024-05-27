@@ -19,6 +19,7 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_torch_type, huber_loss
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
+from niql.envs import DEBUG_ENVS
 from niql.models import DRQNModel
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
     unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, tb_add_scalar, tb_add_scalars
@@ -372,12 +373,13 @@ class BQLPolicy(Policy):
         tb_add_scalar(self, "qe_loss", qe_loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
-        unique_targets = torch.unique(targets.int())
-        mean_td_stats = {
-           t.item(): torch.mean(torch.abs(masked_td_error).view(-1,)[targets.view(-1,).int() == t]).item()
-            for t in unique_targets
-        }
-        tb_add_scalars(self, "td-error_dist", mean_td_stats)
+        if self.config.get("env_name") in DEBUG_ENVS:
+            unique_targets = torch.unique(targets.int())
+            mean_td_stats = {
+               t.item(): torch.mean(torch.abs(masked_td_error).view(-1,)[targets.view(-1,).int() == t]).item()
+                for t in unique_targets
+            }
+            tb_add_scalars(self, "td-error_dist", mean_td_stats)
 
         # Qi function objective
         # Qi(s, a)
