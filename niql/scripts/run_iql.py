@@ -148,8 +148,13 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
-    param_sharing = 'ns' if exp['model_arch_args']['model'] == 'MatrixGameSplitQMLP' else ''
-    running_name = '_'.join([algorithm, arch, map_name] + ([param_sharing] if param_sharing else []))
+    param_sharing_suffix = []
+    if exp['model_arch_args']['model'] == 'MatrixGameSplitQMLP':
+        param_sharing_suffix = ["ns"]
+    comm_suffix = []
+    if _param.get("comm_dim", 0) > 0:
+        comm_suffix = ["comm"]
+    running_name = '_'.join([algorithm, arch, map_name] + comm_suffix + param_sharing_suffix)
     model_path = restore_model(restore, exp)
 
     results = tune.run(
