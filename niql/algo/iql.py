@@ -13,6 +13,7 @@ from ray.rllib.agents.qmix.qmix_policy import _mac, _unroll_mac
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
+from ray.rllib.policy.torch_policy import LearningRateSchedule
 from ray.rllib.utils import override
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor
@@ -27,12 +28,13 @@ from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch
 logger = logging.getLogger(__name__)
 
 
-class IQLPolicy(Policy):
+class IQLPolicy(LearningRateSchedule, Policy):
 
     def __init__(self, obs_space, action_space, config):
         self.framework = "torch"
         config = dict(DEFAULT_CONFIG, **config)
-        super().__init__(obs_space, action_space, config)
+        Policy.__init__(self, obs_space, action_space, config)
+        LearningRateSchedule.__init__(self, config["lr"], config["lr_schedule"])
         self.n_agents = 1
         self.policy_id = config["policy_id"]
         config["model"]["n_agents"] = self.n_agents

@@ -3,13 +3,15 @@ from marllib.marl.algos.core.VD.iql_vdn_qmix import JointQPolicy as Policy
 from ray.rllib.agents.qmix.qmix_policy import _mac
 from ray.rllib.execution.replay_buffer import *
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
+from ray.rllib.policy.torch_policy import LearningRateSchedule
 from ray.rllib.utils import override
 
 
-class JointQPolicy(Policy):
+class JointQPolicy(LearningRateSchedule, Policy):
 
     def __init__(self, obs_space, action_space, config):
-        super().__init__(obs_space, action_space, config)
+        Policy.__init__(self, obs_space, action_space, config)
+        LearningRateSchedule.__init__(self, config["lr"], config["lr_schedule"])
         self.joint_q_values = []
 
     @override(Policy)

@@ -217,9 +217,8 @@ def get_lds_weights(labels, num_clusters) -> np.array:
     labels = standardize(labels)
 
     # clustering
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        kmeans = KMeans(n_clusters=num_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
+    num_clusters = min(num_clusters, len(np.unique(labels)))
+    kmeans = KMeans(n_clusters=num_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
     bin_index_per_label = kmeans.labels_
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))

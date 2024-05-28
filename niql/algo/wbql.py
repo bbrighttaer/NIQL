@@ -308,7 +308,8 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         data = {
             LEARNER_STATS_KEY: stats,
             "model": self.model.metrics(),
-            "custom_metrics": learn_stats
+            "custom_metrics": learn_stats,
+            "seq_lens": seq_lens,
         }
         data.update(self.model.tower_stats)
         return data

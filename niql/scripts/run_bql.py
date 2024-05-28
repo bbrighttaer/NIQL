@@ -123,6 +123,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     BQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
     BQL_Config["algorithm"] = algorithm
     BQL_Config["env_name"] = exp["env"]
+    BQL_Config["enable_stochastic_eviction"] = _param.get("enable_stochastic_eviction", False)
 
     # create trainer
     trainer = BQLTrainer.with_updates(
@@ -137,6 +138,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
         trainer = trainer.with_updates(
             execution_plan=joint_episode_execution_plan,
         )
+
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]

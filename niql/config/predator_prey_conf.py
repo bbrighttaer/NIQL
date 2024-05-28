@@ -3,15 +3,16 @@ from niql.callbacks import NIQLCallbacks
 PREDATOR_PREY = {
     'algo_parameters': {
         'algo_args': {
-            'batch_episode': 64,
+            'batch_episode': 32,
             'lr': 0.0005,
             'lr_schedule': [
                 [0, 0.0005],
                 [250000, 0.00005],
-                [400000, 0.00001],
+                [500000, 0.00001],
             ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
+            'enable_stochastic_eviction': True,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,

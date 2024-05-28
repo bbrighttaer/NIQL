@@ -31,6 +31,7 @@ class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
             replay_burn_in: int = 0,
             replay_zero_init_states: bool = True,
             enable_joint_buffer=False,
+            enable_stochastic_eviction=False,
             buffer_size=DEPRECATED_VALUE,
     ):
         super().__init__(num_shards, learning_starts, capacity, replay_batch_size,
@@ -47,7 +48,7 @@ class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
                 return joint_replay_buffer
 
             self.replay_buffers = collections.defaultdict(new_buffer)
-        else:
+        elif enable_stochastic_eviction:
             def new_buffer():
                 return PrioritizedReplayBufferWithStochasticEviction(self.capacity, alpha=prioritized_replay_alpha)
 
