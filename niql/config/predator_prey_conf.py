@@ -25,7 +25,7 @@ PREDATOR_PREY = {
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
-            'comm_dim': 10,
+            'comm_dim': 0,
         }
     },
     'model_preference': {
