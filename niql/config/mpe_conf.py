@@ -5,11 +5,11 @@ MPE = {
         'algo_args': {
             'batch_episode': 32,
             'lr': 0.0005,
-            'lr_schedule': [
-                [0, 0.0005],
-                [250000, 0.00005],
-                [400000, 0.00001],
-            ],
+            # 'lr_schedule': [
+            #     [0, 0.0005],
+            #     [250000, 0.00005],
+            #     [400000, 0.00001],
+            # ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': False,
