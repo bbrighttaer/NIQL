@@ -11,7 +11,7 @@ PREDATOR_PREY = {
             #     [500000, 0.00001],
             # ],
             'rollout_fragment_length': 1,
-            'buffer_size': 10000,
+            'buffer_size': 5000,
             'enable_stochastic_eviction': True,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
@@ -19,7 +19,7 @@ PREDATOR_PREY = {
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
-            'lambda': 0.6,
+            'lambda': 0.8,
             'tau': 0.5,  # target network soft update
             'beta': 0,
             'callbacks': NIQLCallbacks,
