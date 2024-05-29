@@ -461,7 +461,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
             targets_flat = to_numpy(targets).reshape(-1,)
             lds_weights, bin_index_per_label = get_lds_weights(
                 labels=targets_flat,
-                num_clusters=self.config.get("num_clusters", 2000),
+                num_clusters=self.config.get("num_clusters", 100),
             )
             lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
 
