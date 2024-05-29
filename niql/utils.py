@@ -14,7 +14,7 @@ from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.typing import PolicyID
 from scipy.ndimage import gaussian_filter1d
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, DBSCAN
 
 from niql import seed
 
@@ -214,12 +214,10 @@ def tb_add_scalars(policy, label, values_dict):
 
 def get_lds_weights(labels, num_clusters) -> np.array:
     # consider all data in buffer
-    labels = standardize(labels)
+    # labels = standardize(labels)
 
     # clustering
-    num_clusters = min(num_clusters, len(np.unique(labels)))
-    kmeans = KMeans(n_clusters=num_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
-    bin_index_per_label = kmeans.labels_
+    bin_index_per_label = cluster_labels(labels, n_clusters=num_clusters)
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
     emp_label_dist = [num_samples_of_bins.get(i, 0) for i in range(Nb)]
@@ -232,6 +230,14 @@ def get_lds_weights(labels, num_clusters) -> np.array:
     lds_weights = np.array(weights).reshape(len(labels), -1)
     # lds_weights = standardize(lds_weights)
     return lds_weights, bin_index_per_label
+
+
+def cluster_labels(labels, *, min_samples_in_cluster=2, eps=0.1, n_clusters=100):
+    # num_clusters = min(num_clusters, len(np.unique(labels)))
+    # clustering = KMeans(n_clusters=num_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
+    clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(labels.reshape(-1, 1))
+    bin_index_per_label = clustering.labels_
+    return bin_index_per_label
 
 
 def get_lds_kernel_window(kernel, ks, sigma):

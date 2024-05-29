@@ -100,7 +100,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
                 "epsilon_timesteps": epsilon_timesteps,
             },
             "similarity_threshold": _param.get("similarity_threshold"),
-            "comm_dim": _param.get("comm_dim", 0)
+            "comm_dim": _param.get("comm_dim", 0),
         })
 
     BQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
