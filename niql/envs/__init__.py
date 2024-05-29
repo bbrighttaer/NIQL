@@ -14,7 +14,7 @@ DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
 
 
 def get_active_env(**kwargs):
-    return make_two_step_matrix_game_env(**kwargs)
+    return make_predator_prey_env(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
