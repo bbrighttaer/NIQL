@@ -213,9 +213,6 @@ def tb_add_scalars(policy, label, values_dict):
 
 
 def get_lds_weights(labels, num_clusters) -> np.array:
-    # consider all data in buffer
-    # labels = standardize(labels)
-
     # clustering
     bin_index_per_label = cluster_labels(labels, n_clusters=num_clusters)
     Nb = max(bin_index_per_label) + 1
@@ -232,7 +229,8 @@ def get_lds_weights(labels, num_clusters) -> np.array:
     return lds_weights, bin_index_per_label
 
 
-def cluster_labels(labels, *, min_samples_in_cluster=2, eps=0.1, n_clusters=100):
+def cluster_labels(labels, *, min_samples_in_cluster=2, eps=1e-5, n_clusters=100):
+    labels = standardize(labels)
     # num_clusters = min(num_clusters, len(np.unique(labels)))
     # clustering = KMeans(n_clusters=num_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
     clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(labels.reshape(-1, 1))
