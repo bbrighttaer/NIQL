@@ -1,5 +1,6 @@
 import warnings
 
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
@@ -212,7 +213,7 @@ def tb_add_scalars(policy, label, values_dict):
         )
 
 
-def get_lds_weights(labels, num_clusters) -> np.array:
+def get_lds_weights(labels, num_clusters, timestep, lds_timesteps) -> np.array:
     # clustering
     bin_index_per_label = cluster_labels(labels, n_clusters=num_clusters)
     Nb = max(bin_index_per_label) + 1
@@ -222,10 +223,10 @@ def get_lds_weights(labels, num_clusters) -> np.array:
     # Use re-weighting based on empirical cluster distribution, sample-wise weights: [Ns,]
     eff_num_per_label = [emp_label_dist[bin_idx] for bin_idx in bin_index_per_label]
     weights = [np.float32(1 / (x + 1e-6)) for x in eff_num_per_label]
-    scaling = len(weights) / np.sum(weights)
-    weights = [scaling * x for x in weights]
+    decay = 1 - (min(timestep, lds_timesteps) / lds_timesteps)
+    weights = [w ** decay for w in weights]
     lds_weights = np.array(weights).reshape(len(labels), -1)
-    # lds_weights = standardize(lds_weights)
+    lds_weights /= np.max(lds_weights + 1e-7)  # scaling
     return lds_weights, bin_index_per_label
 
 

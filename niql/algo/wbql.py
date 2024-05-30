@@ -25,43 +25,6 @@ from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOU
 logger = logging.getLogger(__name__)
 
 
-def cosine_embedding_loss(embeddings, labels, margin=0.5):
-    """
-    Function for the cosine embedding loss.
-
-    Args:
-    - embeddings (Tensor): Embedding tensor of shape (N, embedding_dim)
-    - labels (Tensor): Tensor of shape (N, 1)
-
-    Returns:
-    - loss (Tensor): The computed cosine embedding loss.
-    """
-    B, dim = embeddings.shape
-
-    labels_to_clusters = cluster_labels(to_numpy(labels))
-
-    # construct NxN labels tensor
-    labels = torch.zeros((B, B), device=embeddings.device, dtype=torch.float) - 1.
-    for i, b_idx in enumerate(labels_to_clusters):
-        labels[i, labels_to_clusters == b_idx] = 1.
-
-    # Compute cosine similarities between all pairs
-    similarities = pairwise_cosine_similarity(embeddings)
-
-    # Masks for similar and dissimilar pairs
-    positive_mask = labels == 1.
-    negative_mask = labels == -1.
-
-    # Compute loss components
-    positive_loss = 1 - similarities[positive_mask]
-    negative_loss = torch.clamp(similarities[negative_mask] - margin, min=0.0)
-
-    # Combine loss components
-    loss = torch.mean(torch.cat((positive_loss, negative_loss), dim=0))
-
-    return loss
-
-
 class WBQLPolicy(LearningRateSchedule, Policy):
     """
     Implementation of Weighted Best Possible Q-learning
@@ -492,16 +455,14 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         qe_bar_out, qe_bar_h_out = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model_target, target_whole_obs))
 
         # Get LDS weights
-        eps_ts = self.config["exploration_config"]["epsilon_timesteps"]
-        if self.global_timestep > self.config.get("lds_timesteps", eps_ts):
-            lds_weights = convert_to_torch_tensor(torch.ones_like(targets))
-        else:
-            targets_flat = to_numpy(targets).reshape(-1, )
-            lds_weights, bin_index_per_label = get_lds_weights(
-                labels=targets_flat,
-                num_clusters=self.config.get("num_clusters", 100),
-            )
-            lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
+        targets_flat = to_numpy(targets).reshape(-1, )
+        lds_weights, bin_index_per_label = get_lds_weights(
+            labels=targets_flat,
+            num_clusters=self.config.get("num_clusters", 100),
+            timestep=self.global_timestep,
+            lds_timesteps=self.config.get("lds_timesteps", self.config["exploration_config"]["epsilon_timesteps"])
+        )
+        lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
 
         # Qe_i TD error
         td_delta = qe_qvals - targets.detach()
@@ -534,14 +495,10 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         self.model.tower_stats["Qi_loss"] = to_numpy(qi_loss)
         tb_add_scalar(self, "qi_loss", qi_loss.item())
 
-        # Qi embedding loss
-        qi_emb_loss = 0.9 * cosine_embedding_loss(qi_h_out[:, :-1, :].reshape(B * T, -1), targets.view(-1, 1))
-        tb_add_scalar(self, "qi_emb_loss", qi_emb_loss.item())
-
         # combine losses
-        loss = qe_loss + qi_loss + qi_emb_loss
+        loss = qe_loss + qi_loss  # + qi_emb_loss
         self.model.tower_stats["loss"] = to_numpy(loss)
-        self.model.tower_stats["qi_emb_loss"] = to_numpy(qi_emb_loss)
+        # self.model.tower_stats["qi_emb_loss"] = to_numpy(qi_emb_loss)
         tb_add_scalar(self, "loss", loss.item())
 
         # save_representations(

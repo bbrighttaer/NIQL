@@ -11,10 +11,11 @@ MATRIX_GAME = {
             'target_network_update_freq': 10,
             'final_epsilon': 0.01,
             'epsilon_timesteps': 2000,
+            'lds_timesteps': 3000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
             'gamma': 0.99,
-            'lambda': 0.5,
+            'lambda': 0.8,
             'tau': 0.5,
             'beta': 0,
             'callbacks': NIQLCallbacks,

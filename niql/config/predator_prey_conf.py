@@ -6,9 +6,9 @@ PREDATOR_PREY = {
             'batch_episode': 32,
             'lr': 0.0005,
             # 'lr_schedule': [
-            #     [0, 0.0005],
-            #     [250000, 0.00005],
-            #     [500000, 0.00001],
+            #     [0, 0.005],
+            #     # [250000, 0.00005],
+            #     [500000, 0.0005],
             # ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
@@ -19,7 +19,7 @@ PREDATOR_PREY = {
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
-            'lambda': 0.6,
+            'lambda': 0.8,
             'tau': 0.5,  # target network soft update
             'beta': 0,
             'callbacks': NIQLCallbacks,
@@ -42,6 +42,6 @@ PREDATOR_PREY = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 1000000,
+        'timesteps_total': 2000000,
     }
 }
