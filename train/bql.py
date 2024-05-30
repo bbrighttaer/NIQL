@@ -47,15 +47,15 @@ if __name__ == '__main__':
         help='Execution mode',
     )
 
-    parser.add_argument(
-        '-d', '--disable_joint_buffer',
-        action='store_true',
-        help='If specified, separate experience buffers will be used (when using BQL).',
-    )
+    # parser.add_argument(
+    #     '-d', '--disable_joint_buffer',
+    #     action='store_true',
+    #     help='If specified, separate experience buffers will be used (when using BQL).',
+    # )
 
     parser.add_argument(
         '-a', '--algo',
-        choices=['bql', 'wbql'],
+        choices=['bql', 'wbql', 'ibql'],
         default='bql',
         help='The algorithm to use.',
     )
@@ -77,7 +77,7 @@ if __name__ == '__main__':
     )
 
     # initialize algorithm
-    bql = marl.algos.wbql if args.algo == "wbql" else marl.algos.bql  # (hyperparam_source="mpe")
+    bql = getattr(marl.algos, args.algo)  # (hyperparam_source="mpe")
     bql.algo_parameters = exp_config['algo_parameters']
     bql.algo_parameters["algo_args"]["enable_joint_buffer"] = False
     if args.algo == "bql":

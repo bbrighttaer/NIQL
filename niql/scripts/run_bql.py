@@ -131,7 +131,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
         name=algorithm.upper(),
         default_config=BQL_Config,
     )
-    if algorithm.lower() == 'bql':
+    if algorithm.lower() in ["bql", "ibql"]:
         trainer = trainer.with_updates(
             get_policy_class=lambda c: BQLPolicy,
         )
