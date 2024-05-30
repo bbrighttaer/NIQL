@@ -10,18 +10,18 @@ SMAC = {
             'enable_stochastic_eviction': True,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
-            'epsilon_timesteps': 50000,
+            'epsilon_timesteps': 100000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
             'lambda': 0.8,
-            'tau': 0.5,  # target network soft update
+            'tau': 0.6,  # target network soft update
             'beta': 0,
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
             'comm_dim': 0,
-            'lds_timesteps': 80000
+            'lds_timesteps': 150000
         }
     },
     'model_preference': {

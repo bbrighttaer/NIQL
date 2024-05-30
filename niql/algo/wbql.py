@@ -19,8 +19,7 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 from niql.envs import DEBUG_ENVS
 from niql.models import DRQNModel, SimpleCommNet, HyperEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
-    unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars, get_lds_weights, \
-    cluster_labels, pairwise_cosine_similarity
+    unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars, get_lds_weights
 
 logger = logging.getLogger(__name__)
 
@@ -442,7 +441,8 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
         # Qi(s', a'_i*)
         qi_out, qi_h_out = unroll_mac_squeeze_wrapper(unroll_mac(self.model, whole_obs))
-        qi_out_sp = qi_out[:, 1:]
+        # qi_out is used for Qi(s,a) objective, we clone it here to avoid setting values to -np.inf
+        qi_out_sp = qi_out[:, 1:].clone()
         # Mask out unavailable actions for the t+1 step
         ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
         qi_out_sp[ignore_action_tp1] = -np.inf
@@ -496,9 +496,8 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         tb_add_scalar(self, "qi_loss", qi_loss.item())
 
         # combine losses
-        loss = qe_loss + qi_loss  # + qi_emb_loss
+        loss = qe_loss + qi_loss
         self.model.tower_stats["loss"] = to_numpy(loss)
-        # self.model.tower_stats["qi_emb_loss"] = to_numpy(qi_emb_loss)
         tb_add_scalar(self, "loss", loss.item())
 
         # save_representations(

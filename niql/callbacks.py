@@ -62,119 +62,41 @@ class NIQLCallbacks(DefaultCallbacks):
         env = worker.env
 
         # SMAC metrics (from https://github.com/Replicable-MARL/MARLlib/blob/mq_dev/SMAC/metric/smac_callback.py)
-        if hasattr(env, "death_tracker_ally") and hasattr(env, "death_tracker_enemy"):
-            ally_state = env.death_tracker_ally
-            enemy_state = env.death_tracker_enemy
+        if hasattr(env, "env"):  # Needed because Marllib wraps the SMAC env
+            env = env.env
+            if hasattr(env, "death_tracker_ally") and hasattr(env, "death_tracker_enemy"):
+                ally_state = env.death_tracker_ally
+                enemy_state = env.death_tracker_enemy
 
-            # count battle win rate in recent 100 games
-            if self.battle_win_queue.full():
-                self.battle_win_queue.get()  # pop FIFO
+                # count battle win rate in recent 100 games
+                if self.battle_win_queue.full():
+                    self.battle_win_queue.get()  # pop FIFO
 
-            battle_win_this_episode = int(all(enemy_state == 1))  # all enemy died / win
-            self.battle_win_queue.put(battle_win_this_episode)
+                battle_win_this_episode = int(all(enemy_state == 1))  # all enemy died / win
+                self.battle_win_queue.put(battle_win_this_episode)
 
-            episode.custom_metrics["battle_win_rate"] = sum(self.battle_win_queue.queue) / self.battle_win_queue.qsize()
+                episode.custom_metrics["battle_win_rate"] = sum(
+                    self.battle_win_queue.queue) / self.battle_win_queue.qsize()
 
-            # count ally survive in recent 100 games
-            if self.ally_survive_queue.full():
-                self.ally_survive_queue.get()  # pop FIFO
+                # count ally survive in recent 100 games
+                if self.ally_survive_queue.full():
+                    self.ally_survive_queue.get()  # pop FIFO
 
-            ally_survive_this_episode = sum(ally_state == 0) / ally_state.shape[0]  # all enemy died / win
-            self.ally_survive_queue.put(ally_survive_this_episode)
+                ally_survive_this_episode = sum(ally_state == 0) / ally_state.shape[0]  # all enemy died / win
+                self.ally_survive_queue.put(ally_survive_this_episode)
 
-            episode.custom_metrics["ally_survive_rate"] = sum(
-                self.ally_survive_queue.queue) / self.ally_survive_queue.qsize()
+                episode.custom_metrics["ally_survive_rate"] = sum(
+                    self.ally_survive_queue.queue) / self.ally_survive_queue.qsize()
 
-            # count enemy killing rate in recent 100 games
-            if self.enemy_killing_queue.full():
-                self.enemy_killing_queue.get()  # pop FIFO
+                # count enemy killing rate in recent 100 games
+                if self.enemy_killing_queue.full():
+                    self.enemy_killing_queue.get()  # pop FIFO
 
-            enemy_killing_this_episode = sum(enemy_state == 1) / enemy_state.shape[0]  # all enemy died / win
-            self.enemy_killing_queue.put(enemy_killing_this_episode)
+                enemy_killing_this_episode = sum(enemy_state == 1) / enemy_state.shape[0]  # all enemy died / win
+                self.enemy_killing_queue.put(enemy_killing_this_episode)
 
-            episode.custom_metrics["enemy_kill_rate"] = sum(
-                self.enemy_killing_queue.queue) / self.enemy_killing_queue.qsize()
-
-    # def on_episode_start(self,
-    #                      *,
-    #                      worker: "RolloutWorker",
-    #                      base_env: BaseEnv,
-    #                      policies: Dict[PolicyID, Policy],
-    #                      episode: MultiAgentEpisode,
-    #                      env_index: Optional[int] = None,
-    #                      **kwargs) -> None:
-    #     # comm setup
-    #     for policy_id, policy in policies.items():
-    #         if hasattr(policy, "comm") and policy.comm is None:
-    #             policy.comm = self.agent_comm
-    #             self.agent_comm.register(policy_id, policy)
-    #
-    #         if hasattr(policy, "policy_id") and policy.policy_id is None:
-    #             policy.policy_id = policy_id
-    #
-    #     episode.user_data["q_values"] = {}
-    #     for policy_id in policies:
-    #         if policy_id != DEFAULT_POLICY_ID:
-    #             episode.user_data["q_values"][f"{policy_id}/q_values"] = []
-    #
-    # def on_episode_step(self,
-    #                     *,
-    #                     worker: "RolloutWorker",
-    #                     base_env: BaseEnv,
-    #                     policies: Optional[Dict[PolicyID, Policy]] = None,
-    #                     episode: MultiAgentEpisode,
-    #                     env_index: Optional[int] = None,
-    #                     **kwargs) -> None:
-    #     for i, (policy_id, policy) in enumerate(policies.items()):
-    #         if hasattr(policy, "q_values"):
-    #             episode.user_data["q_values"][f"{policy_id}/q_values"].append(policy.q_values)
-    #
-    #         # single policy case
-    #         elif hasattr(policy, "joint_q_values"):
-    #             for j, q_values in enumerate(policy.joint_q_values):
-    #                 key = f"policy_{j}/q_values"
-    #                 if key not in episode.user_data["q_values"]:
-    #                     episode.user_data["q_values"][key] = []
-    #                 episode.user_data["q_values"][key].append(q_values)
-    #
-    # def on_episode_end(self,
-    #                    *,
-    #                    worker: "RolloutWorker",
-    #                    base_env: BaseEnv,
-    #                    policies: Dict[PolicyID, Policy],
-    #                    episode: MultiAgentEpisode,
-    #                    env_index: Optional[int] = None,
-    #                    **kwargs) -> None:
-    #     for key, value in episode.user_data["q_values"].items():
-    #         episode.hist_data[key] = episode.user_data["q_values"][key]
-
-    # def on_train_result(self, *, trainer, result: dict, **kwargs) -> None:
-    #     super().on_train_result(trainer=trainer, result=result, **kwargs)
-    #     config = trainer.config
-    #
-    #     if config.get("algorithm", "").lower() == "dbql":
-    #         # retrieve replay buffers of all agents/policies
-    #         policy_to_buffer = trainer.local_replay_buffer.replay_buffers
-    #
-    #         # retrieve policies
-    #         policies = trainer.workers.local_worker().policy_map
-    #
-    #         # clear state-value buffers of all agents
-    #         for buffer in policy_to_buffer.values():
-    #             buffer.clear_state_value_buffer()
-    #
-    #         # share data among agents and store in their buffers
-    #         for policy_id, buffer in policy_to_buffer.items():
-    #             # sample local experiences
-    #             batch = buffer.sample_local_experiences(config["sharing_batch_size"])
-    #
-    #             # compose state-value tuples
-    #             batch = policies[policy_id].compute_state_values_from_batch(batch)
-    #
-    #             # send to other agents
-    #             for agent, n_buffer in policy_to_buffer.items():
-    #                 if agent != policy_id:
-    #                     n_buffer.add_shared_state_value_batch(batch.copy())
+                episode.custom_metrics["enemy_kill_rate"] = sum(
+                    self.enemy_killing_queue.queue) / self.enemy_killing_queue.qsize()
 
 
 class ObservationCommWrapper(ObservationFunction):
@@ -201,4 +123,3 @@ class ObservationCommWrapper(ObservationFunction):
                         all_n_obs.append(message)
                 policy.neighbour_messages = all_n_obs
         return agent_obs
-
