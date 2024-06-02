@@ -119,7 +119,9 @@ class ObservationCommWrapper(ObservationFunction):
                 all_n_obs = []
                 for n_id, n_obs in agent_obs.items():
                     if n_id != agent_id:
-                        message = policy.get_message(n_obs["obs"])
+                        n_policy_id = self.policy_mapping_fn(n_id)
+                        n_policy = policies[n_policy_id]
+                        message = n_policy.get_message(n_obs["obs"])
                         all_n_obs.append(message)
                 policy.neighbour_messages = all_n_obs
         return agent_obs

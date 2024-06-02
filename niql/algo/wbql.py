@@ -17,7 +17,7 @@ from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_to
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.envs import DEBUG_ENVS
-from niql.models import DRQNModel, SimpleCommNet, HyperEncoder
+from niql.models import DRQNModel, SimpleCommNet, HyperEncoder, CNNEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
     unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars, get_lds_weights
 
@@ -81,8 +81,8 @@ class WBQLPolicy(LearningRateSchedule, Policy):
             config["model"]["comm_dim"] = com_dim
             self.comm_net = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
             self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
-            self.comm_agg = HyperEncoder(config["model"]).to(self.device)
-            self.comm_agg_target = HyperEncoder(config["model"]).to(self.device)
+            self.comm_agg = CNNEncoder(config["model"]).to(self.device)
+            self.comm_agg_target = CNNEncoder(config["model"]).to(self.device)
 
         self.model = ModelCatalog.get_model_v2(
             agent_obs_space,
@@ -425,8 +425,8 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
                 return ob, next_ob
 
-            obs, next_obs = add_comm_msg(self.comm_net, obs, next_obs)
-            target_obs, target_next_obs = add_comm_msg(self.comm_net_target, target_obs, target_next_obs)
+            obs, next_obs = add_comm_msg(self.comm_net, raw_obs, raw_next_obs)
+            target_obs, target_next_obs = add_comm_msg(self.comm_net_target, raw_obs, raw_next_obs)
 
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)

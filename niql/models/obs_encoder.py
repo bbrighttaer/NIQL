@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -129,7 +130,7 @@ class HyperEncoder(nn.Module):
         :return: tensor of shape [B, comm_dim]
         """
         batch_size = messages.shape[0]
-        agg_msg = torch.sum(messages, dim=1)
+        agg_msg = torch.mean(messages, dim=1)
         enc_msgs = []
         for i in range(messages.shape[1]):
             msg = messages[:, i, :]
@@ -138,8 +139,44 @@ class HyperEncoder(nn.Module):
             b = self.hyper_b(x)
             x = F.elu(x @ W + b)
             enc_msgs.append(x)
-        out = torch.sum(torch.stack(enc_msgs), dim=0)
+        out = torch.mean(torch.stack(enc_msgs), dim=0)
         return out
 
 
+class CNNEncoder(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.comm_dim = config["comm_dim"]
+        self.cnn = nn.Sequential(
+            nn.Conv1d(1, 3, kernel_size=3, stride=1, padding="same"),
+            nn.ReLU(),
+            nn.Conv1d(3, 1, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=3, stride=1)
+        )
+        cnn_dim = self._get_conv_out()
+        self.linear = nn.Linear(cnn_dim, self.comm_dim)
+
+    def _get_conv_out(self):
+        b = c = 1
+        o = torch.zeros((b, c, self.comm_dim))
+        o = self.cnn(o)
+        return int(np.prod(o.size()))
+
+    def forward(self, messages):
+        """
+        Encodes the messages.
+
+        :param messages: tensor of shape [B, num_msgs, comm_dim]
+        :return: tensor of shape [B, comm_dim]
+        """
+        batch_size = messages.shape[0]
+        num_msgs = messages.shape[1]
+        x = messages.view(-1, 1, self.comm_dim)
+        x = self.cnn(x)
+        x = x.view(batch_size, num_msgs, -1)
+        x = torch.max(x, dim=1, keepdim=True)[0]
+        x = F.relu(self.linear(x))
+        return x
 
