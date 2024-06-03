@@ -17,9 +17,10 @@ from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_to
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.envs import DEBUG_ENVS
-from niql.models import DRQNModel, SimpleCommNet, HyperEncoder, CNNEncoder
+from niql.models import DRQNModel, SimpleCommNet, CNNEncoder
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
-    unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars, get_lds_weights
+    unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars, get_lds_weights, \
+    add_comm_msg, batch_message_inter_agent_sharing
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         self.use_comm = self.config.get("comm_dim", 0) > 0
         if self.use_comm:
             com_dim = self.config["comm_dim"]
-            com_hdim = self.config["comm_dim"]
+            com_hdim = self.config.get("comm_hdim", 64)
             config["model"]["comm_dim"] = com_dim
             self.comm_net = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
             self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
@@ -126,7 +127,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         self.params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
         self.comm_params = []
         if self.use_comm:
-            self.comm_params += list(self.comm_net.parameters())
+            self.params += list(self.comm_net.parameters())
             # self.params += list(self.comm_agg.parameters())
 
         if config["optimizer"] == "rmsprop":
@@ -235,21 +236,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
                 "Policy", SampleBatch]]] = None,
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
         # observation sharing
-        if len(other_agent_batches) > 0:
-            sample_batch = sample_batch.copy()
-            n_obs = []
-            n_next_obs = []
-            for n_id, (policy, batch) in other_agent_batches.items():
-                n_obs.append(
-                    policy.get_message(batch[SampleBatch.OBS])
-                )
-                n_next_obs.append(
-                    policy.get_message(batch[SampleBatch.NEXT_OBS])
-                )
-            sample_batch[NEIGHBOUR_OBS] = np.array(n_obs).reshape(
-                len(sample_batch), len(other_agent_batches), -1)
-            sample_batch[NEIGHBOUR_NEXT_OBS] = np.array(n_next_obs).reshape(
-                len(sample_batch), len(other_agent_batches), -1)
+        sample_batch = batch_message_inter_agent_sharing(sample_batch, other_agent_batches)
         return sample_batch
 
     def learn_on_batch(self, samples: SampleBatch) -> Dict[str, TensorType]:
@@ -417,23 +404,12 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         target_next_obs, raw_next_obs = next_obs, next_obs
 
         if self.use_comm:
-            def add_comm_msg(model, ob, next_ob):
-                local_msg = model(ob).unsqueeze(2)
-                msgs = torch.cat([local_msg, neighbour_obs], dim=2)
-                agg_msg = self.aggregate_messages(msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
-                ob = torch.cat([ob, agg_msg], dim=-1)
-
-                next_local_msg = model(next_ob).unsqueeze(2)
-                next_msgs = torch.cat([next_local_msg, neighbour_next_obs], dim=2)
-                agg_next_msg = self.aggregate_messages(
-                    next_msgs.view(B * T, *msgs.shape[2:]), True
-                ).view(B, T, -1)
-                next_ob = torch.cat([next_ob, agg_next_msg], dim=-1)
-
-                return ob, next_ob
-
-            obs, next_obs = add_comm_msg(self.comm_net, raw_obs, raw_next_obs)
-            target_obs, target_next_obs = add_comm_msg(self.comm_net_target, raw_obs, raw_next_obs)
+            obs, next_obs = add_comm_msg(
+                self.comm_net, raw_obs, raw_next_obs, neighbour_obs, neighbour_next_obs, self.aggregate_messages
+            )
+            target_obs, target_next_obs = add_comm_msg(
+                self.comm_net_target, raw_obs, raw_next_obs, neighbour_obs, neighbour_next_obs, self.aggregate_messages
+            )
 
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)

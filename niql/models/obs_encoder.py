@@ -178,5 +178,4 @@ class CNNEncoder(nn.Module):
         x = x.view(batch_size, num_msgs, -1)
         x = torch.max(x, dim=1, keepdim=True)[0]
         x = F.relu(self.linear(x))
-        return x
-
+        return

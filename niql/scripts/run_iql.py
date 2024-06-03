@@ -17,6 +17,7 @@ from ray.tune import CLIReporter, register_env
 from ray.util.ml_utils.dict import merge_dicts
 
 from niql.algo import IQLTrainer
+from niql.callbacks import ObservationCommWrapper
 from niql.envs import DEBUG_ENVS
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 from niql.trainer_loaders import determine_multiagent_policy_mapping
@@ -105,7 +106,10 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     # set policy IDs
     for policy_id, (_, obs_space, act_space, conf) in config["multiagent"]["policies"].items():
         conf["policy_id"] = policy_id
-        config["multiagent"][policy_id] = (_, obs_space, act_space, conf)
+        config["multiagent"][policy_id] = (_, obs_space, act_space, conf)# set policy IDs
+
+    # add observation function
+    config["multiagent"]["observation_fn"] = ObservationCommWrapper(config["multiagent"]["policy_mapping_fn"])
 
     IQL_Config.update(
         {
@@ -123,6 +127,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
                 "epsilon_timesteps": epsilon_timesteps,
             },
             "mixer": None,
+            "comm_dim": _param.get("comm_dim", 0),
         })
 
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on

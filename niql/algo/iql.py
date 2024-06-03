@@ -22,8 +22,9 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.config import FINGERPRINT_SIZE
 from niql.envs import DEBUG_ENVS
+from niql.models import SimpleCommNet
 from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch, to_numpy, tb_add_scalar, \
-    tb_add_scalars
+    tb_add_scalars, add_comm_msg, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, batch_message_inter_agent_sharing
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
         self.device = (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
         self.reward_standardize = config["reward_standardize"]
+        self.neighbour_messages = []
 
         agent_obs_space = obs_space.original_space
         if isinstance(agent_obs_space, GymDict):
@@ -74,6 +76,14 @@ class IQLPolicy(LearningRateSchedule, Policy):
             self.env_global_state_shape = (self.obs_size, self.n_agents)
 
         # models
+        self.use_comm = self.config.get("comm_dim", 0) > 0
+        if self.use_comm:
+            com_dim = self.config["comm_dim"]
+            com_hdim = self.config.get("comm_hdim", 64)
+            config["model"]["comm_dim"] = com_dim * 4
+            self.comm_net = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
+            self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
+
         self.model = ModelCatalog.get_model_v2(
             agent_obs_space,
             action_space,
@@ -103,7 +113,10 @@ class IQLPolicy(LearningRateSchedule, Policy):
         self._global_update_count = 0
 
         # optimizer
-        self.params = self.model.parameters()
+        self.params = list(self.model.parameters())
+        self.comm_params = []
+        if self.use_comm:
+            self.params += list(self.comm_net.parameters())
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
             self.optimiser = RMSprop(
@@ -159,6 +172,18 @@ class IQLPolicy(LearningRateSchedule, Policy):
             # Call the exploration before_compute_actions hook.
             self.exploration.before_compute_actions(explore=explore, timestep=timestep)
 
+            if self.use_comm:
+                msg = self.comm_net(obs_batch)
+                if self.neighbour_messages:
+                    n = len(self.neighbour_messages)
+                    local_msg = msg.reshape(1, 1, -1)
+                    neighbour_msgs = convert_to_torch_tensor(
+                        np.array(self.neighbour_messages).reshape(1, n, -1), self.device)
+                    msg = torch.cat([local_msg, neighbour_msgs], dim=1)
+                    msg = self.aggregate_messages(msg)
+                    self.neighbour_messages.clear()
+                obs_batch = torch.cat([obs_batch, msg], dim=-1)
+
             # predict q-vals
             q_values, hiddens = _mac(self.model, obs_batch, state_batches)
             avail_actions = convert_to_torch_tensor(action_mask, self.device)
@@ -197,6 +222,8 @@ class IQLPolicy(LearningRateSchedule, Policy):
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
         if self.use_fingerprint:
             sample_batch = self._pad_sample_batch(sample_batch)
+        # observation sharing
+        sample_batch = batch_message_inter_agent_sharing(sample_batch, other_agent_batches)
         return sample_batch
 
     def learn_on_batch(self, samples: SampleBatch) -> Dict[str, TensorType]:
@@ -213,7 +240,11 @@ class IQLPolicy(LearningRateSchedule, Policy):
         )
 
         (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
-         next_obs, obs, rewards, weights, terminated, _, _, seq_lens) = preprocess_trajectory_batch(self, samples)
+         next_obs, obs, rewards, weights, terminated, n_obs, n_next_obs, seq_lens) = preprocess_trajectory_batch(
+            policy=self,
+            samples=samples,
+            has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
+        )
 
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
             rewards,
@@ -227,6 +258,8 @@ class IQLPolicy(LearningRateSchedule, Policy):
             next_action_mask,
             env_global_state,
             next_env_global_state,
+            n_obs,
+            n_next_obs,
         )
 
         # Optimise
@@ -391,7 +424,9 @@ class IQLPolicy(LearningRateSchedule, Policy):
                                   action_mask,
                                   next_action_mask,
                                   state=None,
-                                  next_state=None):
+                                  next_state=None,
+                                  neighbour_obs=None,
+                                  neighbour_next_obs=None):
         """
         Computes the Q loss.
         Based on the JointQLoss of Marllib.
@@ -408,10 +443,26 @@ class IQLPolicy(LearningRateSchedule, Policy):
             next_action_mask: Tensor of shape [B, T, n_actions]
             state: Tensor of shape [B, T, state_dim] (optional)
             next_state: Tensor of shape [B, T, state_dim] (optional)
+            neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+            neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
         """
+        B, T = obs.shape[0], obs.shape[1]
+        target_obs, raw_obs = obs, obs
+        target_next_obs, raw_next_obs = next_obs, next_obs
+
+        if self.use_comm:
+            obs, next_obs = add_comm_msg(
+                self.comm_net, raw_obs, raw_next_obs, neighbour_obs, neighbour_next_obs, self.aggregate_messages
+            )
+            target_obs, target_next_obs = add_comm_msg(
+                self.comm_net_target, raw_obs, raw_next_obs, neighbour_obs, neighbour_next_obs, self.aggregate_messages
+            )
+
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
+        target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
+        target_whole_obs = target_whole_obs.unsqueeze(2).detach()
 
         # Calculate estimated Q-Values
         mac_out = _unroll_mac(self.model, whole_obs)
@@ -421,7 +472,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
         chosen_action_qvals = torch.gather(mac_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
 
         # Calculate the Q-Values necessary for the target
-        target_mac_out = _unroll_mac(self.target_model, whole_obs)
+        target_mac_out = _unroll_mac(self.target_model, target_whole_obs)
         target_mac_out = target_mac_out.squeeze(2)  # remove agent dimension
 
         # we only need target_mac_out for raw next_obs part
@@ -475,3 +526,21 @@ class IQLPolicy(LearningRateSchedule, Policy):
             tb_add_scalars(self, "td-error_dist", mean_td_stats)
 
         return loss, mask, masked_td_error, chosen_action_qvals, targets
+
+    def get_message(self, obs):
+        if obs.ndim < 2:
+            obs = np.expand_dims(obs, axis=0)
+        obs, _, _ = unpack_observation(
+            self,
+            obs,
+        )
+        if self.use_comm:
+            obs = convert_to_torch_tensor(obs, self.device).float()
+            obs = to_numpy(self.comm_net(obs))
+        return obs
+
+    def aggregate_messages(self, msg, is_target=False):
+        # agg_msg = torch.mean(msg, dim=1, keepdim=True)
+        # agg_msg = self.comm_agg_target(msg) if is_target else self.comm_agg(msg)
+        agg_msg = msg.view(msg.shape[0], 1, -1)
+        return agg_msg

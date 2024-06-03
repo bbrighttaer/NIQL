@@ -1,10 +1,12 @@
 import warnings
+from typing import Callable
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
 import tree
+from ray.rllib import SampleBatch
 from ray.rllib.agents.qmix.qmix_policy import _drop_agent_dim
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.execution.common import STEPS_TRAINED_COUNTER, _get_shared_metrics
@@ -432,34 +434,40 @@ def pairwise_cosine_similarity(x, batch_size=1000):
     return similarity_matrix
 
 
-class UpdateFDSStatistics:
+def add_comm_msg(model, ob, next_ob, neighbour_obs, neighbour_next_obs, msg_aggregator: Callable):
     """
-    Function for handling FDS statistics update across agents
+    Adds batch neighbour messages to observation batch after passing local observation through comm net.
     """
+    B, T = ob.shape[:2]
+    local_msg = model(ob).unsqueeze(2)
+    msgs = torch.cat([local_msg, neighbour_obs], dim=2)
+    agg_msg = msg_aggregator(msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
+    ob = torch.cat([ob, agg_msg], dim=-1)
 
-    LAST_FDS_STATS_UPDATE_TS = "last_fds_statistics_update_timestep"
-    NUM_FDS_STATS_UPDATE = "num_fds_stats_update"
+    next_local_msg = model(next_ob).unsqueeze(2)
+    next_msgs = torch.cat([next_local_msg, neighbour_next_obs], dim=2)
+    agg_next_msg = msg_aggregator(
+        next_msgs.view(B * T, *msgs.shape[2:]), True
+    ).view(B, T, -1)
+    next_ob = torch.cat([next_ob, agg_next_msg], dim=-1)
 
-    def __init__(self,
-                 workers: WorkerSet,
-                 fds_stats_update_freq: int,
-                 policies: List[PolicyID] = frozenset([])):
-        self.workers = workers
-        self.local_worker = workers.local_worker()
-        self.fds_stats_update_freq = fds_stats_update_freq
-        self.policies = policies
-        self.metric = STEPS_TRAINED_COUNTER
+    return ob, next_ob
 
-    def __call__(self, _: Any) -> None:
-        metrics = _get_shared_metrics()
-        cur_ts = metrics.counters[self.metric]
-        last_update = metrics.counters.get(self.LAST_FDS_STATS_UPDATE_TS, 0)
-        if cur_ts - last_update > self.fds_stats_update_freq:
-            to_update = self.policies or self.local_worker.policies_to_train
-            self.workers.local_worker().foreach_trainable_policy(
-                lambda p, p_id: p_id in to_update
-                                and hasattr(p, "update_fds_running_stats")
-                                and p.update_fds_running_stats()
+
+def batch_message_inter_agent_sharing(sample_batch, other_agent_batches):
+    if len(other_agent_batches) > 0:
+        sample_batch = sample_batch.copy()
+        n_obs = []
+        n_next_obs = []
+        for n_id, (policy, batch) in other_agent_batches.items():
+            n_obs.append(
+                policy.get_message(batch[SampleBatch.OBS])
             )
-            metrics.counters[self.NUM_FDS_STATS_UPDATE] += 1
-            metrics.counters[self.LAST_FDS_STATS_UPDATE_TS] = cur_ts
+            n_next_obs.append(
+                policy.get_message(batch[SampleBatch.NEXT_OBS])
+            )
+        sample_batch[NEIGHBOUR_OBS] = np.array(n_obs).reshape(
+            len(sample_batch), len(other_agent_batches), -1)
+        sample_batch[NEIGHBOUR_NEXT_OBS] = np.array(n_next_obs).reshape(
+            len(sample_batch), len(other_agent_batches), -1)
+    return sample_batch
