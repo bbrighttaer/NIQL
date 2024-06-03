@@ -124,17 +124,20 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
         # optimizer
         self.params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
+        self.comm_params = []
         if self.use_comm:
-            self.params += list(self.comm_net.parameters())
-            self.params += list(self.comm_agg.parameters())
+            self.comm_params += list(self.comm_net.parameters())
+            # self.params += list(self.comm_agg.parameters())
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
             self.optimiser = RMSprop(params=self.params, lr=config["lr"])
+            self.comm_optimiser = RMSprop(params=self.comm_params, lr=config["lr"])
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
             self.optimiser = Adam(params=self.params, lr=config["lr"])
+            self.comm_optimiser = Adam(params=self.comm_params, lr=config["lr"])
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -149,7 +152,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
     @property
     def _optimizers(self):
-        return [self.optimiser]
+        return [self.optimiser, self.comm_params]
 
     @override(Policy)
     def compute_actions(
@@ -297,6 +300,9 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         grad_norm = torch.nn.utils.clip_grad_norm_(self.params, grad_norm_clipping_)
         self.optimiser.step()
 
+        # update comm net
+        # comm_loss = self.comm_net_update(obs, n_obs, actions)
+
         mask_elems = mask.sum().item()
         stats = {
             "loss": loss_out.item(),
@@ -304,6 +310,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
             "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() / mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
+            # "comm_loss": comm_loss,
         }
         data = {
             LEARNER_STATS_KEY: stats,
@@ -430,7 +437,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
-        whole_obs = whole_obs.unsqueeze(2)
+        whole_obs = whole_obs.unsqueeze(2).detach()
         target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
         target_whole_obs = target_whole_obs.unsqueeze(2).detach()
 
@@ -522,7 +529,45 @@ class WBQLPolicy(LearningRateSchedule, Policy):
             obs = to_numpy(self.comm_net(obs))
         return obs
 
+    def comm_net_update(self, obs, neighbour_obs, actions):
+        """
+        Updates the communication model.
+
+        :param obs: Tensor of shape [B, T, obs_size]
+        :param neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+        :param actions: Tensor of shape [B, T]
+        """
+        B, T = obs.shape[0], obs.shape[1]
+        local_msg = self.comm_net(obs).unsqueeze(2)
+        msgs = torch.cat([local_msg, neighbour_obs], dim=2)
+        agg_msg = self.aggregate_messages(msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
+        obs = torch.cat([obs, agg_msg], dim=-1).unsqueeze(2)
+
+        # pass aggregated messages and obs through value function
+        qi_out, _ = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model, obs))
+
+        # select corresponding q-values
+        qi_out_s_qvals = torch.gather(qi_out, dim=2, index=actions.unsqueeze(2)).squeeze(2)
+
+        # loss
+        loss = -qi_out_s_qvals.mean()  # negated for gradient ascent
+
+        # optimisation
+        self.comm_optimiser.zero_grad()
+        loss.backward()
+        grad_norm_clipping_ = self.config["grad_clip"]
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.comm_params, grad_norm_clipping_)
+        self.comm_optimiser.step()
+
+        # stats
+        loss = loss.item()
+        self.model.tower_stats["comm_loss"] = loss
+        tb_add_scalar(self, "comm_loss", loss)
+        tb_add_scalar(self, "comm_grad_norm", grad_norm)
+
+        return loss
+
     def aggregate_messages(self, msg, is_target=False):
-        # agg_msg = torch.sum(msg, dim=1, keepdim=True)
-        agg_msg = self.comm_agg_target(msg) if is_target else self.comm_agg(msg)
+        agg_msg = torch.mean(msg, dim=1, keepdim=True)
+        # agg_msg = self.comm_agg_target(msg) if is_target else self.comm_agg(msg)
         return agg_msg
