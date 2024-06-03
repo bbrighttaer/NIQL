@@ -35,7 +35,9 @@ class DuelingQFCN(BaseTorchModel):
             activation = model_config.get("post_fcnet_activation")
 
         layers = []
-        prev_layer_size = int(np.product(obs_space.shape)) + model_config.get("comm_dim", 0)
+        comm_dim = model_config.get("comm_dim", 0)
+        msg_agg_dim = model_config.get("comm_aggregator_dim", 0)
+        prev_layer_size = int(np.product(obs_space.shape)) + comm_dim + msg_agg_dim
         self._logits = None
 
         # Create layers 0 to second-last.

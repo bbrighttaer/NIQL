@@ -232,10 +232,10 @@ def get_lds_weights(labels, num_clusters, timestep, lds_timesteps) -> np.array:
     return lds_weights, bin_index_per_label
 
 
-def cluster_labels(labels, *, min_samples_in_cluster=2, eps=1e-5, n_clusters=100):
-    labels = standardize(labels)
-    # num_clusters = min(num_clusters, len(np.unique(labels)))
-    # clustering = KMeans(n_clusters=num_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
+def cluster_labels(labels, *, min_samples_in_cluster=2, eps=0.5, n_clusters=100):
+    # labels = standardize(labels)
+    # n_clusters = min(n_clusters, len(np.unique(labels)))
+    # clustering = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
     clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(labels.reshape(-1, 1))
     bin_index_per_label = clustering.labels_
     return bin_index_per_label
@@ -434,24 +434,22 @@ def pairwise_cosine_similarity(x, batch_size=1000):
     return similarity_matrix
 
 
-def add_comm_msg(model, ob, next_ob, neighbour_obs, neighbour_next_obs, msg_aggregator: Callable):
+def add_comm_msg(model, obs, next_obs, neighbour_obs, neighbour_next_obs, msg_aggregator: Callable):
     """
     Adds batch neighbour messages to observation batch after passing local observation through comm net.
     """
-    B, T = ob.shape[:2]
-    local_msg = model(ob).unsqueeze(2)
+    B, T = obs.shape[:2]
+    local_msg = model(obs).unsqueeze(2)
     msgs = torch.cat([local_msg, neighbour_obs], dim=2)
-    agg_msg = msg_aggregator(msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
-    ob = torch.cat([ob, agg_msg], dim=-1)
+    agg_msg = msg_aggregator(obs, msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
+    obs = torch.cat([obs, agg_msg], dim=-1)
 
-    next_local_msg = model(next_ob).unsqueeze(2)
+    next_local_msg = model(next_obs).unsqueeze(2)
     next_msgs = torch.cat([next_local_msg, neighbour_next_obs], dim=2)
-    agg_next_msg = msg_aggregator(
-        next_msgs.view(B * T, *msgs.shape[2:]), True
-    ).view(B, T, -1)
-    next_ob = torch.cat([next_ob, agg_next_msg], dim=-1)
+    agg_next_msg = msg_aggregator(next_obs, next_msgs.view(B * T, *msgs.shape[2:]), is_target=True).view(B, T, -1)
+    next_obs = torch.cat([next_obs, agg_next_msg], dim=-1)
 
-    return ob, next_ob
+    return obs, next_obs
 
 
 def batch_message_inter_agent_sharing(sample_batch, other_agent_batches):

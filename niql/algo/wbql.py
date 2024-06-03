@@ -17,7 +17,7 @@ from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_to
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.envs import DEBUG_ENVS
-from niql.models import DRQNModel, SimpleCommNet, CNNEncoder
+from niql.models import DRQNModel, SimpleCommNet, CNNEncoder, AttentionCommMessagesAggregator
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
     unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars, get_lds_weights, \
     add_comm_msg, batch_message_inter_agent_sharing
@@ -77,13 +77,24 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         # models
         self.use_comm = self.config.get("comm_dim", 0) > 0
         if self.use_comm:
-            com_dim = self.config["comm_dim"]
+            comm_dim = self.config["comm_dim"]
             com_hdim = self.config.get("comm_hdim", 64)
-            config["model"]["comm_dim"] = com_dim
-            self.comm_net = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
-            self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, com_dim).to(self.device)
-            self.comm_agg = CNNEncoder(config["model"]).to(self.device)
-            self.comm_agg_target = CNNEncoder(config["model"]).to(self.device)
+            config["model"]["comm_dim"] = comm_dim
+            config["model"]["comm_aggregator_dim"] = config["comm_aggregator_dim"]
+            self.comm_net = SimpleCommNet(self.obs_size, com_hdim, comm_dim).to(self.device)
+            self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, comm_dim).to(self.device)
+            self.comm_agg = AttentionCommMessagesAggregator(
+                obs_dim=self.obs_size,
+                comm_dim=comm_dim,
+                hidden_dim=com_hdim,
+                output_dim=config["comm_aggregator_dim"],
+            )
+            self.comm_agg_target = AttentionCommMessagesAggregator(
+                obs_dim=self.obs_size,
+                comm_dim=comm_dim,
+                hidden_dim=com_hdim,
+                output_dim=config["comm_aggregator_dim"],
+            )
 
         self.model = ModelCatalog.get_model_v2(
             agent_obs_space,
@@ -125,20 +136,16 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
         # optimizer
         self.params = list(self.model.parameters()) + list(self.auxiliary_model.parameters())
-        self.comm_params = []
         if self.use_comm:
-            self.params += list(self.comm_net.parameters())
-            # self.params += list(self.comm_agg.parameters())
+            self.params += list(self.comm_net.parameters()) + list(self.comm_agg.parameters())
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
             self.optimiser = RMSprop(params=self.params, lr=config["lr"])
-            self.comm_optimiser = RMSprop(params=self.comm_params, lr=config["lr"])
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
             self.optimiser = Adam(params=self.params, lr=config["lr"])
-            self.comm_optimiser = Adam(params=self.comm_params, lr=config["lr"])
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -195,7 +202,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
                     neighbour_msgs = convert_to_torch_tensor(
                         np.array(self.neighbour_messages).reshape(1, n, -1), self.device)
                     msg = torch.cat([local_msg, neighbour_msgs], dim=1)
-                    msg = self.aggregate_messages(msg)
+                    msg = self.aggregate_messages(obs_batch, msg)
                     self.neighbour_messages.clear()
                 obs_batch = torch.cat([obs_batch, msg], dim=-1)
 
@@ -413,7 +420,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
-        whole_obs = whole_obs.unsqueeze(2).detach()
+        whole_obs = whole_obs.unsqueeze(2)
         target_whole_obs = torch.cat((target_obs[:, 0:1], target_next_obs), axis=1)
         target_whole_obs = target_whole_obs.unsqueeze(2).detach()
 
@@ -501,49 +508,34 @@ class WBQLPolicy(LearningRateSchedule, Policy):
             obs,
         )
         if self.use_comm:
+            self.comm_net.eval()
             obs = convert_to_torch_tensor(obs, self.device).float()
             obs = to_numpy(self.comm_net(obs))
         return obs
 
-    def comm_net_update(self, obs, neighbour_obs, actions):
+    def aggregate_messages(self, obs, all_messages, is_target=False):
         """
-        Updates the communication model.
+        Aggregates all messages of the communication module.
 
-        :param obs: Tensor of shape [B, T, obs_size]
-        :param neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
-        :param actions: Tensor of shape [B, T]
+        :param obs: local observation of agent, shape (batch_size, timesteps, obs_dim)
+        :param all_messages: concatenated local and neighbour messages, shape (batch_size * timesteps, num_messages, comm_dim)
+        :param is_target: whether the target model should be used.
+        :return: tensor of shape (batch_size * timesteps, comm_dim + aggregator_output_dim)
         """
-        B, T = obs.shape[0], obs.shape[1]
-        local_msg = self.comm_net(obs).unsqueeze(2)
-        msgs = torch.cat([local_msg, neighbour_obs], dim=2)
-        agg_msg = self.aggregate_messages(msgs.view(B * T, *msgs.shape[2:])).view(B, T, -1)
-        obs = torch.cat([obs, agg_msg], dim=-1).unsqueeze(2)
+        # merge obs batch and timestep dims
+        B, T = obs.shape[:2]
+        obs = obs.view(B * T, -1)
 
-        # pass aggregated messages and obs through value function
-        qi_out, _ = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model, obs))
+        # select aggregator to be used
+        model = self.comm_agg_target if is_target else self.comm_agg
 
-        # select corresponding q-values
-        qi_out_s_qvals = torch.gather(qi_out, dim=2, index=actions.unsqueeze(2)).squeeze(2)
+        # get local message
+        local_msg = all_messages[:, 0, :].unsqueeze(1)
 
-        # loss
-        loss = -qi_out_s_qvals.mean()  # negated for gradient ascent
+        # aggregate messages
+        agg_msg = model(obs, all_messages)
 
-        # optimisation
-        self.comm_optimiser.zero_grad()
-        loss.backward()
-        grad_norm_clipping_ = self.config["grad_clip"]
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.comm_params, grad_norm_clipping_)
-        self.comm_optimiser.step()
+        # construct final output
+        out = torch.cat([local_msg, agg_msg], dim=-1)
 
-        # stats
-        loss = loss.item()
-        self.model.tower_stats["comm_loss"] = loss
-        tb_add_scalar(self, "comm_loss", loss)
-        tb_add_scalar(self, "comm_grad_norm", grad_norm)
-
-        return loss
-
-    def aggregate_messages(self, msg, is_target=False):
-        agg_msg = torch.mean(msg, dim=1, keepdim=True)
-        # agg_msg = self.comm_agg_target(msg) if is_target else self.comm_agg(msg)
-        return agg_msg
+        return out

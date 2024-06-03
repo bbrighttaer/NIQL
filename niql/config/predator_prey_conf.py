@@ -26,6 +26,7 @@ PREDATOR_PREY = {
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
             'comm_dim': 10,
+            'comm_aggregator_dim': 10,
             'lds_timesteps': 50000
         }
     },

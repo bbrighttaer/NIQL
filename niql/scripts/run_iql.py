@@ -128,6 +128,8 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
             },
             "mixer": None,
             "comm_dim": _param.get("comm_dim", 0),
+            "comm_aggregator_dim": _param.get("comm_aggregator_dim", 0),
+            "comm_num_agents": env["num_agents"],
         })
 
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
@@ -144,6 +146,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     IQL_Config["gamma"] = _param.get("gamma", IQL_Config["gamma"])
     IQL_Config["callbacks"] = _param.get("callbacks", IQL_Config["callbacks"])
     IQL_Config["env_name"] = exp["env"]
+    IQL_Config["tau"] = _param["tau"]
 
     # create trainer
     trainer = IQLTrainer.with_updates(

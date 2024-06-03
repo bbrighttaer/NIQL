@@ -6,6 +6,7 @@ from .bql import BQLPolicy
 from .wbql import WBQLPolicy
 from .imix import IMIX
 from .iql import IQLPolicy
+from .iql_attn_comm import IQLPolicyAttnComm
 from ..execution_plans import imix_episode_execution_plan, episode_execution_plan
 
 IQLTrainer = build_trainer(
