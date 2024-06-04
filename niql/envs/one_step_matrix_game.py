@@ -4,6 +4,8 @@ import numpy as np
 from gym import spaces
 from ray.rllib import MultiAgentEnv
 
+from niql import seed
+
 policy_mapping_dict = {
     "all_scenario": {
         "description": "one team cooperate",
@@ -39,7 +41,7 @@ class OneStepMultiAgentCoopMatrixGame(MultiAgentEnv):
             [-12, 0, 0],
             [-12, 0, 0],
         ])
-        self.seed(321)
+        self.seed(seed)
 
     def reset(self):
         self.step_count = 0

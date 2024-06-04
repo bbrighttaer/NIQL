@@ -4,6 +4,8 @@ import numpy as np
 from gym import spaces
 from ray.rllib import MultiAgentEnv
 
+from niql import seed
+
 policy_mapping_dict = {
     "all_scenario": {
         "description": "one team cooperate",
@@ -66,7 +68,7 @@ class TwoStepMultiAgentCoopMatrixGame(MultiAgentEnv):
         # Payoff matrix for game 2
         self.payoff2 = _get_payoff2(monotonic, linear)
         self.current_game = 0  # Current game being played
-        self.seed(321)
+        self.seed(seed)
 
     def reset(self):
         self.step_count = 0

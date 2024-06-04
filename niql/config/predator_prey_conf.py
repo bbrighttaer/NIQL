@@ -13,7 +13,7 @@ PREDATOR_PREY = {
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': False,
-            'target_network_update_freq': 100,
+            'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
             'optimizer': 'rmsprop',  # "adam"
@@ -26,7 +26,7 @@ PREDATOR_PREY = {
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
             'comm_dim': 10,
-            'comm_aggregator_dim': 10,
+            'comm_aggregator_dim': 16,
             'lds_timesteps': 50000
         }
     },
@@ -43,6 +43,6 @@ PREDATOR_PREY = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 2000000,
+        'timesteps_total': 500000,
     }
 }

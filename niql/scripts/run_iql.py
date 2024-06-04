@@ -16,7 +16,7 @@ from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from ray.tune import CLIReporter, register_env
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import IQLTrainer
+from niql.algo import IQLTrainer, IQLPolicyAttnComm
 from niql.callbacks import ObservationCommWrapper
 from niql.envs import DEBUG_ENVS
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
@@ -153,6 +153,11 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
         name=algorithm.upper(),
         default_config=IQL_Config,
     )
+
+    if algorithm == "iqla":
+        trainer = trainer.with_updates(
+            get_policy_class=lambda c: IQLPolicyAttnComm,
+        )
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]

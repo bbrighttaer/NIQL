@@ -83,8 +83,8 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
             com_hdim = self.config.get("comm_hdim", 64)
             config["model"]["comm_dim"] = comm_dim
             config["model"]["comm_aggregator_dim"] = config["comm_aggregator_dim"]
-            self.comm_net = SimpleCommNet(self.obs_size, com_hdim, comm_dim).to(self.device)
-            self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, comm_dim).to(self.device)
+            self.comm_net = SimpleCommNet(self.obs_size, com_hdim, comm_dim, discrete=True).to(self.device)
+            self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, comm_dim, discrete=True).to(self.device)
             self.comm_aggregator = AttentionCommMessagesAggregator(
                 obs_dim=self.obs_size,
                 comm_dim=comm_dim,
@@ -356,11 +356,13 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
         }
 
     def update_target(self):
-        # self.target_model.load_state_dict(self.model.state_dict())
-        self.target_model = soft_update(self.target_model, self.model, self.tau)
-        if self.use_comm:
-            self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
-            self.comm_aggregator_target = soft_update(self.comm_aggregator_target, self.comm_aggregator, self.tau)
+        self.target_model.load_state_dict(self.model.state_dict())
+        self.comm_net_target.load_state_dict(self.comm_net.state_dict())
+        self.comm_aggregator_target.load_state_dict(self.comm_aggregator.state_dict())
+        # self.target_model = soft_update(self.target_model, self.model, self.tau)
+        # if self.use_comm:
+        #     self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
+        #     self.comm_aggregator_target = soft_update(self.comm_aggregator_target, self.comm_aggregator, self.tau)
         logger.debug("Updated target networks")
 
     def convert_batch_to_tensor(self, data_dict):
@@ -601,7 +603,10 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
         local_msg = all_messages[:, 0, :].unsqueeze(1)
 
         # aggregate messages
-        agg_msg = model(obs, all_messages)
+        neighbour_msgs = all_messages[:, 1:, :]
+        if neighbour_msgs.ndim < 3:
+            neighbour_msgs = neighbour_msgs.unsqueeze(1)
+        agg_msg = model(obs, neighbour_msgs)
 
         # construct final output
         out = torch.cat([local_msg, agg_msg], dim=-1)

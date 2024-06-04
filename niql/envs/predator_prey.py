@@ -3,6 +3,8 @@ from gym.spaces import Dict as GymDict, Box
 from ma_gym.envs.predator_prey import PredatorPrey as Env
 from ray.rllib import MultiAgentEnv
 
+from niql import seed
+
 policy_mapping_dict = {
     "all_scenario": {
         "description": "one team cooperate",
@@ -29,7 +31,7 @@ class PredatorPrey(MultiAgentEnv):
         self.agents = [f'agent_{i}' for i in range(self.env.n_agents)]
         self.num_agents = self.env.n_agents
         env_config["map_name"] = map_name
-        self.env.seed(321)
+        self.env.seed(seed)
 
     def reset(self):
         raw_obs = self.env.reset()

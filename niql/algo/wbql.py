@@ -533,7 +533,10 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         local_msg = all_messages[:, 0, :].unsqueeze(1)
 
         # aggregate messages
-        agg_msg = model(obs, all_messages)
+        neighbour_msgs = all_messages[:, 1:, :]
+        if neighbour_msgs.ndim < 3:
+            neighbour_msgs = neighbour_msgs.unsqueeze(1)
+        agg_msg = model(obs, neighbour_msgs)
 
         # construct final output
         out = torch.cat([local_msg, agg_msg], dim=-1)

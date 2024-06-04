@@ -2,19 +2,22 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from niql.models.obs_encoder import StraightThroughEstimator
+
 
 class SimpleCommNet(nn.Module):
 
-    def __init__(self, input_dim, hdim, com_dim):
+    def __init__(self, input_dim, hdim, com_dim, discrete=False):
         super().__init__()
         self.fc1 = nn.Linear(input_dim, hdim)
         self.fc2 = nn.Linear(hdim, hdim)
         self.fc3 = nn.Linear(hdim, com_dim)
+        self.ste = StraightThroughEstimator() if discrete else lambda x: x
 
     def forward(self, obs):
         x = F.relu(self.fc1(obs))
         x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = self.ste(self.fc3(x))
         return x
 
 
