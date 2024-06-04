@@ -14,7 +14,7 @@ DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
 
 
 def get_active_env(**kwargs):
-    return make_predator_prey_env(**kwargs)
+    return make_mpe_simple_speaker_listener(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
@@ -22,6 +22,28 @@ def make_mpe_simple_spread_env(**kwargs):
     env = marl.make_env(
         environment_name="mpe",
         map_name="simple_spread",
+        force_coop=True,
+        max_cycles=25,
+        **kwargs,
+    )
+    return env, MPE
+
+
+def make_mpe_simple_reference(**kwargs):
+    env = marl.make_env(
+        environment_name="mpe",
+        map_name="simple_reference",
+        force_coop=True,
+        max_cycles=25,
+        **kwargs,
+    )
+    return env, MPE
+
+
+def make_mpe_simple_speaker_listener(**kwargs):
+    env = marl.make_env(
+        environment_name="mpe",
+        map_name="simple_speaker_listener",
         force_coop=True,
         max_cycles=25,
         **kwargs,

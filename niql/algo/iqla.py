@@ -9,7 +9,6 @@ from gym.spaces import Dict as GymDict
 from marllib.marl import JointQRNN
 from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
-from ray.rllib.agents.qmix.qmix_policy import _mac, _unroll_mac
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
@@ -24,7 +23,7 @@ from niql.config import FINGERPRINT_SIZE
 from niql.envs import DEBUG_ENVS
 from niql.models import SimpleCommNet, AttentionCommMessagesAggregator
 from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch, to_numpy, tb_add_scalar, \
-    tb_add_scalars, add_comm_msg, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, batch_message_inter_agent_sharing, soft_update
+    tb_add_scalars, add_comm_msg, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, batch_message_inter_agent_sharing, mac, unroll_mac
 
 logger = logging.getLogger(__name__)
 
@@ -83,18 +82,18 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
             com_hdim = self.config.get("comm_hdim", 64)
             config["model"]["comm_dim"] = comm_dim
             config["model"]["comm_aggregator_dim"] = config["comm_aggregator_dim"]
-            self.comm_net = SimpleCommNet(self.obs_size, com_hdim, comm_dim, discrete=True).to(self.device)
-            self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, comm_dim, discrete=True).to(self.device)
+            self.comm_net = SimpleCommNet(self.obs_size, com_hdim, comm_dim, discrete=False).to(self.device)
+            self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, comm_dim, discrete=False).to(self.device)
             self.comm_aggregator = AttentionCommMessagesAggregator(
                 obs_dim=self.obs_size,
                 comm_dim=comm_dim,
-                hidden_dim=com_hdim,
+                hidden_dim=config["comm_aggregator_dim"],
                 output_dim=config["comm_aggregator_dim"],
             )
             self.comm_aggregator_target = AttentionCommMessagesAggregator(
                 obs_dim=self.obs_size,
                 comm_dim=comm_dim,
-                hidden_dim=com_hdim,
+                hidden_dim=config["comm_aggregator_dim"],
                 output_dim=config["comm_aggregator_dim"],
             )
 
@@ -203,7 +202,7 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
                 obs_batch = torch.cat([obs_batch, msg], dim=-1)
 
             # predict q-vals
-            q_values, hiddens = _mac(self.model, obs_batch, state_batches)
+            q_values, hiddens = mac(self.model, obs_batch, state_batches)
             avail_actions = convert_to_torch_tensor(action_mask, self.device)
             masked_q_values = q_values.clone()
             masked_q_values[avail_actions == 0.0] = -float("inf")
@@ -289,6 +288,8 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
         loss_out.backward()
         grad_norm_clipping_ = self.config["grad_clip"]
         grad_norm = torch.nn.utils.clip_grad_norm_(self.params, grad_norm_clipping_)
+        comm_net_grad_norm = torch.nn.utils.clip_grad_norm_(self.comm_net.parameters(), grad_norm_clipping_)
+        comm_agg_grad_norm = torch.nn.utils.clip_grad_norm_(self.comm_aggregator.parameters(), grad_norm_clipping_)
         self.optimiser.step()
 
         mask_elems = mask.sum().item()
@@ -298,6 +299,8 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
             "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() / mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
+            "comm_net_norm": comm_net_grad_norm if isinstance(comm_net_grad_norm, float) else comm_net_grad_norm.item(),
+            "comm_agg_norm": comm_agg_grad_norm if isinstance(comm_agg_grad_norm, float) else comm_agg_grad_norm.item()
         }
         data = {
             LEARNER_STATS_KEY: stats,
@@ -508,14 +511,14 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
         target_whole_obs = target_whole_obs.unsqueeze(2).detach()
 
         # Calculate estimated Q-Values
-        mac_out = _unroll_mac(self.model, whole_obs)
+        mac_out = unroll_mac(self.model, whole_obs)
         mac_out = mac_out.squeeze(2)  # remove agent dimension
 
         # Pick the Q-Values for the actions taken -> [B * n_agents, T]
         chosen_action_qvals = torch.gather(mac_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
 
         # Calculate the Q-Values necessary for the target
-        target_mac_out = _unroll_mac(self.target_model, target_whole_obs)
+        target_mac_out = unroll_mac(self.target_model, target_whole_obs)
         target_mac_out = target_mac_out.squeeze(2)  # remove agent dimension
 
         # we only need target_mac_out for raw next_obs part

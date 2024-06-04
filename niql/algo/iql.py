@@ -335,9 +335,9 @@ class IQLPolicy(LearningRateSchedule, Policy):
 
     def update_target(self):
         self.target_model.load_state_dict(self.model.state_dict())
-        self.comm_net_target.load_state_dict(self.comm_net.state_dict())
         # self.target_model = soft_update(self.target_model, self.model, self.tau)
-        # if self.use_comm:
+        if self.use_comm:
+            self.comm_net_target.load_state_dict(self.comm_net.state_dict())
         #     self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
         logger.debug("Updated target networks")
 

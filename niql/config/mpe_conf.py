@@ -25,7 +25,9 @@ MPE = {
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
-            'comm_dim': 0,
+            'comm_dim': 10,
+            'comm_aggregator_dim': 10,
+            'comm_aggregator_hdim': 64,
         }
     },
     'model_preference': {

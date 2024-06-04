@@ -27,6 +27,7 @@ PREDATOR_PREY = {
             'similarity_threshold': 0.999,
             'comm_dim': 10,
             'comm_aggregator_dim': 16,
+            'comm_aggregator_hdim': 64,
             'lds_timesteps': 50000
         }
     },

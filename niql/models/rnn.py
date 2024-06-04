@@ -89,6 +89,5 @@ class JointQRNN(BaseTorchModel):
         x = self.encoder(inputs)
         h_in = hidden_state[0].reshape(-1, self.hidden_state_size)
         h = self.rnn(x, h_in)
-        h_smoothed = h
-        q = self.q_value(h_smoothed)
+        q = self.q_value(h)
         return q, [h]

@@ -129,6 +129,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
             "mixer": None,
             "comm_dim": _param.get("comm_dim", 0),
             "comm_aggregator_dim": _param.get("comm_aggregator_dim", 0),
+            "comm_aggregator_hdim": _param.get("comm_aggregator_hdim", 0),
             "comm_num_agents": env["num_agents"],
         })
 
