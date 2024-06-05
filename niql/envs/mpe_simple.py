@@ -28,6 +28,8 @@ from pettingzoo.mpe import simple_v2
 from ray.rllib.env import ParallelPettingZooEnv
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
+from niql import seed
+
 # from pettingzoo 1.12.0
 
 policy_mapping_dict = {
@@ -63,7 +65,7 @@ class MPESimple(MultiAgentEnv):
         self.num_agents = len(self.agents)
         env_config["map_name"] = map_name
         self.env_config = env_config
-        self.env.seed(321)
+        self.env.seed(seed=seed)
 
     def reset(self):
         original_obs = self.env.reset()

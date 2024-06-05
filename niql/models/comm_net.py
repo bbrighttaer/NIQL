@@ -59,3 +59,36 @@ class AttentionCommMessagesAggregator(nn.Module):
         out = F.relu(self.fc_out(context))
 
         return out
+
+
+class GNNCommMessagesAggregator(nn.Module):
+    """
+    A GNN-based neighbour messages aggregator.
+    """
+
+    def __init__(self, obs_dim, comm_dim, hidden_dim, output_dim):
+        super().__init__()
+        self.fcn = nn.Sequential(
+            nn.Linear(comm_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def forward(self, obs, messages):
+        """
+        Aggregates neighbour message.
+
+        :param obs: Local agent observation, tensor of shape (bath_size, obs_dim)
+        :param messages: local and shared neighbour messages, tensor of shape (bath_size, num_msgs, comm_dim)
+        :return: aggregated neighbour messages, tensor of shape (batch_size, output_dim)
+        """
+        v_i = messages[:, 0, :]
+        neighbour_msgs = messages[:, 1:, :]
+
+        h_ij = self.fcn(neighbour_msgs)
+        h_ij = torch.sum(h_ij, dim=1)
+        v_i = torch.relu(v_i + h_ij)
+
+        return v_i
