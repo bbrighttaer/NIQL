@@ -1,6 +1,9 @@
+from typing import List
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from ray.rllib.models.torch.misc import SlimFC, normc_initializer
 
 from niql.models.obs_encoder import StraightThroughEstimator
 
@@ -66,15 +69,29 @@ class GNNCommMessagesAggregator(nn.Module):
     A GNN-based neighbour messages aggregator.
     """
 
-    def __init__(self, obs_dim, comm_dim, hidden_dim, output_dim):
+    def __init__(self, obs_dim: int, comm_dim: int, hidden_dims: List[int], output_dim: int):
         super().__init__()
-        self.fcn = nn.Sequential(
-            nn.Linear(comm_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
-        )
+        layers = []
+
+        # hidden layers
+        prev_layer_size = comm_dim
+        for size in hidden_dims:
+            layers.append(SlimFC(
+                in_size=prev_layer_size,
+                out_size=size,
+                initializer=normc_initializer(0.01),
+                activation_fn="relu",
+            ))
+            prev_layer_size = size
+
+        # output layer
+        layers.append(SlimFC(
+            in_size=prev_layer_size,
+            out_size=output_dim,
+            initializer=normc_initializer(0.01),
+            activation_fn=None,
+        ))
+        self.fcn = nn.Sequential(*layers)
 
     def forward(self, obs, messages):
         """
@@ -88,7 +105,8 @@ class GNNCommMessagesAggregator(nn.Module):
         neighbour_msgs = messages[:, 1:, :]
 
         h_ij = self.fcn(neighbour_msgs)
-        h_ij = torch.sum(h_ij, dim=1)
+        h_ij = torch.relu(torch.sum(h_ij, dim=1))
+        v_i = self.fcn(v_i)
         v_i = torch.relu(v_i + h_ij)
 
         return v_i

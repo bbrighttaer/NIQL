@@ -77,26 +77,27 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
             self.env_global_state_shape = (self.obs_size, self.n_agents)
 
         # models
-        self.use_comm = self.config.get("comm_dim", 0) > 0
+        model_arch_args = config["model"]["custom_model_config"]["model_arch_args"]
+        self.use_comm = model_arch_args.get("comm_dim", 0) > 0
         if self.use_comm:
-            comm_dim = self.config["comm_dim"]
-            com_hdim = self.config.get("comm_hdim", 64)
+            comm_dim = model_arch_args["comm_dim"]
+            comm_hdim = model_arch_args["comm_hdim"]
             config["model"]["comm_dim"] = comm_dim
-            config["model"]["comm_aggregator_dim"] = config["comm_aggregator_dim"]
-            self.comm_net = SimpleCommNet(self.obs_size, com_hdim, comm_dim, discrete=False).to(self.device)
-            self.comm_net_target = SimpleCommNet(self.obs_size, com_hdim, comm_dim, discrete=False).to(self.device)
+            config["model"]["comm_aggregator_dim"] = model_arch_args["comm_aggregator_dim"]
+            self.comm_net = SimpleCommNet(self.obs_size, comm_hdim, comm_dim, discrete=False).to(self.device)
+            self.comm_net_target = SimpleCommNet(self.obs_size, comm_hdim, comm_dim, discrete=False).to(self.device)
             self.comm_aggregator = GNNCommMessagesAggregator(
                 obs_dim=self.obs_size,
                 comm_dim=comm_dim,
-                hidden_dim=config["comm_aggregator_dim"],
-                output_dim=config["comm_aggregator_dim"],
-            )
+                hidden_dims=model_arch_args["comm_aggregator_hdims"],
+                output_dim=model_arch_args["comm_aggregator_dim"],
+            ).to(self.device)
             self.comm_aggregator_target = GNNCommMessagesAggregator(
                 obs_dim=self.obs_size,
                 comm_dim=comm_dim,
-                hidden_dim=config["comm_aggregator_dim"],
-                output_dim=config["comm_aggregator_dim"],
-            )
+                hidden_dims=model_arch_args["comm_aggregator_hdims"],
+                output_dim=model_arch_args["comm_aggregator_dim"],
+            ).to(self.device)
 
         self.model = ModelCatalog.get_model_v2(
             agent_obs_space,

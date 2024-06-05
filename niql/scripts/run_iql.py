@@ -127,9 +127,6 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
                 "epsilon_timesteps": epsilon_timesteps,
             },
             "mixer": None,
-            "comm_dim": _param.get("comm_dim", 0),
-            "comm_aggregator_dim": _param.get("comm_aggregator_dim", 0),
-            "comm_aggregator_hdim": _param.get("comm_aggregator_hdim", 0),
             "comm_num_agents": env["num_agents"],
         })
 
@@ -166,7 +163,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     if exp['model_arch_args']['model'] == 'MatrixGameSplitQMLP':
         param_sharing_suffix = ["ns"]
     comm_suffix = []
-    if _param.get("comm_dim", 0) > 0:
+    if exp['model_arch_args'].get("comm_dim", 0) > 0:
         comm_suffix = ["comm"]
     running_name = '_'.join([algorithm, arch, map_name] + comm_suffix + param_sharing_suffix)
     model_path = restore_model(restore, exp)

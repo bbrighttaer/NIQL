@@ -20,8 +20,7 @@ SMAC = {
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
-            'comm_dim': 0,
-            'lds_timesteps': 150000
+            'lds_timesteps': 150000,
         }
     },
     'model_preference': {
@@ -34,6 +33,10 @@ SMAC = {
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'mha_num_heads': 4,
+        'comm_dim': 10,
+        'comm_hdim': 64,
+        'comm_aggregator_dim': 10,
+        'comm_aggregator_hdims': [128, 32],
     },
     'stop_condition': {
         'episode_reward_mean': 2000,

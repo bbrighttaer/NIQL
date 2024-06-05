@@ -101,7 +101,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
             },
             "similarity_threshold": _param.get("similarity_threshold"),
             "comm_dim": _param.get("comm_dim", 0),
-            "comm_aggregator_dim": _param.get("comm_aggregator_dim", 0),
+            "comm_aggregator_dims": _param.get("comm_aggregator_dims"),
             "lds_timesteps": _param.get("lds_timesteps", epsilon_timesteps)
         })
 
