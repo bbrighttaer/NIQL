@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from ray.rllib.models.torch.misc import SlimFC, normc_initializer
+from requests import get
 
 from niql.models.obs_encoder import StraightThroughEstimator
 
@@ -76,20 +77,19 @@ class GNNCommMessagesAggregator(nn.Module):
         # hidden layers
         prev_layer_size = comm_dim
         for size in hidden_dims:
-            layers.append(SlimFC(
-                in_size=prev_layer_size,
-                out_size=size,
-                initializer=normc_initializer(0.01),
-                activation_fn="relu",
-            ))
+            layers.extend([
+                nn.Linear(
+                    in_features=prev_layer_size,
+                    out_features=size,
+                ),
+                nn.ReLU(),
+            ])
             prev_layer_size = size
 
         # output layer
-        layers.append(SlimFC(
-            in_size=prev_layer_size,
-            out_size=output_dim,
-            initializer=normc_initializer(0.01),
-            activation_fn=None,
+        layers.append(nn.Linear(
+            in_features=prev_layer_size,
+            out_features=output_dim,
         ))
         self.fcn = nn.Sequential(*layers)
 
@@ -106,7 +106,7 @@ class GNNCommMessagesAggregator(nn.Module):
 
         h_ij = self.fcn(neighbour_msgs)
         h_ij = torch.relu(torch.sum(h_ij, dim=1))
-        v_i = self.fcn(v_i)
+        # v_i = self.fcn(v_i)
         v_i = torch.relu(v_i + h_ij)
 
         return v_i
