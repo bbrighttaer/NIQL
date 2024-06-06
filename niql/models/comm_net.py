@@ -92,6 +92,7 @@ class GNNCommMessagesAggregator(nn.Module):
             out_features=output_dim,
         ))
         self.fcn = nn.Sequential(*layers)
+        self.linear = nn.Linear(comm_dim, output_dim)
 
     def forward(self, obs, messages):
         """
@@ -106,7 +107,7 @@ class GNNCommMessagesAggregator(nn.Module):
 
         h_ij = self.fcn(neighbour_msgs)
         h_ij = torch.relu(torch.sum(h_ij, dim=1))
-        # v_i = self.fcn(v_i)
+        v_i = torch.relu(self.linear(v_i))
         v_i = torch.relu(v_i + h_ij)
 
         return v_i
