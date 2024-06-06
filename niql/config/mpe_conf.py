@@ -40,7 +40,7 @@ MPE = {
         'comm_dim': 10,
         'comm_hdim': 64,
         'comm_aggregator_dim': 10,
-        'comm_aggregator_hdims': [128],
+        'comm_aggregator_hdims': [32],
     },
     'stop_condition': {
         'episode_reward_mean': 2000,

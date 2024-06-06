@@ -87,12 +87,14 @@ class GNNCommMessagesAggregator(nn.Module):
             prev_layer_size = size
 
         # output layer
-        layers.append(nn.Linear(
-            in_features=prev_layer_size,
-            out_features=output_dim,
-        ))
+        layers.extend([
+            Aggregator(),
+            nn.Linear(
+                in_features=prev_layer_size,
+                out_features=output_dim,
+            )
+        ])
         self.fcn = nn.Sequential(*layers)
-        self.linear = nn.Linear(comm_dim, output_dim)
 
     def forward(self, obs, messages):
         """
@@ -102,12 +104,16 @@ class GNNCommMessagesAggregator(nn.Module):
         :param messages: local and shared neighbour messages, tensor of shape (bath_size, num_msgs, comm_dim)
         :return: aggregated neighbour messages, tensor of shape (batch_size, output_dim)
         """
-        v_i = messages[:, 0, :]
         neighbour_msgs = messages[:, 1:, :]
-
         h_ij = self.fcn(neighbour_msgs)
-        h_ij = torch.relu(torch.sum(h_ij, dim=1))
-        v_i = torch.relu(self.linear(v_i))
-        v_i = torch.relu(v_i + h_ij)
+        return h_ij
 
-        return v_i
+
+class Aggregator(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, msgs):
+        x = torch.relu(torch.sum(msgs, dim=1))
+        return x
