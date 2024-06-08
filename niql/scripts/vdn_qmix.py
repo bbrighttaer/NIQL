@@ -35,6 +35,7 @@ from ray.tune.analysis import ExperimentAnalysis
 from ray.tune.utils import merge_dicts
 
 from niql.algo.vdn_qmix import JointQPolicy
+from niql.utils import add_evaluation_config
 
 
 def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
@@ -129,6 +130,9 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
         algorithm += '_ps'
     running_name = '_'.join([algorithm, arch, map_name] + ([param_sharing] if param_sharing else []))
     model_path = restore_model(restore, exp)
+
+    # Periodic evaluation of trained policy
+    config = add_evaluation_config(config)
 
     results = tune.run(JQTrainer,
                        name=running_name,

@@ -18,6 +18,7 @@ from ray.util.ml_utils.dict import merge_dicts
 from niql.algo import IMIXTrainer
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
 from niql.trainer_loaders import determine_multiagent_policy_mapping
+from niql.utils import add_evaluation_config
 
 
 def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, policy_map: dict):
@@ -132,6 +133,9 @@ def run_imix(model_class, exp, run_config, env, stop, restore):
     param_sharing = 'ns' if exp['model_arch_args']['custom_model'] == 'MatrixGameSplitQMLP' else ''
     running_name = '_'.join([algorithm, arch, map_name] + ([param_sharing] if param_sharing else []))
     model_path = restore_model(restore, exp)
+
+    # Periodic evaluation of trained policy
+    config = add_evaluation_config(config)
 
     results = tune.run(
         trainer,

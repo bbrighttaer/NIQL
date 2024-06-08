@@ -12,7 +12,7 @@ PREDATOR_PREY = {
             # ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
-            'enable_stochastic_eviction': True,
+            'enable_stochastic_eviction': False,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
@@ -30,8 +30,8 @@ PREDATOR_PREY = {
     },
     'model_preference': {
         'core_arch': 'gru',  # mlp | gru
-        "encode_layer": "128",  # for RNN model
-        'hidden_state_size': 128,  # for RNN model
+        "encode_layer": "64",  # for RNN model
+        'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
         'model': 'DRQNModel',
         # 'model': 'DuelingQFCN',

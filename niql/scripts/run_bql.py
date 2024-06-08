@@ -18,6 +18,7 @@ from niql.algo import BQLTrainer, BQLPolicy
 from niql.callbacks import ObservationCommWrapper
 from niql.envs import DEBUG_ENVS
 from niql.execution_plans import joint_episode_execution_plan
+from niql.utils import add_evaluation_config
 
 
 def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, *args, **kwargs):
@@ -151,6 +152,9 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
         comm_suffix = ["comm"]
     running_name = '_'.join([algorithm, arch, map_name] + comm_suffix + param_sharing_suffix)
     model_path = restore_model(restore, exp)
+
+    # Periodic evaluation of trained policy
+    config = add_evaluation_config(config)
 
     results = tune.run(
         trainer,
