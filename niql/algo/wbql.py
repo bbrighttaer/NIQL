@@ -17,10 +17,10 @@ from ray.rllib.utils.torch_ops import convert_to_torch_tensor, convert_to_non_to
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.envs import DEBUG_ENVS
-from niql.models import DRQNModel, SimpleCommNet, CNNEncoder, AttentionCommMessagesAggregator
+from niql.models import DRQNModel, SimpleCommNet, AttentionCommMessagesAggregator
 from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
-    unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars, get_lds_weights, \
-    add_comm_msg, batch_message_inter_agent_sharing
+    unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, mac, tb_add_scalar, tb_add_scalars, add_comm_msg, batch_message_inter_agent_sharing, \
+    target_distribution_weighting
 
 logger = logging.getLogger(__name__)
 
@@ -444,19 +444,12 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         # Output of Qe_bar
         qe_bar_out, qe_bar_h_out = unroll_mac_squeeze_wrapper(unroll_mac(self.auxiliary_model_target, target_whole_obs))
 
-        # Get LDS weights
-        targets_flat = to_numpy(targets).reshape(-1, )
-        lds_weights, bin_index_per_label = get_lds_weights(
-            labels=targets_flat,
-            num_clusters=self.config.get("num_clusters", 100),
-            timestep=self.global_timestep,
-            lds_timesteps=self.config.get("lds_timesteps", self.config["exploration_config"]["epsilon_timesteps"])
-        )
-        lds_weights = convert_to_torch_tensor(lds_weights, self.device).reshape(*targets.shape)
+        # Get target distribution weights
+        tdw_weights = target_distribution_weighting(self, targets)
 
         # Qe_i TD error
         td_delta = qe_qvals - targets.detach()
-        qe_td_error = lds_weights * weights * td_delta
+        qe_td_error = tdw_weights * weights * td_delta
         mask = mask.expand_as(qe_td_error)
         # 0-out the targets that came from padded data
         masked_td_error = qe_td_error * mask

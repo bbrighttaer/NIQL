@@ -20,7 +20,7 @@ SMAC = {
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
-            'lds_timesteps': 150000,
+            'tdw_timesteps': 150000,
         }
     },
     'model_preference': {

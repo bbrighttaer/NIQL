@@ -22,9 +22,10 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.config import FINGERPRINT_SIZE
 from niql.envs import DEBUG_ENVS
-from niql.models import SimpleCommNet, GNNCommMessagesAggregator
+from niql.models import SimpleCommNet, GNNCommMessagesAggregator, AttentionCommMessagesAggregator
 from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch, to_numpy, tb_add_scalar, \
-    tb_add_scalars, add_comm_msg, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, batch_message_inter_agent_sharing, mac
+    tb_add_scalars, add_comm_msg, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, batch_message_inter_agent_sharing, mac, \
+    target_distribution_weighting, soft_update
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +81,18 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
         model_arch_args = config["model"]["custom_model_config"]["model_arch_args"]
         self.use_comm = model_arch_args.get("comm_dim", 0) > 0
         if self.use_comm:
-            comm_dim = model_arch_args["comm_dim"]
+            fp_size = config["comm_num_agents"]
+            comm_dim = model_arch_args["comm_dim"] + fp_size
             comm_hdim = model_arch_args["comm_hdim"]
             config["model"]["comm_dim"] = comm_dim
             config["model"]["comm_aggregator_dim"] = model_arch_args["comm_aggregator_dim"]
-            self.comm_net = SimpleCommNet(self.obs_size, comm_hdim, comm_dim, discrete=False).to(self.device)
-            self.comm_net_target = SimpleCommNet(self.obs_size, comm_hdim, comm_dim, discrete=False).to(self.device)
+            agent_index = int(self.policy_id.split("_")[-1])
+            self.comm_net = SimpleCommNet(
+                self.obs_size, comm_hdim, comm_dim, agent_index, fp_size, discrete=False
+            ).to(self.device)
+            self.comm_net_target = SimpleCommNet(
+                self.obs_size, comm_hdim, comm_dim, agent_index, fp_size, discrete=False
+            ).to(self.device)
             self.comm_aggregator = GNNCommMessagesAggregator(
                 obs_dim=self.obs_size,
                 comm_dim=comm_dim,
@@ -290,8 +297,11 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
         loss_out.backward()
         grad_norm_clipping_ = self.config["grad_clip"]
         grad_norm = torch.nn.utils.clip_grad_norm_(self.params, grad_norm_clipping_)
-        comm_net_grad_norm = torch.nn.utils.clip_grad_norm_(self.comm_net.parameters(), grad_norm_clipping_)
-        comm_agg_grad_norm = torch.nn.utils.clip_grad_norm_(self.comm_aggregator.parameters(), grad_norm_clipping_)
+        if self.use_comm:
+            comm_net_grad_norm = torch.nn.utils.clip_grad_norm_(self.comm_net.parameters(), grad_norm_clipping_)
+            comm_agg_grad_norm = torch.nn.utils.clip_grad_norm_(self.comm_aggregator.parameters(), grad_norm_clipping_)
+        else:
+            comm_net_grad_norm = comm_agg_grad_norm = 0.
         self.optimiser.step()
 
         mask_elems = mask.sum().item()
@@ -361,13 +371,13 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
         }
 
     def update_target(self):
-        self.target_model.load_state_dict(self.model.state_dict())
-        self.comm_net_target.load_state_dict(self.comm_net.state_dict())
-        self.comm_aggregator_target.load_state_dict(self.comm_aggregator.state_dict())
-        # self.target_model = soft_update(self.target_model, self.model, self.tau)
-        # if self.use_comm:
-        #     self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
-        #     self.comm_aggregator_target = soft_update(self.comm_aggregator_target, self.comm_aggregator, self.tau)
+        # self.target_model.load_state_dict(self.model.state_dict())
+        # self.comm_net_target.load_state_dict(self.comm_net.state_dict())
+        # self.comm_aggregator_target.load_state_dict(self.comm_aggregator.state_dict())
+        self.target_model = soft_update(self.target_model, self.model, self.tau)
+        if self.use_comm:
+            self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
+            self.comm_aggregator_target = soft_update(self.comm_aggregator_target, self.comm_aggregator, self.tau)
         logger.debug("Updated target networks")
 
     def convert_batch_to_tensor(self, data_dict):
@@ -550,9 +560,13 @@ class IQLPolicyAttnComm(LearningRateSchedule, Policy):
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.config["gamma"] * (1 - terminated) * target_max_qvals
 
+        # Get target distribution weights
+        tdw_weights = target_distribution_weighting(self, targets)
+
         # Td-error
-        td_error = weights * (chosen_action_qvals - targets.detach())
-        self.model.tower_stats["td_error"] = to_numpy(td_error)
+        td_delta = chosen_action_qvals - targets.detach()
+        td_error = tdw_weights * weights * td_delta
+        self.model.tower_stats["td_error"] = to_numpy(td_delta)
 
         mask = mask.expand_as(td_error)
 

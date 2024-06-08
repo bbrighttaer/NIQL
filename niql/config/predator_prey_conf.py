@@ -12,7 +12,7 @@ PREDATOR_PREY = {
             # ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
-            'enable_stochastic_eviction': False,
+            'enable_stochastic_eviction': True,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
@@ -25,7 +25,7 @@ PREDATOR_PREY = {
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
-            'lds_timesteps': 50000
+            'tdw_timesteps': 400000
         }
     },
     'model_preference': {
@@ -38,13 +38,13 @@ PREDATOR_PREY = {
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'mha_num_heads': 4,
-        'comm_dim': 10,
+        'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator_dim': 10,
-        'comm_aggregator_hdims': [128, 32],
+        'comm_aggregator_hdims': [128],
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 500000,
+        'timesteps_total': 1000000,
     }
 }

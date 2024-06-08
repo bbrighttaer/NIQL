@@ -1,25 +1,17 @@
-import warnings
 from typing import Callable
 
-import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
 import tree
-from ray.rllib import SampleBatch
 from ray.rllib.agents.qmix.qmix_policy import _drop_agent_dim
-from ray.rllib.evaluation.worker_set import WorkerSet
-from ray.rllib.execution.common import STEPS_TRAINED_COUNTER, _get_shared_metrics
 from ray.rllib.execution.replay_buffer import *
 from ray.rllib.models.modelv2 import _unpack_obs
 from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
-from ray.rllib.utils.typing import PolicyID
-from scipy.ndimage import gaussian_filter1d
-from sklearn.cluster import KMeans, DBSCAN
-
-from niql import seed
+from ray.rllib.utils.torch_ops import convert_to_torch_tensor
+from sklearn.cluster import DBSCAN
 
 
 # -----------------------------------------------------------------------------------------------
@@ -215,7 +207,23 @@ def tb_add_scalars(policy, label, values_dict):
         )
 
 
-def get_lds_weights(labels, num_clusters, timestep, lds_timesteps) -> np.array:
+def target_distribution_weighting(policy, targets):
+    targets_flat = to_numpy(targets).reshape(-1, )
+    lds_weights = get_target_dist_weights(
+        labels=targets_flat,
+        num_clusters=policy.config.get("num_clusters", 100),
+        timestep=policy.global_timestep,
+        tdw_timesteps=policy.config.get("tdw_timesteps", policy.config["exploration_config"]["epsilon_timesteps"])
+    )
+    lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
+    return lds_weights
+
+
+def get_target_dist_weights(labels, num_clusters, timestep, tdw_timesteps) -> np.array:
+    decay = 1 - (min(timestep, tdw_timesteps) / tdw_timesteps)
+    if decay == 0:
+        return np.ones_like(labels).reshape(len(labels), -1)
+
     # clustering
     bin_index_per_label = cluster_labels(labels, n_clusters=num_clusters)
     Nb = max(bin_index_per_label) + 1
@@ -225,14 +233,13 @@ def get_lds_weights(labels, num_clusters, timestep, lds_timesteps) -> np.array:
     # Use re-weighting based on empirical cluster distribution, sample-wise weights: [Ns,]
     eff_num_per_label = [emp_label_dist[bin_idx] for bin_idx in bin_index_per_label]
     weights = [np.float32(1 / (x + 1e-6)) for x in eff_num_per_label]
-    decay = 1 - (min(timestep, lds_timesteps) / lds_timesteps)
     weights = [w ** decay for w in weights]
-    lds_weights = np.array(weights).reshape(len(labels), -1)
-    lds_weights /= np.max(lds_weights + 1e-7)  # scaling
-    return lds_weights, bin_index_per_label
+    tdw_weights = np.array(weights).reshape(len(labels), -1)
+    tdw_weights /= np.max(tdw_weights + 1e-7)  # scaling
+    return tdw_weights
 
 
-def cluster_labels(labels, *, min_samples_in_cluster=2, eps=0.5, n_clusters=100):
+def cluster_labels(labels, *, min_samples_in_cluster=2, eps=0.1, n_clusters=100):
     # labels = standardize(labels)
     # n_clusters = min(n_clusters, len(np.unique(labels)))
     # clustering = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
@@ -241,21 +248,21 @@ def cluster_labels(labels, *, min_samples_in_cluster=2, eps=0.5, n_clusters=100)
     return bin_index_per_label
 
 
-def get_lds_kernel_window(kernel, ks, sigma):
-    assert kernel in ['gaussian', 'triang', 'laplace']
-    half_ks = (ks - 1) // 2
-    if kernel == 'gaussian':
-        base_kernel = [0.] * half_ks + [1.] + [0.] * half_ks
-        gaussian_kernel = gaussian_filter1d(base_kernel, sigma=sigma)
-        kernel_window = gaussian_kernel / max(gaussian_kernel)
-    elif kernel == 'triang':
-        kernel_window = np.bartlett(ks)  # equivalent to triang in scipy
-    else:
-        laplace = lambda x: np.exp(-abs(x) / sigma) / (2. * sigma)
-        kernel_window = list(map(laplace, np.arange(-half_ks, half_ks + 1))) / max(
-            map(laplace, np.arange(-half_ks, half_ks + 1)))
-
-    return kernel_window
+# def get_lds_kernel_window(kernel, ks, sigma):
+#     assert kernel in ['gaussian', 'triang', 'laplace']
+#     half_ks = (ks - 1) // 2
+#     if kernel == 'gaussian':
+#         base_kernel = [0.] * half_ks + [1.] + [0.] * half_ks
+#         gaussian_kernel = gaussian_filter1d(base_kernel, sigma=sigma)
+#         kernel_window = gaussian_kernel / max(gaussian_kernel)
+#     elif kernel == 'triang':
+#         kernel_window = np.bartlett(ks)  # equivalent to triang in scipy
+#     else:
+#         laplace = lambda x: np.exp(-abs(x) / sigma) / (2. * sigma)
+#         kernel_window = list(map(laplace, np.arange(-half_ks, half_ks + 1))) / max(
+#             map(laplace, np.arange(-half_ks, half_ks + 1)))
+#
+#     return kernel_window
 
 
 def mac(model, obs, h, **kwargs):

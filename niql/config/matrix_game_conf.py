@@ -11,7 +11,7 @@ MATRIX_GAME = {
             'target_network_update_freq': 10,
             'final_epsilon': 0.01,
             'epsilon_timesteps': 2000,
-            'lds_timesteps': 3000,
+            'tdw_timesteps': 3000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
             'gamma': 0.99,
