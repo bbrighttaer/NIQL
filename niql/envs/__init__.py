@@ -30,7 +30,11 @@ def make_mpe_simple_spread_env(**kwargs):
 
 
 def make_mpe_simple_reference(**kwargs):
-    env = marl.make_env(
+    # register new env
+    ENV_REGISTRY["mpe"] = MPESimple
+    COOP_ENV_REGISTRY["mpe"] = MPESimple
+
+    env = make_local_env(
         environment_name="mpe",
         map_name="simple_reference",
         force_coop=True,

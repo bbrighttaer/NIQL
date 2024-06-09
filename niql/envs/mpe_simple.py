@@ -27,7 +27,7 @@ from gym.spaces import Dict as GymDict, Box
 from pettingzoo.mpe import simple_v2
 from ray.rllib.env import ParallelPettingZooEnv
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
-
+from niql.envs import mpe_simple_reference
 from niql import seed
 
 # from pettingzoo 1.12.0
@@ -41,13 +41,19 @@ policy_mapping_dict = {
     },
 }
 
+REGISTRY = {
+    "simple": simple_v2.parallel_env,
+    "simple_reference": mpe_simple_reference.parallel_env,
+}
+
 
 class MPESimple(MultiAgentEnv):
 
     def __init__(self, env_config):
         map_name = env_config["map_name"]
         env_config.pop("map_name", None)
-        env = simple_v2.parallel_env(**env_config)
+        env = REGISTRY[map_name](**env_config)
+        self.max_cycles = env_config["max_cycles"]
 
         # keep obs and action dim same across agents
         # pad_action_space_v0 will auto mask the padding actions
@@ -99,7 +105,7 @@ class MPESimple(MultiAgentEnv):
             "space_obs": self.observation_space,
             "space_act": self.action_space,
             "num_agents": self.num_agents,
-            "episode_limit": 25,
+            "episode_limit": self.max_cycles,
             "policy_mapping_info": policy_mapping_dict
         }
         return env_info

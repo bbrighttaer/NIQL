@@ -1,0 +1,1 @@
+from .mpe_simple_reference_v3 import parallel_env  # noqa
