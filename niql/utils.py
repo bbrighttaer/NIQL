@@ -287,7 +287,7 @@ def mac(model, obs, h, **kwargs):
         [B, n_agents, -1]), [s.reshape([B, n_agents, -1]) for s in h_flat]
 
 
-def unroll_mac(model, obs_tensor, **kwargs):
+def unroll_mac(model, obs_tensor, comm_net=None, shared_messages=None, aggregation_func=None, **kwargs):
     """Computes the estimated Q values for an entire trajectory batch"""
     B = obs_tensor.size(0)
     T = obs_tensor.size(1)
@@ -296,8 +296,31 @@ def unroll_mac(model, obs_tensor, **kwargs):
     mac_out = []
     mac_h_out = []
     h = [s.expand([B, n_agents, -1]) for s in model.get_initial_state()]
+    is_recurrent = len(h) > 0
+
+    # forward propagation through time
     for t in range(T):
-        q, h = mac(model, obs_tensor[:, t], h, **kwargs)
+        # get input data for this time step
+        obs = obs_tensor[:, t]
+
+        # if comm is enabled, process comm messages
+        if comm_net is not None:
+            # get local message sent to other agents
+            local_msg = comm_net(obs)
+
+            # put together local and received messages
+            msgs = torch.cat([local_msg, shared_messages[:, t]], dim=1)
+
+            # get query for message aggregation
+            query = h[0] if is_recurrent else obs
+
+            # aggregate received messages
+            msg = aggregation_func(query, msgs)
+
+            # update input data with messages
+            obs = torch.cat([obs, msg], dim=-1)
+
+        q, h = mac(model, obs, h, **kwargs)
         mac_out.append(q)
         mac_h_out.extend(h)
     mac_out = torch.stack(mac_out, dim=1)  # Concat over time

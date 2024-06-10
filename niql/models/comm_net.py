@@ -36,26 +36,26 @@ class AttentionCommMessagesAggregator(nn.Module):
     An attention-based neighbour messages aggregator.
     """
 
-    def __init__(self, obs_dim, comm_dim, hidden_dims: List[int], output_dim):
+    def __init__(self, query_dim, comm_dim, hidden_dims: List[int], output_dim):
         super(AttentionCommMessagesAggregator, self).__init__()
         hidden_dim = hidden_dims[0]  # use the first val since multiple layers are not used here.
-        self.fc_query = nn.Linear(obs_dim, hidden_dim)
+        self.fc_query = nn.Linear(query_dim, hidden_dim)
         self.fc_key = nn.Linear(comm_dim, hidden_dim)
         self.fc_value = nn.Linear(comm_dim, hidden_dim)
         self.fc_out = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, obs, messages):
+    def forward(self, query, messages):
         """
         Aggregates neighbour message.
 
-        :param obs: Local agent observation, tensor of shape (bath_size, obs_dim)
+        :param query: query tensor of shape (bath_size, obs_dim)
         :param messages: local and shared neighbour messages, tensor of shape (bath_size, num_msgs, comm_dim)
         :return: aggregated neighbour messages, tensor of shape (batch_size, output_dim)
         """
         neighbour_msgs = messages[:, 1:, :]
 
         # Transform the agent's observation into the query space
-        Q = self.fc_query(obs).unsqueeze(1)  # Shape: (batch_size, hidden_dim)
+        Q = self.fc_query(query).unsqueeze(1)  # Shape: (batch_size, hidden_dim)
 
         # Transform the neighbor observations into the key and value spaces
         K = self.fc_key(neighbour_msgs)
@@ -82,7 +82,7 @@ class GNNCommMessagesAggregator(nn.Module):
     A GNN-based neighbour messages aggregator.
     """
 
-    def __init__(self, obs_dim: int, comm_dim: int, hidden_dims: List[int], output_dim: int):
+    def __init__(self, query_dim: int, comm_dim: int, hidden_dims: List[int], output_dim: int):
         super().__init__()
         layers = []
 
@@ -108,11 +108,11 @@ class GNNCommMessagesAggregator(nn.Module):
         ])
         self.fcn = nn.Sequential(*layers)
 
-    def forward(self, obs, messages):
+    def forward(self, query, messages):
         """
         Aggregates neighbour message.
 
-        :param obs: Local agent observation, tensor of shape (bath_size, obs_dim)
+        :param query: query tensor of shape (bath_size, obs_dim)
         :param messages: local and shared neighbour messages, tensor of shape (bath_size, num_msgs, comm_dim)
         :return: aggregated neighbour messages, tensor of shape (batch_size, output_dim)
         """
