@@ -5,11 +5,11 @@ PREDATOR_PREY = {
         'algo_args': {
             'batch_episode': 32,
             'lr': 0.0005,
-            # 'lr_schedule': [
-            #     [0, 0.005],
-            #     # [250000, 0.00005],
-            #     [500000, 0.0005],
-            # ],
+            'tdw_schedule': [
+                [0, 1.0],
+                [400000, 1.0],
+                [800000, 0.005],
+            ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': True,
@@ -25,7 +25,6 @@ PREDATOR_PREY = {
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
             'similarity_threshold': 0.999,
-            'tdw_timesteps': 400000
         }
     },
     'model_preference': {

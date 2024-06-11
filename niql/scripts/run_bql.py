@@ -103,7 +103,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
             "similarity_threshold": _param.get("similarity_threshold"),
             "comm_dim": _param.get("comm_dim", 0),
             "comm_aggregator_dims": _param.get("comm_aggregator_dims"),
-            "tdw_timesteps": _param.get("tdw_timesteps", epsilon_timesteps),
+            "tdw_schedule": _param.get("tdw_schedule"),
             "comm_num_agents": env["num_agents"],
         })
 

@@ -10,7 +10,7 @@ from ray.rllib import Policy, SampleBatch
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.policy.torch_policy import LearningRateSchedule
-from ray.rllib.utils import override
+from ray.rllib.utils import override, PiecewiseSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
@@ -48,6 +48,11 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
         self.reward_standardize = config["reward_standardize"]
         self.neighbour_messages = []
+
+        self.tdw_schedule = PiecewiseSchedule(
+            framework=None,
+            endpoints=self.config["tdw_schedule"],
+        )
 
         agent_obs_space = obs_space.original_space
         if isinstance(agent_obs_space, GymDict):

@@ -129,6 +129,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
             },
             "mixer": None,
             "comm_num_agents": env["num_agents"],
+            "tdw_schedule": _param.get("tdw_schedule"),
         })
 
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on

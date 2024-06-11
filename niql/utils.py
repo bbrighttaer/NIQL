@@ -1,4 +1,5 @@
 import math
+import random
 from typing import Callable
 
 import pandas as pd
@@ -216,21 +217,18 @@ def tb_add_scalars(policy, label, values_dict):
 
 def target_distribution_weighting(policy, targets):
     targets_flat = to_numpy(targets).reshape(-1, )
-    lds_weights = get_target_dist_weights(
-        labels=targets_flat,
-        num_clusters=policy.config.get("num_clusters", 100),
-        timestep=policy.global_timestep,
-        tdw_timesteps=policy.config.get("tdw_timesteps", policy.config["exploration_config"]["epsilon_timesteps"])
-    )
-    lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
+    if random.random() < policy.tdw_schedule.value(policy.global_timestep):
+        lds_weights = get_target_dist_weights(
+            labels=targets_flat,
+            num_clusters=policy.config.get("num_clusters", 100),
+        )
+        lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
+    else:
+        lds_weights = torch.ones_like(targets)
     return lds_weights
 
 
-def get_target_dist_weights(labels, num_clusters, timestep, tdw_timesteps) -> np.array:
-    decay = 1 - (min(timestep, tdw_timesteps) / tdw_timesteps)
-    if decay == 0:
-        return np.ones_like(labels).reshape(len(labels), -1)
-
+def get_target_dist_weights(labels, num_clusters) -> np.array:
     # clustering
     bin_index_per_label = cluster_labels(labels, n_clusters=num_clusters)
     Nb = max(bin_index_per_label) + 1
@@ -245,7 +243,6 @@ def get_target_dist_weights(labels, num_clusters, timestep, tdw_timesteps) -> np
     # Use re-weighting based on empirical cluster distribution, sample-wise weights: [Ns,]
     eff_num_per_label = [emp_label_dist[bin_idx] for bin_idx in bin_index_per_label]
     weights = [1. / (x + 1e-6) for x in eff_num_per_label]
-    weights = [w ** decay for w in weights]
     tdw_weights = np.array(weights).reshape(len(labels), -1)
     tdw_weights /= np.max(tdw_weights + 1e-7)  # scaling
     return tdw_weights
