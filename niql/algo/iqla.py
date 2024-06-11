@@ -9,7 +9,7 @@ from niql.algo.base_policy import NIQLBasePolicy
 from niql.envs import DEBUG_ENVS
 from niql.models import DQNModelsFactory
 from niql.utils import to_numpy, tb_add_scalar, \
-    tb_add_scalars, target_distribution_weighting, unroll_mac, unroll_mac_squeeze_wrapper, soft_update
+    tb_add_scalars, target_distribution_weighting, unroll_mac, unroll_mac_squeeze_wrapper, soft_update, tb_add_histogram
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
         all_neighbour_msgs = torch.cat((neighbour_obs[:, 0:1], neighbour_next_obs), axis=1)
+        tb_add_histogram(self, "batch_rewards", rewards)
 
         # Calculate estimated Q-Values
         mac_out, _ = unroll_mac_squeeze_wrapper(
@@ -109,9 +110,19 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
 
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.config["gamma"] * (1 - terminated) * target_max_qvals
+        tb_add_histogram(self, "batch_targets", targets)
 
         # Get target distribution weights
         tdw_weights = target_distribution_weighting(self, targets)
+        # if self.global_timestep < 100000:
+        #     tdw_weights = torch.exp(targets)
+        #     tdw_weights /= torch.clamp(torch.max(tdw_weights), 1e-6)
+        # else:
+        #     tdw_weights = torch.ones_like(targets)
+        # tb_add_histogram(self, "batch_tdw_weights", tdw_weights)
+        # tb_add_histogram(self, "batch_targets_weighted", tdw_weights * targets)
+        # tdw_weights = torch.exp(targets)
+        # tdw_weights /= torch.clamp(torch.max(tdw_weights), 1e-6)
 
         # Td-error
         td_delta = chosen_action_qvals - targets.detach()

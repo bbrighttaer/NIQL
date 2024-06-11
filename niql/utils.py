@@ -1,3 +1,4 @@
+import math
 from typing import Callable
 
 import pandas as pd
@@ -12,6 +13,7 @@ from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor
 from sklearn.cluster import DBSCAN
+from sklearn.neighbors import KernelDensity
 
 
 # -----------------------------------------------------------------------------------------------
@@ -200,6 +202,11 @@ def tb_add_scalar(policy, label, value):
         policy.summary_writer.add_scalar(policy.policy_id + "/" + label, value, policy.global_timestep)
 
 
+def tb_add_histogram(policy, label, data):
+    if hasattr(policy, "summary_writer") and hasattr(policy, "policy_id"):
+        policy.summary_writer.add_histogram(policy.policy_id + "/" + label, data.reshape(-1,), policy.global_timestep)
+
+
 def tb_add_scalars(policy, label, values_dict):
     if hasattr(policy, "summary_writer") and hasattr(policy, "policy_id"):
         policy.summary_writer.add_scalars(
@@ -229,22 +236,33 @@ def get_target_dist_weights(labels, num_clusters, timestep, tdw_timesteps) -> np
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
     emp_label_dist = [num_samples_of_bins.get(i, 0) for i in range(Nb)]
+    labels = labels.reshape(-1, 1)
+    # kde = KernelDensity(kernel="gaussian", bandwidth=0.2).fit(labels)
+    # log_probs = kde.score_samples(labels)
+    # weights = np.exp(log_probs)
+    # weights /= np.max(weights)
 
     # Use re-weighting based on empirical cluster distribution, sample-wise weights: [Ns,]
     eff_num_per_label = [emp_label_dist[bin_idx] for bin_idx in bin_index_per_label]
-    weights = [np.float32(1 / (x + 1e-6)) for x in eff_num_per_label]
+    weights = [1. / (x + 1e-6) for x in eff_num_per_label]
     weights = [w ** decay for w in weights]
     tdw_weights = np.array(weights).reshape(len(labels), -1)
     tdw_weights /= np.max(tdw_weights + 1e-7)  # scaling
     return tdw_weights
 
 
-def cluster_labels(labels, *, min_samples_in_cluster=2, eps=0.1, n_clusters=100):
-    # labels = standardize(labels)
+def cluster_labels(targets, *, min_samples_in_cluster=2, eps=0.1, n_clusters=100):
+    targets = targets / np.max(targets)
     # n_clusters = min(n_clusters, len(np.unique(labels)))
     # clustering = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
-    clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(labels.reshape(-1, 1))
+    clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(targets.reshape(-1, 1))
     bin_index_per_label = clustering.labels_
+    # create bins
+    # num_bins = 1000
+    # bounds = (math.floor(np.min(targets)), math.ceil(np.max(targets)))
+    # hist, bins = np.histogram(a=np.array([], dtype=np.float32), bins=num_bins, range=bounds)
+    # bin_index_per_label = np.digitize(targets, bins, right=True)
+    # bin_index_per_label = np.array(bin_index_per_label)
     return bin_index_per_label
 
 
