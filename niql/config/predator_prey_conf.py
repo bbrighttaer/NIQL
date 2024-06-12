@@ -7,8 +7,8 @@ PREDATOR_PREY = {
             'lr': 0.0005,
             'tdw_schedule': [
                 [0, 1.0],
-                [400000, 1.0],
-                [800000, 0.005],
+                [60000, 1.0],
+                [70000, 0.0],
             ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,

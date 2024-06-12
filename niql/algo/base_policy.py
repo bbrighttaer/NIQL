@@ -52,6 +52,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         self.tdw_schedule = PiecewiseSchedule(
             framework=None,
             endpoints=self.config["tdw_schedule"],
+            outside_value=self.config["tdw_schedule"][-1][-1]  # use value of last schedule
         )
 
         agent_obs_space = obs_space.original_space

@@ -5,6 +5,10 @@ MATRIX_GAME = {
         'algo_args': {
             'batch_episode': 32,
             'lr': 0.0005,
+            'tdw_schedule': [
+                [0, 1.0],
+                [5000, .01],
+            ],
             'rollout_fragment_length': 1,
             'buffer_size': 1000,
             'enable_stochastic_eviction': False,
@@ -36,7 +40,7 @@ MATRIX_GAME = {
         # 'model': 'MatrixGameQMLP',
         # 'model': 'MatrixGameSplitQMLP',
         'mha_num_heads': 2,
-        'comm_dim': 10,
+        'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator_dim': 10,
         'comm_aggregator_hdims': [128, 32],

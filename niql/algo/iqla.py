@@ -114,15 +114,6 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
 
         # Get target distribution weights
         tdw_weights = target_distribution_weighting(self, targets)
-        # if self.global_timestep < 100000:
-        #     tdw_weights = torch.exp(targets)
-        #     tdw_weights /= torch.clamp(torch.max(tdw_weights), 1e-6)
-        # else:
-        #     tdw_weights = torch.ones_like(targets)
-        # tb_add_histogram(self, "batch_tdw_weights", tdw_weights)
-        # tb_add_histogram(self, "batch_targets_weighted", tdw_weights * targets)
-        # tdw_weights = torch.exp(targets)
-        # tdw_weights /= torch.clamp(torch.max(tdw_weights), 1e-6)
 
         # Td-error
         td_delta = chosen_action_qvals - targets.detach()

@@ -1,5 +1,3 @@
-import math
-import random
 from typing import Callable
 
 import pandas as pd
@@ -13,8 +11,10 @@ from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor
+from scipy.optimize import minimize
 from sklearn.cluster import DBSCAN
-from sklearn.neighbors import KernelDensity
+
+from niql.torch_kde import TorchKernelDensity
 
 
 # -----------------------------------------------------------------------------------------------
@@ -205,7 +205,7 @@ def tb_add_scalar(policy, label, value):
 
 def tb_add_histogram(policy, label, data):
     if hasattr(policy, "summary_writer") and hasattr(policy, "policy_id"):
-        policy.summary_writer.add_histogram(policy.policy_id + "/" + label, data.reshape(-1,), policy.global_timestep)
+        policy.summary_writer.add_histogram(policy.policy_id + "/" + label, data.reshape(-1, ), policy.global_timestep)
 
 
 def tb_add_scalars(policy, label, values_dict):
@@ -216,11 +216,10 @@ def tb_add_scalars(policy, label, values_dict):
 
 
 def target_distribution_weighting(policy, targets):
-    targets_flat = to_numpy(targets).reshape(-1, )
+    targets_flat = targets.reshape(-1, 1)
     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
         lds_weights = get_target_dist_weights(
-            labels=targets_flat,
-            num_clusters=policy.config.get("num_clusters", 100),
+            targets=targets_flat,
         )
         lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
     else:
@@ -228,22 +227,73 @@ def target_distribution_weighting(policy, targets):
     return lds_weights
 
 
-def get_target_dist_weights(labels, num_clusters) -> np.array:
+def get_target_dist_weights_torch(targets) -> np.array:
+    h = bandwidth_iqr(targets)
+    # sh = sheather_jones_bandwidth(targets)
+    kde = TorchKernelDensity(kernel="gaussian", bandwidth=h)
+    kde.fit(targets)
+    probs = kde.score_samples(targets)
+    weights = 1. / (probs + 1e-7)
+    tdw_weights = weights.reshape(len(targets), -1)
+    tdw_weights /= torch.max(tdw_weights + 1e-7)  # scaling
+    return tdw_weights
+
+
+def iqr(data):
+    q75, q25 = torch.quantile(data, 0.75), torch.quantile(data, 0.25)
+    return q75 - q25
+
+
+def bandwidth_iqr(data):
+    n, d = data.shape
+    std_dev = torch.std(data, dim=0)
+    iqr_value = iqr(data)
+    bandwidth = 0.9 * torch.min(std_dev, iqr_value / 1.34) * (n ** (-1 / 5))
+    return bandwidth
+
+
+def kde_function(x, data, bandwidth):
+    """Kernel Density Estimation function with Gaussian kernel."""
+    n = data.shape[0]
+    diff = x.unsqueeze(1) - data
+    norm_factor = (2 * np.pi * bandwidth ** 2) ** (-0.5)
+    kde_est = torch.sum(torch.exp(-0.5 * (diff / bandwidth) ** 2), dim=1) / (n * bandwidth)
+    return kde_est
+
+
+def sheather_jones_bandwidth(data):
+    """Compute the bandwidth using the Sheather-Jones method."""
+    n = data.shape[0]
+
+    def objective_function(h):
+        h = torch.tensor(h, dtype=torch.float32)
+        term1 = torch.sum(kde_function(data, data, h) ** 2) / (n * h ** 5)
+        term2 = 2 * torch.sum(kde_function(data, data, h)) / (n ** 2 * h ** 4)
+        return term1 - term2
+
+    # Initial guess for bandwidth
+    h0 = torch.std(data) * (4 / (3 * n)) ** (1 / 5)
+
+    # Minimize the objective function
+    result = minimize(objective_function, h0.item(), bounds=[(1e-5, None)], method='L-BFGS-B')
+    optimal_bandwidth = result.x[0]
+    return optimal_bandwidth
+
+
+def get_target_dist_weights(targets, num_clusters=100) -> np.array:
+    targets = to_numpy(targets)
+
     # clustering
-    bin_index_per_label = cluster_labels(labels, n_clusters=num_clusters)
+    bin_index_per_label = cluster_labels(targets, n_clusters=num_clusters)
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
     emp_label_dist = [num_samples_of_bins.get(i, 0) for i in range(Nb)]
-    labels = labels.reshape(-1, 1)
-    # kde = KernelDensity(kernel="gaussian", bandwidth=0.2).fit(labels)
-    # log_probs = kde.score_samples(labels)
-    # weights = np.exp(log_probs)
-    # weights /= np.max(weights)
+    targets = targets.reshape(-1, 1)
 
     # Use re-weighting based on empirical cluster distribution, sample-wise weights: [Ns,]
     eff_num_per_label = [emp_label_dist[bin_idx] for bin_idx in bin_index_per_label]
     weights = [1. / (x + 1e-6) for x in eff_num_per_label]
-    tdw_weights = np.array(weights).reshape(len(labels), -1)
+    tdw_weights = np.array(weights).reshape(len(targets), -1)
     tdw_weights /= np.max(tdw_weights + 1e-7)  # scaling
     return tdw_weights
 
@@ -525,4 +575,3 @@ def add_evaluation_config(config: dict) -> dict:
         # "evaluation_unit": "timesteps", # not supported in ray 1.8.0
     })
     return config
-
