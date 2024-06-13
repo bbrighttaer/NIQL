@@ -105,7 +105,7 @@ class WBQLPolicy(NIQLBasePolicy):
         masked_td_error = qe_td_error * mask
         qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
         self.model.tower_stats["Qe_loss"] = to_numpy(qe_loss)
-        self.model.tower_stats["td_error"] = to_numpy(td_delta)
+        self.model.tower_stats["td_error"] = to_numpy(td_delta * mask)
         tb_add_scalar(self, "qe_loss", qe_loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
