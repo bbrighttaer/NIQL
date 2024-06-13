@@ -58,10 +58,9 @@ class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
         for policy_id, replay_buffer in self.replay_buffers.items():
             samples = SampleBatch.concat_samples(replay_buffer._storage)
             rewards = samples[SampleBatch.REWARDS]
-            stats = collections.Counter(rewards)
             if summary_writer is not None:
-                summary_writer.add_scalars(
-                    policy_id + "/exp_buffer_dist", {str(k): v for k, v in stats.items()}, timestep
+                summary_writer.add_histogram(
+                    policy_id + "/exp_buffer_dist", rewards, timestep
                 )
 
 

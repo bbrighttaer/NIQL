@@ -35,8 +35,7 @@ def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Di
             setattr(policy, "summary_writer", summary_writer)
 
             if config.get("env_name") in DEBUG_ENVS:
-                stats = Counter(agent_batch[SampleBatch.REWARDS])
-                summary_writer.add_scalars(policy_id + "/reward_dist", {str(k): v for k, v in stats.items()}, timestep)
+                summary_writer.add_histogram(policy_id + "/reward_dist", agent_batch[SampleBatch.REWARDS], timestep)
 
         if config.get("env_name") in DEBUG_ENVS and "replay_buffer" in kwargs:
             replay_buffer = kwargs["replay_buffer"]

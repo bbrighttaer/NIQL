@@ -522,13 +522,16 @@ class IQLPolicy(LearningRateSchedule, Policy):
         targets = rewards + self.config["gamma"] * (1 - terminated) * target_max_qvals
 
         # Td-error
-        td_error = weights * (chosen_action_qvals - targets.detach())
-        self.model.tower_stats["td_error"] = to_numpy(td_error)
+        td_delta = chosen_action_qvals - targets.detach()
+        td_error = weights * td_delta
 
         mask = mask.expand_as(td_error)
 
         # 0-out the targets that came from padded data
         masked_td_error = td_error * mask
+
+        # record td-error
+        self.model.tower_stats["td_error"] = to_numpy(td_delta * mask)
 
         # Normal L2 loss, take mean over actual data
         loss = huber_loss(masked_td_error).sum() / mask.sum()

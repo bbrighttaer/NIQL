@@ -7,15 +7,15 @@ PREDATOR_PREY = {
             'lr': 0.0005,
             'tdw_schedule': [
                 [0, 1.0],
-                [60000, 1.0],
-                [70000, 0.0],
+                [400000, 1.0],
+                [550000, 0.05],
             ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': True,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
-            'epsilon_timesteps': 50000,
+            'epsilon_timesteps': 150000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,

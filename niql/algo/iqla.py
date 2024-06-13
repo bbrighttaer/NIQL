@@ -116,14 +116,16 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         tdw_weights = target_distribution_weighting(self, targets)
 
         # Td-error
-        td_delta = chosen_action_qvals - targets.detach()
-        td_error = tdw_weights * weights * td_delta
-        self.model.tower_stats["td_error"] = to_numpy(td_delta)
+        td_delta = tdw_weights * (chosen_action_qvals - targets.detach())
+        td_error = weights * td_delta
 
         mask = mask.expand_as(td_error)
 
         # 0-out the targets that came from padded data
         masked_td_error = td_error * mask
+
+        # record td-error
+        self.model.tower_stats["td_error"] = to_numpy(td_delta * mask)
 
         # Normal L2 loss, take mean over actual data
         loss = huber_loss(masked_td_error).sum() / mask.sum()
