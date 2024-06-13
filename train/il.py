@@ -76,7 +76,7 @@ if __name__ == '__main__':
     if args.algo == 'ippo':
         algo = marl.algos.ippo
     elif args.algo == 'wiql':
-        algo = marl.algos.wqla
+        algo = marl.algos.wiql
     else:
         algo = marl.algos.iql
     # initialize algorithm
