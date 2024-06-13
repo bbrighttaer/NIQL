@@ -7,8 +7,8 @@ PREDATOR_PREY = {
             'lr': 0.0005,
             'tdw_schedule': [
                 [0, 1.0],
-                [400000, 1.0],
-                [550000, 0.05],
+                [60000, 1.0],
+                [70000, 0.0],
             ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
@@ -29,8 +29,8 @@ PREDATOR_PREY = {
     },
     'model_preference': {
         'core_arch': 'gru',  # mlp | gru
-        "encode_layer": "128",  # for RNN model
-        'hidden_state_size': 128,  # for RNN model
+        "encode_layer": "64",  # for RNN model
+        'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
         'model': 'DRQNModel',
         # 'model': 'DuelingQFCN',

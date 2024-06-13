@@ -52,7 +52,7 @@ if __name__ == '__main__':
         '-a', '--algo',
         type=str,
         default='iql',
-        choices=['iql', 'iqla', 'ippo'],
+        choices=['iql', 'wiql', 'ippo'],
         help='Select which IL algorithm to run.',
     )
 
@@ -75,8 +75,8 @@ if __name__ == '__main__':
     # initialise algorithm with hyperparameters
     if args.algo == 'ippo':
         algo = marl.algos.ippo
-    elif args.algo == 'iqla':
-        algo = marl.algos.iqla
+    elif args.algo == 'wiql':
+        algo = marl.algos.wqla
     else:
         algo = marl.algos.iql
     # initialize algorithm

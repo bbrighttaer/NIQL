@@ -226,7 +226,7 @@ def target_distribution_weighting(policy, targets):
         lds_weights *= scaling
         lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
         min_w = max(1e-2, lds_weights.min())
-        lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2*min_w)
+        lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2 * min_w)
 
         tb_add_scalars(policy, "tdw_stats", {
             # "scaling": scaling,
