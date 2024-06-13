@@ -35,7 +35,9 @@ def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Di
             setattr(policy, "summary_writer", summary_writer)
 
             if config.get("env_name") in DEBUG_ENVS:
-                summary_writer.add_histogram(policy_id + "/reward_dist", agent_batch[SampleBatch.REWARDS], timestep)
+                summary_writer.add_histogram(policy_id + "/reward_dist2", agent_batch[SampleBatch.REWARDS], timestep)
+                stats = Counter(agent_batch[SampleBatch.REWARDS])
+                summary_writer.add_scalars(policy_id + "/reward_dist", {str(k): v for k, v in stats.items()}, timestep)
 
         if config.get("env_name") in DEBUG_ENVS and "replay_buffer" in kwargs:
             replay_buffer = kwargs["replay_buffer"]
@@ -146,6 +148,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     IQL_Config["callbacks"] = _param.get("callbacks", IQL_Config["callbacks"])
     IQL_Config["env_name"] = exp["env"]
     IQL_Config["tau"] = _param["tau"]
+    IQL_Config["enable_stochastic_eviction"] = _param.get("enable_stochastic_eviction", False)
 
     # create trainer
     trainer = IQLTrainer.with_updates(

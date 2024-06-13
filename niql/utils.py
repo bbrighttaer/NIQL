@@ -1,3 +1,4 @@
+import math
 from typing import Callable
 
 import pandas as pd
@@ -221,21 +222,32 @@ def target_distribution_weighting(policy, targets):
         lds_weights = get_target_dist_weights(
             targets=targets_flat,
         )
+        scaling = len(lds_weights) / (lds_weights.sum() + 1e-7)
+        lds_weights *= scaling
         lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
+        min_w = max(1e-2, lds_weights.min())
+        lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2*min_w)
+
+        tb_add_scalars(policy, "tdw_stats", {
+            # "scaling": scaling,
+            "max_weight": lds_weights.max(),
+            "min_weight": lds_weights.min(),
+            "mean_weight": lds_weights.mean(),
+        })
     else:
         lds_weights = torch.ones_like(targets)
     return lds_weights
 
 
 def get_target_dist_weights_torch(targets) -> np.array:
-    h = bandwidth_iqr(targets)
+    # h = bandwidth_iqr(targets)
     # sh = sheather_jones_bandwidth(targets)
-    kde = TorchKernelDensity(kernel="gaussian", bandwidth=h)
+    kde = TorchKernelDensity(kernel="gaussian", bandwidth=0.5)
     kde.fit(targets)
     probs = kde.score_samples(targets)
     weights = 1. / (probs + 1e-7)
     tdw_weights = weights.reshape(len(targets), -1)
-    tdw_weights /= torch.max(tdw_weights + 1e-7)  # scaling
+    tdw_weights /= torch.max(tdw_weights + 1e-7)
     return tdw_weights
 
 
@@ -294,11 +306,11 @@ def get_target_dist_weights(targets, num_clusters=100) -> np.array:
     eff_num_per_label = [emp_label_dist[bin_idx] for bin_idx in bin_index_per_label]
     weights = [1. / (x + 1e-6) for x in eff_num_per_label]
     tdw_weights = np.array(weights).reshape(len(targets), -1)
-    tdw_weights /= np.max(tdw_weights + 1e-7)  # scaling
     return tdw_weights
 
 
-def cluster_labels(targets, *, min_samples_in_cluster=2, eps=0.1, n_clusters=100):
+def cluster_labels(targets, *, min_samples_in_cluster=2, eps=.1, n_clusters=100):
+    targets = standardize(targets)
     targets = targets / np.max(targets)
     # n_clusters = min(n_clusters, len(np.unique(labels)))
     # clustering = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
