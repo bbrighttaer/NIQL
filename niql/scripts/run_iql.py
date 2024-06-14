@@ -156,7 +156,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
         default_config=IQL_Config,
     )
 
-    if algorithm == "iqla":
+    if algorithm == "wiql":
         trainer = trainer.with_updates(
             get_policy_class=lambda c: IQLPolicyAttnComm,
         )
