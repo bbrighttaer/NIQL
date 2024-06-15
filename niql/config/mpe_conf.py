@@ -5,14 +5,14 @@ MPE = {
         'algo_args': {
             'batch_episode': 32,
             'lr': 0.0005,
-            # 'lr_schedule': [
-            #     [0, 0.0005],
-            #     [250000, 0.00005],
-            #     [400000, 0.00001],
-            # ],
+            'tdw_schedule': [
+                [0, 1.0],
+                [60000, 1.0],
+                [200000, 0.01],
+            ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
-            'enable_stochastic_eviction': False,
+            'enable_stochastic_eviction': True,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
@@ -37,7 +37,7 @@ MPE = {
         'hidden_layer_dims': [64, 64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'mha_num_heads': 2,
-        'comm_dim': 10,
+        'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator_dim': 10,
         'comm_aggregator_hdims': [64],
