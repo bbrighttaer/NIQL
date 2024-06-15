@@ -55,7 +55,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-a', '--algo',
-        choices=['bql', 'wbql', 'ibql'],
+        choices=['bql', 'wibql', 'ibql'],
         default='bql',
         help='The algorithm to use.',
     )
