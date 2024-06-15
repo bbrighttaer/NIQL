@@ -219,7 +219,7 @@ def tb_add_scalars(policy, label, values_dict):
 def target_distribution_weighting(policy, targets):
     targets_flat = targets.reshape(-1, 1)
     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
-        lds_weights = get_target_dist_weights(
+        lds_weights = get_target_dist_weights_torch(
             targets=targets_flat,
         )
         scaling = len(lds_weights) / (lds_weights.sum() + 1e-7)
@@ -240,9 +240,8 @@ def target_distribution_weighting(policy, targets):
 
 
 def get_target_dist_weights_torch(targets) -> np.array:
-    # h = bandwidth_iqr(targets)
-    # sh = sheather_jones_bandwidth(targets)
-    kde = TorchKernelDensity(kernel="gaussian", bandwidth=0.5)
+    h = bandwidth_iqr(targets)
+    kde = TorchKernelDensity(kernel="gaussian", bandwidth=h)
     kde.fit(targets)
     probs = kde.score_samples(targets)
     weights = 1. / (probs + 1e-7)
