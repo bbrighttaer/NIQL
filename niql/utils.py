@@ -241,7 +241,7 @@ def target_distribution_weighting(policy, targets):
 
 def get_target_dist_weights_torch(targets) -> np.array:
     # h = bandwidth_iqr(targets)
-    kde = TorchKernelDensity(kernel="gaussian", bandwidth=0.5)
+    kde = TorchKernelDensity(kernel="gaussian", bandwidth=1.0)
     kde.fit(targets)
     probs = kde.score_samples(targets)
     weights = 1. / (probs + 1e-7)
