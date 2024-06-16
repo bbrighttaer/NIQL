@@ -219,7 +219,7 @@ def tb_add_scalars(policy, label, values_dict):
 def target_distribution_weighting(policy, targets):
     targets_flat = targets.reshape(-1, 1)
     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
-        lds_weights = get_target_dist_weights_torch(
+        lds_weights = get_target_dist_weights(
             targets=targets_flat,
         )
         scaling = len(lds_weights) / (lds_weights.sum() + 1e-7)
