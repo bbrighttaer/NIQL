@@ -11,7 +11,7 @@ class JointQPolicy(LearningRateSchedule, Policy):
 
     def __init__(self, obs_space, action_space, config):
         Policy.__init__(self, obs_space, action_space, config)
-        LearningRateSchedule.__init__(self, config["lr"], config["lr_schedule"])
+        LearningRateSchedule.__init__(self, config["lr"], config.get("lr_schedule"))
         self.joint_q_values = []
 
     @override(Policy)
