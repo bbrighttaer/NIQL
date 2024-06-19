@@ -219,14 +219,10 @@ def tb_add_scalars(policy, label, values_dict):
 def target_distribution_weighting(policy, targets):
     targets_flat = targets.reshape(-1, 1)
     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
-        lds_weights = get_target_dist_weights(
+        lds_weights = get_target_dist_weights_torch(
             targets=targets_flat,
         )
-        scaling = len(lds_weights) / (lds_weights.sum() + 1e-7)
-        lds_weights *= scaling
         lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
-        min_w = max(1e-2, lds_weights.min())
-        lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2 * min_w)
 
         tb_add_scalars(policy, "tdw_stats", {
             # "scaling": scaling,
@@ -240,14 +236,13 @@ def target_distribution_weighting(policy, targets):
 
 
 def get_target_dist_weights_torch(targets) -> np.array:
+    targets = standardize(targets)
     # h = bandwidth_iqr(targets)
-    kde = TorchKernelDensity(kernel="gaussian", bandwidth=1.0)
+    kde = TorchKernelDensity(kernel="gaussian", bandwidth=5.0)
     kde.fit(targets)
     probs = kde.score_samples(targets)
     weights = 1. / (probs + 1e-7)
-    tdw_weights = weights.reshape(len(targets), -1)
-    tdw_weights /= torch.max(tdw_weights + 1e-7)
-    return tdw_weights
+    return weights
 
 
 def iqr(data):

@@ -8,6 +8,7 @@ from ray.rllib.utils.torch_ops import huber_loss
 from niql.algo.base_policy import NIQLBasePolicy
 from niql.envs import DEBUG_ENVS
 from niql.models import DQNModelsFactory
+from niql.torch_kde import TorchKernelDensity
 from niql.utils import to_numpy, tb_add_scalar, \
     tb_add_scalars, target_distribution_weighting, unroll_mac, unroll_mac_squeeze_wrapper, soft_update, tb_add_histogram
 
@@ -21,7 +22,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
 
     def compute_trajectory_q_loss(self,
                                   rewards,
-                                  weights,
+                                  is_weights,
                                   actions,
                                   terminated,
                                   mask,
@@ -39,7 +40,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
 
         Args:
             rewards: Tensor of shape [B, T]
-            weights: Tensor of shape [B, T]
+            is_weights: Tensor of shape [B, T]
             actions: Tensor of shape [B, T]
             terminated: Tensor of shape [B, T]
             mask: Tensor of shape [B, T]
@@ -52,14 +53,19 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
             neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
             neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
         """
+        B, T = obs.shape[:2]
+
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
-        all_neighbour_msgs = torch.cat((neighbour_obs[:, 0:1], neighbour_next_obs), axis=1)
+        if neighbour_obs is not None:
+            all_neighbour_msgs = torch.cat((neighbour_obs[:, 0:1], neighbour_next_obs), axis=1)
+        else:
+            all_neighbour_msgs = None
         tb_add_histogram(self, "batch_rewards", rewards)
 
         # Calculate estimated Q-Values
-        mac_out, _ = unroll_mac_squeeze_wrapper(
+        mac_out, mac_out_h = unroll_mac_squeeze_wrapper(
             unroll_mac(
                 self.model,
                 whole_obs,
@@ -73,7 +79,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         chosen_action_qvals = torch.gather(mac_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
 
         # Calculate the Q-Values necessary for the target
-        target_mac_out, _ = unroll_mac_squeeze_wrapper(
+        target_mac_out, target_mac_out_h = unroll_mac_squeeze_wrapper(
             unroll_mac(
                 self.target_model,
                 whole_obs,
@@ -117,13 +123,11 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
 
         # Td-error
         td_delta = chosen_action_qvals - targets.detach()
-        td_error = tdw_weights * weights * td_delta
+        weights = is_weights * tdw_weights
+        weights /= torch.clamp(weights.max(), 1e-7)
+        td_error = td_delta * weights
 
         mask = mask.expand_as(td_error)
-
-        # Td-error
-        td_delta = chosen_action_qvals - targets.detach()
-        td_error = tdw_weights * weights * td_delta
         self.model.tower_stats["td_error"] = to_numpy(td_delta * mask)
 
         # 0-out the targets that came from padded data
@@ -135,13 +139,13 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         tb_add_scalar(self, "loss", loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
-        if self.config.get("env_name") in DEBUG_ENVS:
-            unique_targets = torch.unique(targets.int())
-            mean_td_stats = {
-                t.item(): torch.mean(torch.abs(masked_td_error).view(-1, )[targets.view(-1, ).int() == t]).item()
-                for t in unique_targets
-            }
-            tb_add_scalars(self, "td-error_dist", mean_td_stats)
+        # if self.config.get("env_name") in DEBUG_ENVS:
+        #     unique_targets = torch.unique(targets.int())
+        #     mean_td_stats = {
+        #         t.item(): torch.mean(torch.abs(masked_td_error).view(-1, )[targets.view(-1, ).int() == t]).item()
+        #         for t in unique_targets
+        #     }
+        #     tb_add_scalars(self, "td-error_dist", mean_td_stats)
 
         return loss, mask, masked_td_error, chosen_action_qvals, targets
 

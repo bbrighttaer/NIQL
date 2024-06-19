@@ -32,7 +32,8 @@ def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Di
 
         for policy_id, agent_batch in batch.policy_batches.items():
             policy = policy_map[policy_id]
-            setattr(policy, "summary_writer", summary_writer)
+            if not hasattr(policy, "summary_writer"):
+                setattr(policy, "summary_writer", summary_writer)
 
             if config.get("env_name") in DEBUG_ENVS:
                 summary_writer.add_histogram(policy_id + "/reward_dist2", agent_batch[SampleBatch.REWARDS], timestep)
@@ -173,7 +174,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     model_path = restore_model(restore, exp)
 
     # Periodic evaluation of trained policy
-    # config = add_evaluation_config(config)
+    config = add_evaluation_config(config)
 
     results = tune.run(
         trainer,
