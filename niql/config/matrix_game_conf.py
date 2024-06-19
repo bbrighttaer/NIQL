@@ -10,7 +10,7 @@ MATRIX_GAME = {
                 [5000, .01],
             ],
             'rollout_fragment_length': 1,
-            'buffer_size': 1000,
+            'buffer_size': 5000,
             'enable_stochastic_eviction': False,
             'target_network_update_freq': 10,
             'final_epsilon': 0.01,

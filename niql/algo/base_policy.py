@@ -244,7 +244,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         if self.use_fingerprint:
             sample_batch = self._pad_sample_batch(sample_batch)
         # observation sharing
-        sample_batch = batch_message_inter_agent_sharing(sample_batch, other_agent_batches)
+        # sample_batch = batch_message_inter_agent_sharing(sample_batch, other_agent_batches)
         return sample_batch
 
     def learn_on_batch(self, samples: SampleBatch) -> Dict[str, TensorType]:
