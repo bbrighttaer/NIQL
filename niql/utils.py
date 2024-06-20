@@ -1,4 +1,3 @@
-import math
 from typing import Callable
 
 import pandas as pd
@@ -12,7 +11,6 @@ from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor
-from scipy.optimize import minimize
 from sklearn.cluster import DBSCAN
 
 from niql.torch_kde import TorchKernelDensity
@@ -216,11 +214,13 @@ def tb_add_scalars(policy, label, values_dict):
         )
 
 
-def target_distribution_weighting(policy, targets):
+def target_distribution_weighting(policy, targets, kernel=TorchKernelDensity.gaussian, bandwidth=5.):
     targets_flat = targets.reshape(-1, 1)
     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
         lds_weights = get_target_dist_weights_torch(
             targets=targets_flat,
+            kernel=kernel,
+            bandwidth=bandwidth,
         )
         lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
 
@@ -235,78 +235,14 @@ def target_distribution_weighting(policy, targets):
     return lds_weights
 
 
-def get_target_dist_weights_torch(targets) -> np.array:
+def get_target_dist_weights_torch(targets, kernel, bandwidth) -> np.array:
     targets = standardize(targets)
-    # h = bandwidth_iqr(targets)
-    kde = TorchKernelDensity(kernel="gaussian", bandwidth=5)
+    kde = TorchKernelDensity(bandwidth, kernel)
     kde.fit(targets)
     densities = kde.score_samples(targets)
     weights = 1. / (densities + 1e-7)
     weights /= (weights.max() + 1e-7)
     return weights
-
-
-def gaussian_density(x):
-    """
-    Compute the Gaussian density for a torch tensor vector with mean 0 and unit variance.
-
-    Parameters:
-    x (tensor): The input tensor for which to compute the density.
-
-    Returns:
-    tensor: The computed density values for the input tensor.
-    """
-    # Constants
-    sqrt_2pi = torch.sqrt(torch.tensor(2 * math.pi, device=x.device))
-
-    # Compute the exponent part: exp(-0.5 * x^2)
-    exponent = torch.exp(-0.5 * x ** 2)
-
-    # Compute the final PDF value
-    pdf_value = (1 / sqrt_2pi) * exponent
-
-    return pdf_value
-
-
-def iqr(data):
-    q75, q25 = torch.quantile(data, 0.75), torch.quantile(data, 0.25)
-    return q75 - q25
-
-
-def bandwidth_iqr(data):
-    n, d = data.shape
-    std_dev = torch.std(data, dim=0)
-    iqr_value = iqr(data)
-    bandwidth = 0.9 * torch.min(std_dev, iqr_value / 1.34) * (n ** (-1 / 5))
-    return bandwidth
-
-
-def kde_function(x, data, bandwidth):
-    """Kernel Density Estimation function with Gaussian kernel."""
-    n = data.shape[0]
-    diff = x.unsqueeze(1) - data
-    norm_factor = (2 * np.pi * bandwidth ** 2) ** (-0.5)
-    kde_est = torch.sum(torch.exp(-0.5 * (diff / bandwidth) ** 2), dim=1) / (n * bandwidth)
-    return kde_est
-
-
-def sheather_jones_bandwidth(data):
-    """Compute the bandwidth using the Sheather-Jones method."""
-    n = data.shape[0]
-
-    def objective_function(h):
-        h = torch.tensor(h, dtype=torch.float32)
-        term1 = torch.sum(kde_function(data, data, h) ** 2) / (n * h ** 5)
-        term2 = 2 * torch.sum(kde_function(data, data, h)) / (n ** 2 * h ** 4)
-        return term1 - term2
-
-    # Initial guess for bandwidth
-    h0 = torch.std(data) * (4 / (3 * n)) ** (1 / 5)
-
-    # Minimize the objective function
-    result = minimize(objective_function, h0.item(), bounds=[(1e-5, None)], method='L-BFGS-B')
-    optimal_bandwidth = result.x[0]
-    return optimal_bandwidth
 
 
 def get_target_dist_weights(targets, num_clusters=100) -> np.array:

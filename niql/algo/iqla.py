@@ -118,7 +118,9 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         tb_add_histogram(self, "batch_targets", targets)
 
         # Get target distribution weights
-        tdw_weights = target_distribution_weighting(self, targets)
+        tdw_weights = target_distribution_weighting(
+            self, targets, self.config["tdw_kernel"], self.config["tdw_bandwidth"]
+        )
 
         # Td-error
         td_delta = chosen_action_qvals - targets.detach()

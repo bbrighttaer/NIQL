@@ -14,12 +14,15 @@ from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.models import ModelCatalog
 from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from ray.tune import CLIReporter, register_env
+from ray.tune.suggest.hyperopt import HyperOptSearch
 from ray.util.ml_utils.dict import merge_dicts
+from sklearn.neighbors import KernelDensity
 
 from niql.algo import IQLTrainer, IQLPolicyAttnComm
 from niql.callbacks import ObservationCommWrapper
 from niql.envs import DEBUG_ENVS
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
+from niql.torch_kde import TorchKernelDensity
 from niql.trainer_loaders import determine_multiagent_policy_mapping
 from niql.utils import add_evaluation_config
 
@@ -132,6 +135,8 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
             "mixer": None,
             "comm_num_agents": env["num_agents"],
             "tdw_schedule": _param.get("tdw_schedule"),
+            "tdw_kernel": TorchKernelDensity.gaussian,
+            "tdw_bandwidth": 5.,
         })
 
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
@@ -176,12 +181,24 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     # Periodic evaluation of trained policy
     config = add_evaluation_config(config)
 
+    hyperopt = HyperOptSearch({
+        "tdw_bandwidth": tune.quniform(0.1, 10, 0.1),
+        "tdw_kernel": tune.choice([
+            TorchKernelDensity.gaussian,
+            TorchKernelDensity.laplace,
+            TorchKernelDensity.triangular,
+            TorchKernelDensity.epanechnikov,
+        ]),
+    }, mode="max", metric="episode_reward_mean")
+
     results = tune.run(
         trainer,
         name=running_name,
         checkpoint_at_end=exp['checkpoint_end'],
         checkpoint_freq=exp['checkpoint_freq'],
         restore=model_path,
+        search_alg=hyperopt,
+        num_samples=10,
         stop=stop,
         config=config,
         verbose=1,

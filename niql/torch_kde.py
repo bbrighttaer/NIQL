@@ -4,6 +4,11 @@ import torch
 
 
 class TorchKernelDensity:
+    gaussian = "gaussian"
+    triangular = "triangular"
+    epanechnikov = "epanechnikov"
+    laplace = "laplace"
+
     def __init__(self, bandwidth=1.0, kernel='gaussian'):
         self.bandwidth = bandwidth
         self.kernel = kernel
@@ -28,11 +33,20 @@ class TorchKernelDensity:
         return torch.cdist(X, Y) / self.bandwidth
 
     def _apply_kernel(self, distances, device):
-        if self.kernel == 'gaussian':
+        if self.kernel == self.gaussian:
             pi = torch.tensor(math.pi).to(device)
             return torch.exp(-0.5 * distances ** 2) / (self.bandwidth * torch.sqrt(2 * pi))
+        elif self.kernel == self.triangular:
+            return torch.maximum(1 - torch.abs(distances) / self.bandwidth,
+                                 torch.tensor(0.0).to(device)) / self.bandwidth
+        elif self.kernel == self.epanechnikov:
+            mask = (distances <= self.bandwidth).to(device)
+            return (3 / 4 * (1 - (distances / self.bandwidth) ** 2) * mask) / self.bandwidth
+        elif self.kernel == self.laplace:
+            return torch.exp(-torch.abs(distances) / self.bandwidth) / (2 * self.bandwidth)
         else:
-            raise ValueError("Currently only 'gaussian' kernel is implemented")
+            raise ValueError(
+                "Kernel not recognized. Supported kernels are: 'gaussian', 'triangular', 'epanechnikov', 'laplace'")
 
 
 def to_probs(x):

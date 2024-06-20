@@ -9,6 +9,7 @@ MPE = {
                 [0, 1.0],
                 [60000, 1.0],
                 [70000, 0.05],
+                [100000, 0.0],
             ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
@@ -44,6 +45,6 @@ MPE = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 2000000,
+        'timesteps_total': 200000,
     }
 }
