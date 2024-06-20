@@ -238,11 +238,34 @@ def target_distribution_weighting(policy, targets):
 def get_target_dist_weights_torch(targets) -> np.array:
     targets = standardize(targets)
     # h = bandwidth_iqr(targets)
-    kde = TorchKernelDensity(kernel="gaussian", bandwidth=5.0)
+    kde = TorchKernelDensity(kernel="gaussian", bandwidth=5)
     kde.fit(targets)
-    probs = kde.score_samples(targets)
-    weights = 1. / (probs + 1e-7)
+    densities = kde.score_samples(targets)
+    weights = 1. / (densities + 1e-7)
+    weights /= (weights.max() + 1e-7)
     return weights
+
+
+def gaussian_density(x):
+    """
+    Compute the Gaussian density for a torch tensor vector with mean 0 and unit variance.
+
+    Parameters:
+    x (tensor): The input tensor for which to compute the density.
+
+    Returns:
+    tensor: The computed density values for the input tensor.
+    """
+    # Constants
+    sqrt_2pi = torch.sqrt(torch.tensor(2 * math.pi, device=x.device))
+
+    # Compute the exponent part: exp(-0.5 * x^2)
+    exponent = torch.exp(-0.5 * x ** 2)
+
+    # Compute the final PDF value
+    pdf_value = (1 / sqrt_2pi) * exponent
+
+    return pdf_value
 
 
 def iqr(data):

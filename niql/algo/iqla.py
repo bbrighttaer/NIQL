@@ -8,7 +8,6 @@ from ray.rllib.utils.torch_ops import huber_loss
 from niql.algo.base_policy import NIQLBasePolicy
 from niql.envs import DEBUG_ENVS
 from niql.models import DQNModelsFactory
-from niql.torch_kde import TorchKernelDensity
 from niql.utils import to_numpy, tb_add_scalar, \
     tb_add_scalars, target_distribution_weighting, unroll_mac, unroll_mac_squeeze_wrapper, soft_update, tb_add_histogram
 
@@ -88,7 +87,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
                 partial(self.aggregate_messages, True)
             )
         )
-        target_mac_out = target_mac_out.detach()  # remove agent dimension
+        target_mac_out = target_mac_out.detach()
 
         # we only need target_mac_out for raw next_obs part
         target_mac_out = target_mac_out[:, 1:]

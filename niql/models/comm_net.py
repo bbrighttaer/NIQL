@@ -55,7 +55,7 @@ class AttentionCommMessagesAggregator(nn.Module):
         neighbour_msgs = messages[:, 1:, :]
 
         # Transform the agent's observation into the query space
-        Q = self.fc_query(query).unsqueeze(1)  # Shape: (batch_size, hidden_dim)
+        Q = self.fc_query(query).unsqueeze(1)  # Shape: (batch_size, 1, hidden_dim)
 
         # Transform the neighbor observations into the key and value spaces
         K = self.fc_key(neighbour_msgs)

@@ -59,7 +59,10 @@ class WBQLPolicy(NIQLBasePolicy):
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
-        all_neighbour_msgs = torch.cat((neighbour_obs[:, 0:1], neighbour_next_obs), axis=1)
+        if neighbour_obs is not None:
+            all_neighbour_msgs = torch.cat((neighbour_obs[:, 0:1], neighbour_next_obs), axis=1)
+        else:
+            all_neighbour_msgs = None
 
         # Auxiliary encoder objective
         # Qe(s, a_i)
