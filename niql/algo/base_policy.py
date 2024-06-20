@@ -1,4 +1,5 @@
 import logging
+import random
 from abc import ABC, abstractmethod
 from functools import partial
 from typing import Union, List, Optional, Dict, Tuple
@@ -14,10 +15,13 @@ from ray.rllib.utils import override, PiecewiseSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor
 from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
+from torch.nn.functional import mse_loss
+from torch.utils.data import TensorDataset, DataLoader
 
 from niql.config import FINGERPRINT_SIZE
 from niql.models import SimpleCommNet, AttentionCommMessagesAggregator
-from niql.utils import get_size
+from niql.models.vae import VAE
+from niql.utils import get_size, tb_add_scalar, tb_add_scalars
 from niql.utils import unpack_observation, preprocess_trajectory_batch, to_numpy, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, \
     batch_message_inter_agent_sharing, mac
 
@@ -104,6 +108,11 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         # create models
         self.params = []
         models_factory_class.__init__(self, agent_obs_space, action_space, config, core_arch)
+        self.vae_model = VAE(
+            input_dim=self.obs_size + self.n_actions + 1,
+            hidden_layer_dims=[16],
+            latent_dim=2,
+        ).to(self.device)
 
         self.exploration = self._create_exploration()
         self.dist_class = TorchCategorical
@@ -138,12 +147,18 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             self.optimiser = RMSprop(
                 params=self.params,
                 lr=config["lr"])
+            self.vae_optimiser = RMSprop(
+                params=self.vae_model.parameters(),
+                lr=0.001)
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
             self.optimiser = Adam(
                 params=self.params,
                 lr=config["lr"], )
+            self.vae_optimiser = Adam(
+                params=self.vae_model.parameters(),
+                lr=0.001, )
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -281,6 +296,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             next_env_global_state,
             n_obs,
             n_next_obs,
+            samples.get("uniform_batch"),
         )
 
         # Optimise
@@ -408,6 +424,63 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
 
         return out
 
+    def vae_loss_function(self, recon_x, x, mu, logvar):
+        MSE = mse_loss(recon_x, x, reduction='sum')
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        return MSE + KLD
+
+    def fit_vae(self, training_data: SampleBatch, num_epochs=1):
+        # construct training data
+        training_data.set_get_interceptor(
+            partial(convert_to_torch_tensor, device=self.device)
+        )
+        sample_size = training_data.count
+        obs = training_data[SampleBatch.OBS].reshape(sample_size, -1)
+        actions = training_data[SampleBatch.ACTIONS].reshape(sample_size, )
+        actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions]
+        rewards = training_data[SampleBatch.REWARDS].reshape(sample_size, -1)
+        input_data = torch.cat([obs, actions, rewards], dim=-1)
+
+        dataset = TensorDataset(input_data)
+        data_loader = DataLoader(dataset, batch_size=sample_size, shuffle=True)
+
+        self.vae_model.train()
+        training_loss = []
+        for epoch in range(num_epochs):
+            ep_loss = 0
+            for batch in data_loader:
+                batch = batch[0]
+                self.vae_optimiser.zero_grad()
+                recon_batch, mu, logvar = self.vae_model(batch)
+                loss = self.vae_loss_function(recon_batch, batch, mu, logvar)
+                loss.backward()
+                ep_loss += loss.item()
+                self.vae_optimiser.step()
+            training_loss.append(ep_loss / sample_size)
+        tb_add_scalar(self, "vae_loss", np.mean(training_loss))
+
+    def get_tdw_weights(self, training_data, obs, actions, rewards):
+        if training_data and random.random() < self.tdw_schedule.value(self.global_timestep):
+            self.fit_vae(training_data)
+
+            actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions.view(-1,)]
+            data = torch.cat([obs, actions, rewards], dim=-1)
+            densities = self.vae_model.estimate_density(data)
+            densities += 1e-7
+
+            tdw_weights = 1. / (densities + 1e-7)
+            tdw_weights /= (tdw_weights.max() + 1e-7)  # scaling
+
+            tb_add_scalars(self, "tdw_stats", {
+                # "scaling": scaling,
+                "max_weight": tdw_weights.max(),
+                "min_weight": tdw_weights.min(),
+                "mean_weight": tdw_weights.mean(),
+            })
+        else:
+            tdw_weights = torch.ones_like(rewards)
+        return tdw_weights
+
     @abstractmethod
     def switch_models_to_eval_mode(self):
         ...
@@ -442,7 +515,8 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                                   state=None,
                                   next_state=None,
                                   neighbour_obs=None,
-                                  neighbour_next_obs=None):
+                                  neighbour_next_obs=None,
+                                  uniform_batch=None):
         """
         Computes the Q loss.
         Based on the JointQLoss of Marllib.
@@ -461,5 +535,6 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             next_state: Tensor of shape [B, T, state_dim] (optional)
             neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
             neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+            uniform_batch: VAE training data
         """
         ...

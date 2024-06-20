@@ -181,15 +181,15 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
     # Periodic evaluation of trained policy
     config = add_evaluation_config(config)
 
-    hyperopt = HyperOptSearch({
-        "tdw_bandwidth": tune.quniform(0.1, 10, 0.1),
-        # "tdw_kernel": tune.choice([
-        #     TorchKernelDensity.gaussian,
-        #     # TorchKernelDensity.laplace,
-        #     # TorchKernelDensity.triangular,
-        #     # TorchKernelDensity.epanechnikov,
-        # ]),
-    }, mode="max", metric="episode_reward_mean")
+    # hyperopt = HyperOptSearch({
+    #     "tdw_bandwidth": tune.quniform(0.1, 10, 0.1),
+    #     # "tdw_kernel": tune.choice([
+    #     #     TorchKernelDensity.gaussian,
+    #     #     # TorchKernelDensity.laplace,
+    #     #     # TorchKernelDensity.triangular,
+    #     #     # TorchKernelDensity.epanechnikov,
+    #     # ]),
+    # }, mode="max", metric="episode_reward_mean")
 
     results = tune.run(
         trainer,
@@ -197,8 +197,8 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
         checkpoint_at_end=exp['checkpoint_end'],
         checkpoint_freq=exp['checkpoint_freq'],
         restore=model_path,
-        search_alg=hyperopt,
-        num_samples=10,
+        # search_alg=hyperopt,
+        # num_samples=10,
         stop=stop,
         config=config,
         verbose=1,

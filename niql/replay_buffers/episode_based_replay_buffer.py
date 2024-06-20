@@ -155,3 +155,24 @@ class PrioritizedReplayBufferWithStochasticEviction(PrioritizedReplayBuffer):
 
         # weighted sampling
         self._next_idx = np.random.choice(np.arange(self.capacity), p=probs)
+
+    def sample(self, num_items: int, beta: float) -> SampleBatchType:
+        batch = super().sample(num_items, beta)
+        uniform_batch = self.uniform_sample(min(num_items * 3, len(self._storage)))
+        batch["uniform_batch"] = uniform_batch
+        return batch
+
+    def uniform_sample(self, num_items: int) -> SampleBatchType:
+        """Sample a batch of experiences.
+
+        Args:
+            num_items (int): Number of items to sample from this buffer.
+
+        Returns:
+            SampleBatchType: concatenated batch of items.
+        """
+        idxes = [
+            random.randint(0,
+                           len(self._storage) - 1) for _ in range(num_items)
+        ]
+        return self._encode_sample(idxes)

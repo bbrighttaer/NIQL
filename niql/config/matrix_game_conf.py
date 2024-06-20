@@ -7,11 +7,11 @@ MATRIX_GAME = {
             'lr': 0.0005,
             'tdw_schedule': [
                 [0, 1.0],
-                [3000, 0.],
+                [10000, 0.],
             ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
-            'enable_stochastic_eviction': False,
+            'enable_stochastic_eviction': True,
             'target_network_update_freq': 10,
             'final_epsilon': 0.01,
             'epsilon_timesteps': 2000,

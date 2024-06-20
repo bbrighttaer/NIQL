@@ -32,7 +32,8 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
                                   state=None,
                                   next_state=None,
                                   neighbour_obs=None,
-                                  neighbour_next_obs=None):
+                                  neighbour_next_obs=None,
+                                  uniform_batch=None):
         """
         Computes the Q loss.
         Based on the JointQLoss of Marllib.
@@ -51,6 +52,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
             next_state: Tensor of shape [B, T, state_dim] (optional)
             neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
             neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+            uniform_batch: VAE training data
         """
         B, T = obs.shape[:2]
 
@@ -118,9 +120,16 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         tb_add_histogram(self, "batch_targets", targets)
 
         # Get target distribution weights
-        tdw_weights = target_distribution_weighting(
-            self, targets, self.config["tdw_kernel"], self.config["tdw_bandwidth"]
+        # tdw_weights = target_distribution_weighting(
+        #     self, targets, self.config["tdw_kernel"], self.config["tdw_bandwidth"]
+        # )
+        tdw_weights = self.get_tdw_weights(
+            training_data=uniform_batch,
+            obs=obs.view(B * T, -1),
+            actions=actions.view(B * T, -1),
+            rewards=rewards.view(B * T, -1),
         )
+        tdw_weights = tdw_weights.view(*targets.shape)
 
         # Td-error
         td_delta = chosen_action_qvals - targets.detach()
@@ -153,6 +162,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
     def set_weights(self, weights):
         self.model.load_state_dict(self._device_dict(weights["model"]))
         self.target_model.load_state_dict(self._device_dict(weights["target_model"]))
+        self.vae_model.load_state_dict(self._device_dict(weights["vae_model"]))
 
         if self.use_comm and "comm_net" in weights:
             self.comm_net.load_state_dict(self._device_dict(weights["comm_net"]))
@@ -165,6 +175,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         wts = {
             "model": self._cpu_dict(self.model.state_dict()),
             "target_model": self._cpu_dict(self.target_model.state_dict()),
+            "vae_model": self._cpu_dict(self.vae_model.state_dict()),
         }
         if self.use_comm:
             wts["comm_net"] = self._cpu_dict(self.comm_net.state_dict())
