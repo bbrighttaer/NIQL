@@ -183,12 +183,12 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
 
     hyperopt = HyperOptSearch({
         "tdw_bandwidth": tune.quniform(0.1, 10, 0.1),
-        "tdw_kernel": tune.choice([
-            TorchKernelDensity.gaussian,
-            TorchKernelDensity.laplace,
-            TorchKernelDensity.triangular,
-            TorchKernelDensity.epanechnikov,
-        ]),
+        # "tdw_kernel": tune.choice([
+        #     TorchKernelDensity.gaussian,
+        #     # TorchKernelDensity.laplace,
+        #     # TorchKernelDensity.triangular,
+        #     # TorchKernelDensity.epanechnikov,
+        # ]),
     }, mode="max", metric="episode_reward_mean")
 
     results = tune.run(
