@@ -214,15 +214,15 @@ def tb_add_scalars(policy, label, values_dict):
         )
 
 
-def target_distribution_weighting(policy, targets, kernel=TorchKernelDensity.gaussian, bandwidth=5.):
-    targets_flat = targets.reshape(-1, 1)
+def target_distribution_weighting(policy, train_data, eval_data, kernel=TorchKernelDensity.gaussian, bandwidth=1.):
     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
         lds_weights = get_target_dist_weights_torch(
-            targets=targets_flat,
+            train_data=train_data,
+            eval_data=eval_data,
             kernel=kernel,
             bandwidth=bandwidth,
         )
-        lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
+        lds_weights = convert_to_torch_tensor(lds_weights, policy.device)
 
         tb_add_scalars(policy, "tdw_stats", {
             # "scaling": scaling,
@@ -231,15 +231,36 @@ def target_distribution_weighting(policy, targets, kernel=TorchKernelDensity.gau
             "mean_weight": lds_weights.mean(),
         })
     else:
-        lds_weights = torch.ones_like(targets)
+        lds_weights = torch.ones((eval_data.shape[0], 1)).to(policy.device)
     return lds_weights
 
 
-def get_target_dist_weights_torch(targets, kernel, bandwidth) -> np.array:
-    targets = standardize(targets)
+def normalize_zero_mean_unit_variance(X):
+    """
+    Normalize the input tensor to have zero mean and unit variance.
+
+    Parameters:
+    X (torch.Tensor): The input tensor of shape (M, D).
+
+    Returns:
+    torch.Tensor: The normalized tensor with zero mean and unit variance.
+    """
+    # Calculate the mean and standard deviation along the feature dimension (D)
+    mean = X.mean(dim=0, keepdim=True)
+    std = X.std(dim=0, unbiased=False, keepdim=True)
+
+    # Normalize the input tensor
+    X_normalized = (X - mean) / (std + 1e-6)
+
+    return X_normalized
+
+
+def get_target_dist_weights_torch(train_data, eval_data, kernel, bandwidth) -> np.array:
+    train_data = normalize_zero_mean_unit_variance(train_data)
+    eval_data = normalize_zero_mean_unit_variance(eval_data)
     kde = TorchKernelDensity(bandwidth, kernel)
-    kde.fit(targets)
-    densities = kde.score_samples(targets)
+    kde.fit(train_data)
+    densities = kde.score_samples(eval_data)
     weights = 1. / (densities + 1e-7)
     weights /= (weights.max() + 1e-7)
     return weights

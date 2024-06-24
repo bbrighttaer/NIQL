@@ -9,6 +9,7 @@ MATRIX_GAME = {
                 [0, 1.0],
                 [10000, 0.],
             ],
+            'tdw_bandwidth': 1.0,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': True,
@@ -39,6 +40,10 @@ MATRIX_GAME = {
         # 'model': 'DRQNModel',
         # 'model': 'MatrixGameQMLP',
         # 'model': 'MatrixGameSplitQMLP',
+        'tdw_vae': {
+            'latent_dim': 2,
+            'hdims': [16],
+        },
         'mha_num_heads': 2,
         'comm_dim': 0,
         'comm_hdim': 64,

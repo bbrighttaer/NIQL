@@ -10,6 +10,7 @@ PREDATOR_PREY = {
                 [100000, 1.0],
                 [200000, 0.0],
             ],
+            'tdw_bandwidth': 5.,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': True,
@@ -36,6 +37,10 @@ PREDATOR_PREY = {
         # 'model': 'DuelingQFCN',
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
+        'tdw_vae': {
+            'latent_dim': 8,
+            'hdims': [128],
+        },
         'mha_num_heads': 4,
         'comm_dim': 0,
         'comm_hdim': 64,

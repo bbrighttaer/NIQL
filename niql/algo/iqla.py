@@ -3,6 +3,7 @@ from functools import partial
 
 import numpy as np
 import torch
+from ray.rllib import SampleBatch
 from ray.rllib.utils.torch_ops import huber_loss
 
 from niql.algo.base_policy import NIQLBasePolicy
@@ -120,21 +121,29 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         tb_add_histogram(self, "batch_targets", targets)
 
         # Get target distribution weights
-        # tdw_weights = target_distribution_weighting(
-        #     self, targets, self.config["tdw_kernel"], self.config["tdw_bandwidth"]
-        # )
-        tdw_weights = self.get_tdw_weights(
-            training_data=uniform_batch,
-            obs=obs.view(B * T, -1),
-            actions=actions.view(B * T, -1),
-            rewards=rewards.view(B * T, -1),
+        tdw_train_data = self.construct_tdw_dataset(uniform_batch)
+        tdw_x = self.construct_tdw_dataset(SampleBatch({
+            SampleBatch.OBS: obs.view(B * T, -1),
+            SampleBatch.ACTIONS: actions.view(B * T, -1),
+            SampleBatch.REWARDS: rewards.view(B * T, -1),
+        }))
+        tdw_weights = target_distribution_weighting(
+            self, targets.view(B * T, -1), targets.view(B * T, -1), self.config["tdw_kernel"], self.config["tdw_bandwidth"]
         )
-        tdw_weights = tdw_weights.view(*targets.shape)
+        tdw_weights = tdw_weights.view(B, T)
+        # tdw_weights = self.get_tdw_weights(
+        #     training_data=uniform_batch,
+        #     obs=obs.view(B * T, -1),
+        #     actions=actions.view(B * T, -1),
+        #     rewards=rewards.view(B * T, -1),
+        # )
+        # tdw_weights = tdw_weights.view(*targets.shape)
 
         # Td-error
         td_delta = chosen_action_qvals - targets.detach()
         weights = is_weights * tdw_weights
         weights /= torch.clamp(weights.max(), 1e-7)
+        # weights = weights ** self.adaptive_gamma()
         td_error = td_delta * weights
 
         mask = mask.expand_as(td_error)

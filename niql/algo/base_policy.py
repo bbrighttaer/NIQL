@@ -108,10 +108,11 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         # create models
         self.params = []
         models_factory_class.__init__(self, agent_obs_space, action_space, config, core_arch)
+        vae_args = model_arch_args = config["model"]["custom_model_config"]["model_arch_args"]["tdw_vae"]
         self.vae_model = VAE(
             input_dim=self.obs_size + self.n_actions + 1,
-            hidden_layer_dims=[16],
-            latent_dim=2,
+            hidden_layer_dims=vae_args["hdims"],
+            latent_dim=vae_args["latent_dim"],
         ).to(self.device)
 
         self.exploration = self._create_exploration()
@@ -429,20 +430,11 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         return MSE + KLD
 
-    def fit_vae(self, training_data: SampleBatch, num_epochs=1):
-        # construct training data
-        training_data.set_get_interceptor(
-            partial(convert_to_torch_tensor, device=self.device)
-        )
-        sample_size = training_data.count
-        obs = training_data[SampleBatch.OBS].reshape(sample_size, -1)
-        actions = training_data[SampleBatch.ACTIONS].reshape(sample_size, )
-        actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions]
-        rewards = training_data[SampleBatch.REWARDS].reshape(sample_size, -1)
-        input_data = torch.cat([obs, actions, rewards], dim=-1)
+    def fit_vae(self, training_data: SampleBatch, num_epochs=2):
+        input_data = self.construct_tdw_dataset(training_data)
 
         dataset = TensorDataset(input_data)
-        data_loader = DataLoader(dataset, batch_size=sample_size, shuffle=True)
+        data_loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
         self.vae_model.train()
         training_loss = []
@@ -456,8 +448,21 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 loss.backward()
                 ep_loss += loss.item()
                 self.vae_optimiser.step()
-            training_loss.append(ep_loss / sample_size)
+            training_loss.append(ep_loss / training_data.data)
         tb_add_scalar(self, "vae_loss", np.mean(training_loss))
+
+    def construct_tdw_dataset(self, samples: SampleBatch):
+        # construct training data
+        samples.set_get_interceptor(
+            partial(convert_to_torch_tensor, device=self.device)
+        )
+        sample_size = samples.count
+        obs = samples[SampleBatch.OBS].reshape(sample_size, -1)
+        actions = samples[SampleBatch.ACTIONS].reshape(sample_size, )
+        actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions]
+        rewards = samples[SampleBatch.REWARDS].reshape(sample_size, -1)
+        data = torch.cat([obs, actions, rewards], dim=-1)
+        return data
 
     def get_tdw_weights(self, training_data, obs, actions, rewards):
         if training_data and random.random() < self.tdw_schedule.value(self.global_timestep):
@@ -480,6 +485,20 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         else:
             tdw_weights = torch.ones_like(rewards)
         return tdw_weights
+
+    def adaptive_gamma(self, alpha=0.01, beta=10000):
+        """
+        Compute the adaptive gamma for importance weighting in DQN.
+
+        Parameters:
+        n_tr (int): Current number of training iterations.
+        alpha (float): Controls the steepness of the sigmoid curve.
+        beta (float): Shifts the midpoint of the sigmoid curve.
+
+        Returns:
+        float: Computed gamma value.
+        """
+        return 1 / (1 + np.exp(-alpha * (self.global_timestep - beta)))
 
     @abstractmethod
     def switch_models_to_eval_mode(self):

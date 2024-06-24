@@ -136,7 +136,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
             "comm_num_agents": env["num_agents"],
             "tdw_schedule": _param.get("tdw_schedule"),
             "tdw_kernel": TorchKernelDensity.gaussian,
-            "tdw_bandwidth": 5.,
+            "tdw_bandwidth": _param.get("tdw_bandwidth", 1.),
         })
 
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
