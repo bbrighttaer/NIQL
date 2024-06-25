@@ -128,7 +128,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
             SampleBatch.REWARDS: rewards.view(B * T, -1),
         }))
         tdw_weights = target_distribution_weighting(
-            self, targets.view(B * T, -1), targets.view(B * T, -1), self.config["tdw_kernel"], self.config["tdw_bandwidth"]
+            self, targets.detach().clone().view(B * T, -1),
         )
         tdw_weights = tdw_weights.view(B, T)
         # tdw_weights = self.get_tdw_weights(
@@ -142,7 +142,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         # Td-error
         td_delta = chosen_action_qvals - targets.detach()
         weights = is_weights * tdw_weights
-        weights /= torch.clamp(weights.max(), 1e-7)
+        # weights /= torch.clamp(weights.max(), 1e-7)
         # weights = weights ** self.adaptive_gamma()
         td_error = td_delta * weights
 

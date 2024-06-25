@@ -1,5 +1,6 @@
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
@@ -12,6 +13,7 @@ from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor
 from sklearn.cluster import DBSCAN
+from sklearn.neighbors import KernelDensity
 
 from niql.torch_kde import TorchKernelDensity
 
@@ -214,15 +216,17 @@ def tb_add_scalars(policy, label, values_dict):
         )
 
 
-def target_distribution_weighting(policy, train_data, eval_data, kernel=TorchKernelDensity.gaussian, bandwidth=1.):
+def target_distribution_weighting(policy, targets):
+    targets_flat = targets.reshape(-1, 1)
     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
-        lds_weights = get_target_dist_weights_torch(
-            train_data=train_data,
-            eval_data=eval_data,
-            kernel=kernel,
-            bandwidth=bandwidth,
+        lds_weights = get_target_dist_weights_cl(
+            targets_flat, targets_flat, None, None
         )
-        lds_weights = convert_to_torch_tensor(lds_weights, policy.device)
+        scaling = len(lds_weights) / (lds_weights.sum() + 1e-7)
+        lds_weights *= scaling
+        lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
+        min_w = max(1e-2, lds_weights.min())
+        lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2 * min_w)
 
         tb_add_scalars(policy, "tdw_stats", {
             # "scaling": scaling,
@@ -231,7 +235,7 @@ def target_distribution_weighting(policy, train_data, eval_data, kernel=TorchKer
             "mean_weight": lds_weights.mean(),
         })
     else:
-        lds_weights = torch.ones((eval_data.shape[0], 1)).to(policy.device)
+        lds_weights = torch.ones_like(targets)
     return lds_weights
 
 
@@ -266,29 +270,39 @@ def get_target_dist_weights_torch(train_data, eval_data, kernel, bandwidth) -> n
     return weights
 
 
-def get_target_dist_weights(targets, num_clusters=100) -> np.array:
-    targets = to_numpy(targets)
+def get_target_dist_weights_sk(train_data, eval_data, kernel, bandwidth) -> np.array:
+    train_data = normalize_zero_mean_unit_variance(train_data)
+    eval_data = normalize_zero_mean_unit_variance(eval_data)
+    kde = KernelDensity(kernel=kernel, bandwidth=bandwidth).fit(to_numpy(train_data))
+    log_density = kde.score_samples(to_numpy(eval_data))
+    densities = torch.from_numpy(np.exp(log_density)).to(train_data.device)
+    weights = 1. / (densities + 1e-7)
+    weights /= (weights.max() + 1e-7)
+    return weights
+
+
+def get_target_dist_weights_cl(train_data, eval_data, kernel, bandwidth) -> np.array:
+    data = to_numpy(eval_data)
 
     # clustering
-    bin_index_per_label = cluster_labels(targets, n_clusters=num_clusters)
+    bin_index_per_label = cluster_labels(data)
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
     emp_label_dist = [num_samples_of_bins.get(i, 0) for i in range(Nb)]
-    targets = targets.reshape(-1, 1)
 
     # Use re-weighting based on empirical cluster distribution, sample-wise weights: [Ns,]
     eff_num_per_label = [emp_label_dist[bin_idx] for bin_idx in bin_index_per_label]
     weights = [1. / (x + 1e-6) for x in eff_num_per_label]
-    tdw_weights = np.array(weights).reshape(len(targets), -1)
+    tdw_weights = np.array(weights).reshape(len(data), -1)
     return tdw_weights
 
 
-def cluster_labels(targets, *, min_samples_in_cluster=2, eps=.1, n_clusters=100):
-    targets = standardize(targets)
-    targets = targets / np.max(targets)
+def cluster_labels(data, min_samples_in_cluster=2, eps=.1, n_clusters=100):
+    data = standardize(data)
+    data = data / np.max(data)
     # n_clusters = min(n_clusters, len(np.unique(labels)))
     # clustering = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
-    clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(targets.reshape(-1, 1))
+    clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(data)
     bin_index_per_label = clustering.labels_
     # create bins
     # num_bins = 1000
