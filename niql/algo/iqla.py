@@ -121,12 +121,12 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         tb_add_histogram(self, "batch_targets", targets)
 
         # Get target distribution weights
-        tdw_train_data = self.construct_tdw_dataset(uniform_batch)
-        tdw_x = self.construct_tdw_dataset(SampleBatch({
-            SampleBatch.OBS: obs.view(B * T, -1),
-            SampleBatch.ACTIONS: actions.view(B * T, -1),
-            SampleBatch.REWARDS: rewards.view(B * T, -1),
-        }))
+        # tdw_train_data = self.construct_tdw_dataset(uniform_batch)
+        # tdw_x = self.construct_tdw_dataset(SampleBatch({
+        #     SampleBatch.OBS: obs.view(B * T, -1),
+        #     SampleBatch.ACTIONS: actions.view(B * T, -1),
+        #     SampleBatch.REWARDS: rewards.view(B * T, -1),
+        # }))
         tdw_weights = target_distribution_weighting(
             self, targets.detach().clone().view(B * T, -1),
         )

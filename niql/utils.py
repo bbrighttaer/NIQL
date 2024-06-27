@@ -219,7 +219,7 @@ def tb_add_scalars(policy, label, values_dict):
 def target_distribution_weighting(policy, targets):
     targets_flat = targets.reshape(-1, 1)
     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
-        lds_weights = get_target_dist_weights_cl(
+        lds_weights = get_target_dist_weights_l2(
             targets_flat, targets_flat, None, None
         )
         scaling = len(lds_weights) / (lds_weights.sum() + 1e-7)
@@ -281,6 +281,16 @@ def get_target_dist_weights_sk(train_data, eval_data, kernel, bandwidth) -> np.a
     return weights
 
 
+def get_target_dist_weights_l2(train_data, eval_data, kernel, bandwidth) -> np.array:
+    data = standardize(train_data)
+    distances = pairwise_l2_distance(data)
+    context = distances < 0.01
+    densities = context.float().mean(dim=-1)
+    weights = 1. / (densities + 1e-7)
+    weights /= (weights.max() + 1e-7)
+    return weights
+
+
 def get_target_dist_weights_cl(train_data, eval_data, kernel, bandwidth) -> np.array:
     data = to_numpy(eval_data)
 
@@ -311,6 +321,13 @@ def cluster_labels(data, min_samples_in_cluster=2, eps=.1, n_clusters=100):
     # bin_index_per_label = np.digitize(targets, bins, right=True)
     # bin_index_per_label = np.array(bin_index_per_label)
     return bin_index_per_label
+
+
+def pairwise_l2_distance(tensor):
+    # Calculate pairwise L2 distances
+    diff = tensor.unsqueeze(1) - tensor.unsqueeze(0)  # Broadcasting to compute differences
+    l2_distances = torch.sqrt(torch.sum(diff ** 2, dim=2))  # L2 distance calculation
+    return l2_distances
 
 
 # def get_lds_kernel_window(kernel, ks, sigma):
