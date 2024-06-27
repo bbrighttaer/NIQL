@@ -108,12 +108,12 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         # create models
         self.params = []
         models_factory_class.__init__(self, agent_obs_space, action_space, config, core_arch)
-        vae_args = model_arch_args = config["model"]["custom_model_config"]["model_arch_args"]["tdw_vae"]
-        self.vae_model = VAE(
-            input_dim=self.obs_size + self.n_actions + 1,
-            hidden_layer_dims=vae_args["hdims"],
-            latent_dim=vae_args["latent_dim"],
-        ).to(self.device)
+        # vae_args = model_arch_args = config["model"]["custom_model_config"]["model_arch_args"]["tdw_vae"]
+        # self.vae_model = VAE(
+        #     input_dim=self.obs_size + self.n_actions + 1,
+        #     hidden_layer_dims=vae_args["hdims"],
+        #     latent_dim=vae_args["latent_dim"],
+        # ).to(self.device)
 
         self.exploration = self._create_exploration()
         self.dist_class = TorchCategorical
@@ -148,18 +148,18 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             self.optimiser = RMSprop(
                 params=self.params,
                 lr=config["lr"])
-            self.vae_optimiser = RMSprop(
-                params=self.vae_model.parameters(),
-                lr=0.001)
+            # self.vae_optimiser = RMSprop(
+            #     params=self.vae_model.parameters(),
+            #     lr=0.001)
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
             self.optimiser = Adam(
                 params=self.params,
                 lr=config["lr"], )
-            self.vae_optimiser = Adam(
-                params=self.vae_model.parameters(),
-                lr=0.001, )
+            # self.vae_optimiser = Adam(
+            #     params=self.vae_model.parameters(),
+            #     lr=0.001, )
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")

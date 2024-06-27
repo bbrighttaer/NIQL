@@ -16,9 +16,9 @@ from niql.utils import unroll_mac, \
 logger = logging.getLogger(__name__)
 
 
-class WBQLPolicy(NIQLBasePolicy):
+class WIBQLPolicy(NIQLBasePolicy):
     """
-    Implementation of Weighted Best Possible Q-learning objective
+    Implementation of Weighted Independent Best Possible Q-learning objective
     """
 
     def __init__(self, obs_space, action_space, config):
@@ -37,7 +37,8 @@ class WBQLPolicy(NIQLBasePolicy):
                                   state=None,
                                   next_state=None,
                                   neighbour_obs=None,
-                                  neighbour_next_obs=None):
+                                  neighbour_next_obs=None,
+                                  uniform_batch=None):
         """
         Computes the Q loss.
 
@@ -55,7 +56,10 @@ class WBQLPolicy(NIQLBasePolicy):
             next_state: Tensor of shape [B, T, state_dim] (optional)
             neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
             neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+            uniform_batch: VAE training data
         """
+        B, T = obs.shape[:2]
+
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
@@ -98,7 +102,10 @@ class WBQLPolicy(NIQLBasePolicy):
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
         # Get target distribution weights
-        tdw_weights = target_distribution_weighting(self, targets)
+        tdw_weights = target_distribution_weighting(
+            self, targets.detach().clone().view(B * T, -1),
+        )
+        tdw_weights = tdw_weights.view(B, T)
 
         # Qe_i TD error
         td_delta = qe_qvals - targets.detach()

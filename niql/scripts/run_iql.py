@@ -18,7 +18,7 @@ from ray.tune.suggest.hyperopt import HyperOptSearch
 from ray.util.ml_utils.dict import merge_dicts
 from sklearn.neighbors import KernelDensity
 
-from niql.algo import IQLTrainer, IQLPolicyAttnComm
+from niql.algo import IQLTrainer, WIQL
 from niql.callbacks import ObservationCommWrapper
 from niql.envs import DEBUG_ENVS
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
@@ -137,6 +137,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
             "tdw_schedule": _param.get("tdw_schedule"),
             "tdw_kernel": TorchKernelDensity.gaussian,
             "tdw_bandwidth": _param.get("tdw_bandwidth", 1.),
+            "similarity_threshold": _param.get("similarity_threshold", 0.01)
         })
 
     IQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
@@ -164,7 +165,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
 
     if algorithm == "wiql":
         trainer = trainer.with_updates(
-            get_policy_class=lambda c: IQLPolicyAttnComm,
+            get_policy_class=lambda c: WIQL,
         )
 
     map_name = exp["env_args"]["map_name"]

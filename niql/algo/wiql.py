@@ -3,19 +3,17 @@ from functools import partial
 
 import numpy as np
 import torch
-from ray.rllib import SampleBatch
 from ray.rllib.utils.torch_ops import huber_loss
 
 from niql.algo.base_policy import NIQLBasePolicy
-from niql.envs import DEBUG_ENVS
 from niql.models import DQNModelsFactory
 from niql.utils import to_numpy, tb_add_scalar, \
-    tb_add_scalars, target_distribution_weighting, unroll_mac, unroll_mac_squeeze_wrapper, soft_update, tb_add_histogram
+    target_distribution_weighting, unroll_mac, unroll_mac_squeeze_wrapper, soft_update, tb_add_histogram
 
 logger = logging.getLogger(__name__)
 
 
-class IQLPolicyAttnComm(NIQLBasePolicy):
+class WIQL(NIQLBasePolicy):
 
     def __init__(self, obs_space, action_space, config):
         super().__init__(obs_space, action_space, config, DQNModelsFactory)
@@ -128,7 +126,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         #     SampleBatch.REWARDS: rewards.view(B * T, -1),
         # }))
         tdw_weights = target_distribution_weighting(
-            self, targets.detach().clone().view(B * T, -1),
+            self, targets.detach().clone().view(B * T, -1), self.config["similarity_threshold"]
         )
         tdw_weights = tdw_weights.view(B, T)
         # tdw_weights = self.get_tdw_weights(
@@ -171,7 +169,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
     def set_weights(self, weights):
         self.model.load_state_dict(self._device_dict(weights["model"]))
         self.target_model.load_state_dict(self._device_dict(weights["target_model"]))
-        self.vae_model.load_state_dict(self._device_dict(weights["vae_model"]))
+        # self.vae_model.load_state_dict(self._device_dict(weights["vae_model"]))
 
         if self.use_comm and "comm_net" in weights:
             self.comm_net.load_state_dict(self._device_dict(weights["comm_net"]))
@@ -184,7 +182,7 @@ class IQLPolicyAttnComm(NIQLBasePolicy):
         wts = {
             "model": self._cpu_dict(self.model.state_dict()),
             "target_model": self._cpu_dict(self.target_model.state_dict()),
-            "vae_model": self._cpu_dict(self.vae_model.state_dict()),
+            # "vae_model": self._cpu_dict(self.vae_model.state_dict()),
         }
         if self.use_comm:
             wts["comm_net"] = self._cpu_dict(self.comm_net.state_dict())

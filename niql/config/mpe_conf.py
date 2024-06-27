@@ -7,16 +7,15 @@ MPE = {
             'lr': 0.0005,
             'tdw_schedule': [
                 [0, 1.0],
-                [60000, 1.0],
-                [70000, 0.05],
-                [100000, 0.0],
+                [150000, 1.0],
+                [155000, 0.0],
             ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': True,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
-            'epsilon_timesteps': 50000,
+            'epsilon_timesteps': 100000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
@@ -25,7 +24,7 @@ MPE = {
             'beta': 0,
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
-            'similarity_threshold': 0.999,
+            'similarity_threshold': 0.001,
         }
     },
     'model_preference': {
@@ -45,6 +44,6 @@ MPE = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 200000,
+        'timesteps_total': 1000000,
     }
 }
