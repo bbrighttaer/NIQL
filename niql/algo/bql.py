@@ -220,7 +220,7 @@ class BQLPolicy(LearningRateSchedule, Policy):
             result=learn_stats,
         )
 
-        (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
+        (action_mask, actions, prev_actions, env_global_state, mask, next_action_mask, next_env_global_state,
          next_obs, obs, rewards, weights, terminated, n_obs, n_next_obs, seq_lens) = preprocess_trajectory_batch(
             policy=self,
             samples=samples,
@@ -231,6 +231,7 @@ class BQLPolicy(LearningRateSchedule, Policy):
             rewards,
             weights,
             actions,
+            prev_actions,
             terminated,
             mask,
             obs,
@@ -317,6 +318,7 @@ class BQLPolicy(LearningRateSchedule, Policy):
                                   rewards,
                                   weights,
                                   actions,
+                                  prev_actions,
                                   terminated,
                                   mask,
                                   obs,
@@ -334,6 +336,7 @@ class BQLPolicy(LearningRateSchedule, Policy):
             rewards: Tensor of shape [B, T]
             weights: Tensor of shape [B, T]
             actions: Tensor of shape [B, T]
+            prev_actions: Tensor of shape [B, T]
             terminated: Tensor of shape [B, T]
             mask: Tensor of shape [B, T]
             obs: Tensor of shape [B, T, obs_size]

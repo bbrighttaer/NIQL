@@ -109,7 +109,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
 
     input_list = [
         samples[SampleBatch.REWARDS], samples["weights"], action_mask, next_action_mask,
-        samples[SampleBatch.ACTIONS], samples[SampleBatch.DONES],
+        samples[SampleBatch.ACTIONS], samples[SampleBatch.PREV_ACTIONS], samples[SampleBatch.DONES],
         obs_batch, next_obs_batch
     ]
 
@@ -134,16 +134,16 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
 
     # These will be padded to shape [B * T, ...]
     if policy.has_env_global_state and has_neighbour_data:
-        (rew, wts, action_mask, next_action_mask, act, dones, obs, next_obs,
+        (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs,
          env_global_state, next_env_global_state, n_obs, n_next_obs) = output_list
     elif policy.has_env_global_state:
-        (rew, wts, action_mask, next_action_mask, act, dones, obs, next_obs,
+        (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs,
          env_global_state, next_env_global_state) = output_list
     elif has_neighbour_data:
-        (rew, wts, action_mask, next_action_mask, act, dones, obs, next_obs,
+        (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs,
          n_obs, n_next_obs) = output_list
     else:
-        (rew, wts, action_mask, next_action_mask, act, dones, obs,
+        (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs,
          next_obs) = output_list
     B, T = len(seq_lens), max(seq_lens)
 
@@ -168,6 +168,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
     obs = to_batches(obs, torch.float)
     next_obs = to_batches(next_obs, torch.float)
     actions = to_batches(act.reshape(-1, 1), torch.long)
+    prev_actions = to_batches(prev_act.reshape(-1, 1), torch.long)
     action_mask = to_batches(action_mask, torch.float)
     next_action_mask = to_batches(next_action_mask, torch.float)
     terminated = to_batches(dones.reshape(-1, 1), torch.float)
@@ -185,7 +186,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
     filled = np.reshape(np.tile(np.arange(T, dtype=np.float32), B), [B, T]) < np.expand_dims(seq_lens, 1)
     mask = torch.as_tensor(filled, dtype=torch.float, device=policy.device)
 
-    return (action_mask, actions, env_global_state, mask, next_action_mask,
+    return (action_mask, actions, prev_actions, env_global_state, mask, next_action_mask,
             next_env_global_state, next_obs, obs, rewards, weights, terminated, n_obs, n_next_obs, seq_lens)
 
 
@@ -379,6 +380,7 @@ def unroll_mac(model, obs_tensor, comm_net=None, shared_messages=None, aggregati
     mac_h_out = []
     h = [s.expand([B, n_agents, -1]) for s in model.get_initial_state()]
     is_recurrent = len(h) > 0
+    prev_actions = kwargs.get("prev_actions")
 
     # forward propagation through time
     for t in range(T):
@@ -402,7 +404,15 @@ def unroll_mac(model, obs_tensor, comm_net=None, shared_messages=None, aggregati
             # update input data with messages
             obs = torch.cat([obs, msg], dim=-1)
 
-        q, h = mac(model, obs, h, **kwargs)
+        if prev_actions is not None:
+            actions = prev_actions[:, t:t + 1]
+            actions_enc = torch.eye(kwargs["n_actions"]).float().to(obs.device)[actions]
+            obs = torch.cat([obs, actions_enc], dim=-1)
+
+        try:
+            q, h = mac(model, obs, h, **kwargs)
+        except:
+            raise RuntimeError()
         mac_out.append(q)
         mac_h_out.extend(h)
     mac_out = torch.stack(mac_out, dim=1)  # Concat over time

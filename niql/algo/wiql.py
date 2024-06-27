@@ -22,6 +22,7 @@ class WIQL(NIQLBasePolicy):
                                   rewards,
                                   is_weights,
                                   actions,
+                                  prev_actions,
                                   terminated,
                                   mask,
                                   obs,
@@ -41,6 +42,7 @@ class WIQL(NIQLBasePolicy):
             rewards: Tensor of shape [B, T]
             is_weights: Tensor of shape [B, T]
             actions: Tensor of shape [B, T]
+            prev_actions: Tensor of shape [B, T]
             terminated: Tensor of shape [B, T]
             mask: Tensor of shape [B, T]
             obs: Tensor of shape [B, T, obs_size]
@@ -64,6 +66,11 @@ class WIQL(NIQLBasePolicy):
             all_neighbour_msgs = None
         tb_add_histogram(self, "batch_rewards", rewards)
 
+        kwargs = {}
+        if self.add_action_to_obs:
+            kwargs["prev_actions"] = torch.cat([prev_actions, actions[:, -1:]], dim=-1)
+            kwargs["n_actions"] = self.n_actions
+
         # Calculate estimated Q-Values
         mac_out, mac_out_h = unroll_mac_squeeze_wrapper(
             unroll_mac(
@@ -71,7 +78,8 @@ class WIQL(NIQLBasePolicy):
                 whole_obs,
                 self.comm_net,
                 all_neighbour_msgs,
-                partial(self.aggregate_messages, False)
+                partial(self.aggregate_messages, False),
+                **kwargs,
             )
         )
 
@@ -85,7 +93,8 @@ class WIQL(NIQLBasePolicy):
                 whole_obs,
                 self.comm_net_target,
                 all_neighbour_msgs,
-                partial(self.aggregate_messages, True)
+                partial(self.aggregate_messages, True),
+                **kwargs
             )
         )
         target_mac_out = target_mac_out.detach()

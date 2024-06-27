@@ -31,6 +31,25 @@ class SimpleCommNet(nn.Module):
         return x
 
 
+class ConcatCommMessagesAggregator(nn.Module):
+    """Simply concatenates all messages"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+    def forward(self, query, messages):
+        """
+        Aggregates neighbour message.
+
+        :param query: query tensor of shape (bath_size, obs_dim)
+        :param messages: local and shared neighbour messages, tensor of shape (bath_size, num_msgs, comm_dim)
+        :return: aggregated neighbour messages, tensor of shape (batch_size, output_dim)
+        """
+        neighbour_msgs = messages[:, 1:, :]
+        concat_msgs = neighbour_msgs.view(neighbour_msgs.shape[0], -1)
+        return concat_msgs
+
+
 class AttentionCommMessagesAggregator(nn.Module):
     """
     An attention-based neighbour messages aggregator.

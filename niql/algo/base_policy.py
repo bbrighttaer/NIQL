@@ -20,6 +20,7 @@ from torch.utils.data import TensorDataset, DataLoader
 
 from niql.config import FINGERPRINT_SIZE
 from niql.models import SimpleCommNet, AttentionCommMessagesAggregator
+from niql.models.comm_net import ConcatCommMessagesAggregator
 from niql.models.vae import VAE
 from niql.utils import get_size, tb_add_scalar, tb_add_scalars
 from niql.utils import unpack_observation, preprocess_trajectory_batch, to_numpy, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, \
@@ -86,6 +87,8 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
 
         # models
         model_arch_args = config["model"]["custom_model_config"]["model_arch_args"]
+        self.add_action_to_obs = model_arch_args["add_action_dim"]
+        config["model"]["action_dim"] = action_space.n if self.add_action_to_obs else 0
         self.use_comm = model_arch_args.get("comm_dim", 0) > 0
         comm_dim = 0
         self.comm_net = None
@@ -95,7 +98,10 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             comm_dim = model_arch_args["comm_dim"] + fp_size
             comm_hdim = model_arch_args["comm_hdim"]
             config["model"]["comm_dim"] = comm_dim
-            config["model"]["comm_aggregator_dim"] = model_arch_args["comm_aggregator_dim"]
+            if model_arch_args["comm_aggregator"] == "concat":
+                config["model"]["comm_aggregator_dim"] = comm_dim * (config["comm_num_agents"] - 1)
+            else:
+                config["model"]["comm_aggregator_dim"] = model_arch_args["comm_aggregator_dim"]
             agent_index = int(self.policy_id.split("_")[-1])
 
             self.comm_net = SimpleCommNet(
@@ -126,13 +132,17 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         # create comm aggregators
         if self.use_comm:
             query_dim = model_arch_args["hidden_state_size"] if self._is_recurrent else self.obs_size
-            self.comm_aggregator = AttentionCommMessagesAggregator(
+            if model_arch_args["comm_aggregator"] == "concat":
+                aggregator = ConcatCommMessagesAggregator
+            else:
+                aggregator = AttentionCommMessagesAggregator
+            self.comm_aggregator = aggregator(
                 query_dim=query_dim,
                 comm_dim=comm_dim,
                 hidden_dims=model_arch_args["comm_aggregator_hdims"],
                 output_dim=model_arch_args["comm_aggregator_dim"],
             ).to(self.device)
-            self.comm_aggregator_target = AttentionCommMessagesAggregator(
+            self.comm_aggregator_target = aggregator(
                 query_dim=query_dim,
                 comm_dim=comm_dim,
                 hidden_dims=model_arch_args["comm_aggregator_hdims"],
@@ -221,6 +231,11 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                     self.neighbour_messages.clear()
                 obs_batch = torch.cat([obs_batch, msg], dim=-1)
 
+            if self.add_action_to_obs:
+                one_hot_tensor = torch.eye(self.n_actions).float().to(self.device)
+                actions = one_hot_tensor[prev_action_batch].unsqueeze(1)
+                obs_batch = torch.cat([obs_batch, actions], dim=-1)
+
             # predict q-vals
             q_values, hiddens = mac(self.model, obs_batch, state_batches)
             avail_actions = convert_to_torch_tensor(action_mask, self.device)
@@ -276,7 +291,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             result=learn_stats,
         )
 
-        (action_mask, actions, env_global_state, mask, next_action_mask, next_env_global_state,
+        (action_mask, actions, prev_actions, env_global_state, mask, next_action_mask, next_env_global_state,
          next_obs, obs, rewards, weights, terminated, n_obs, n_next_obs, seq_lens) = preprocess_trajectory_batch(
             policy=self,
             samples=samples,
@@ -287,6 +302,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             rewards,
             weights,
             actions,
+            prev_actions,
             terminated,
             mask,
             obs,
@@ -468,7 +484,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         if training_data and random.random() < self.tdw_schedule.value(self.global_timestep):
             self.fit_vae(training_data)
 
-            actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions.view(-1,)]
+            actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions.view(-1, )]
             data = torch.cat([obs, actions, rewards], dim=-1)
             densities = self.vae_model.estimate_density(data)
             densities += 1e-7
@@ -525,6 +541,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                                   rewards,
                                   weights,
                                   actions,
+                                  prev_actions,
                                   terminated,
                                   mask,
                                   obs,
@@ -544,6 +561,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             rewards: Tensor of shape [B, T]
             weights: Tensor of shape [B, T]
             actions: Tensor of shape [B, T]
+            prev_actions: Tensor of shape [B, T]
             terminated: Tensor of shape [B, T]
             mask: Tensor of shape [B, T]
             obs: Tensor of shape [B, T, obs_size]

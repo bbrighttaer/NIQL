@@ -48,6 +48,7 @@ class BaseEncoder(nn.Module):
         layers = []
         comm_dim = model_config.get("comm_dim", 0)
         msg_agg_dim = model_config.get("comm_aggregator_dim", 0)
+        action_dim = model_config.get("action_dim", 0)
         if "fc_layer" in self.custom_config["model_arch_args"]:
             if "encode_layer" in self.custom_config["model_arch_args"]:
                 encode_layer = self.custom_config["model_arch_args"]["encode_layer"]
@@ -60,7 +61,7 @@ class BaseEncoder(nn.Module):
                     encoder_layer_dim.append(out_dim)
 
             self.encoder_layer_dim = encoder_layer_dim
-            input_dim = obs_space['obs'].shape[0] + comm_dim + msg_agg_dim
+            input_dim = obs_space['obs'].shape[0] + comm_dim + msg_agg_dim + action_dim
             for out_dim in self.encoder_layer_dim:
                 layers.append(
                     SlimFC(in_size=input_dim,
