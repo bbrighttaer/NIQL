@@ -7,15 +7,15 @@ MPE = {
             'lr': 0.0005,
             'tdw_schedule': [
                 [0, 1.0],
-                [150000, 1.0],
-                [155000, 0.0],
+                [50000, 1.0],
+                [55000, 0.0],
             ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': True,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
-            'epsilon_timesteps': 100000,
+            'epsilon_timesteps': 50000,
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
@@ -24,7 +24,7 @@ MPE = {
             'beta': 0,
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
-            'similarity_threshold': 0.001,
+            'similarity_threshold': 0.01,
         }
     },
     'model_preference': {
@@ -38,7 +38,7 @@ MPE = {
         'mixer_embedding': 256,  # for mixer model
         'mha_num_heads': 2,
         'add_action_dim': True,
-        'comm_dim': 16,
+        'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator': 'concat',
         'comm_aggregator_dim': 10,

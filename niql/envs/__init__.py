@@ -14,7 +14,7 @@ DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
 
 
 def get_active_env(**kwargs):
-    return make_mpe_simple_spread_env(**kwargs)
+    return make_mpe_simple_speaker_listener(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
