@@ -31,6 +31,7 @@ from ray.rllib.utils.framework import try_import_torch
 
 from niql.models.base_encoder import BaseEncoder
 from niql.models.base_torch_model import BaseTorchModel
+from niql.models.vae_encoder import VAEEncoder
 
 torch, nn = try_import_torch()
 
@@ -48,15 +49,17 @@ class JointQRNN(BaseTorchModel):
         self.n_agents = self.custom_config["num_agents"]
 
         # only support gru cell
-        if self.custom_config["model_arch_args"]["core_arch"] != "gru":
+        model_arch_args = self.custom_config["model_arch_args"]
+        if model_arch_args["core_arch"] != "gru":
             raise ValueError(
-                "core arch should be gru, got {}".format(self.custom_config["model_arch_args"]["core_arch"]))
+                "core arch should be gru, got {}".format(model_arch_args["core_arch"]))
 
         self.activation = model_config.get("fcnet_activation")
 
         # encoder
-        self.encoder = BaseEncoder(model_config, {'obs': self.full_obs_space})
-        self.hidden_state_size = self.custom_config["model_arch_args"]["hidden_state_size"]
+        encoder_class = VAEEncoder if model_arch_args.get("use_vae_encoder", False) else BaseEncoder
+        self.encoder = encoder_class(model_config, {'obs': self.full_obs_space})
+        self.hidden_state_size = model_arch_args["hidden_state_size"]
         self.rnn = nn.GRUCell(self.encoder.output_dim, self.hidden_state_size)
 
         self.q_value = SlimFC(
