@@ -37,7 +37,7 @@ MPE = {
         'hidden_layer_dims': [64, 64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'mha_num_heads': 2,
-        'add_action_dim': True,
+        'add_action_dim': False,
         'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator': 'concat',

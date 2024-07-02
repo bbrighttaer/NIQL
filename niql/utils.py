@@ -219,14 +219,14 @@ def tb_add_scalars(policy, label, values_dict):
 def target_distribution_weighting(policy, targets, sim_threshold):
     targets_flat = targets.reshape(-1, 1)
     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
-        lds_weights = get_target_dist_weights_l2(
+        lds_weights = get_target_dist_weights_sk(
             targets_flat, sim_threshold
         )
         scaling = len(lds_weights) / (lds_weights.sum() + 1e-7)
         lds_weights *= scaling
         lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
-        min_w = max(1e-2, lds_weights.min())
-        lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2 * min_w)
+        # min_w = max(1e-2, lds_weights.min())
+        # lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2 * min_w)
 
         tb_add_scalars(policy, "tdw_stats", {
             # "scaling": scaling,
@@ -270,12 +270,11 @@ def get_target_dist_weights_torch(train_data, eval_data, kernel, bandwidth) -> n
     return weights
 
 
-def get_target_dist_weights_sk(train_data, eval_data, kernel, bandwidth) -> np.array:
-    train_data = normalize_zero_mean_unit_variance(train_data)
-    eval_data = normalize_zero_mean_unit_variance(eval_data)
-    kde = KernelDensity(kernel=kernel, bandwidth=bandwidth).fit(to_numpy(train_data))
-    log_density = kde.score_samples(to_numpy(eval_data))
-    densities = torch.from_numpy(np.exp(log_density)).to(train_data.device)
+def get_target_dist_weights_sk(targets, kernel, bandwidth=1.) -> np.array:
+    targets = standardize(targets)
+    kde = KernelDensity(kernel="gaussian", bandwidth=1.0).fit(to_numpy(targets))
+    log_density = kde.score_samples(to_numpy(targets))
+    densities = np.exp(log_density)
     weights = 1. / (densities + 1e-7)
     weights /= (weights.max() + 1e-7)
     return weights
@@ -292,8 +291,8 @@ def get_target_dist_weights_l2(data, sim_threshold=0.01) -> np.array:
     return weights
 
 
-def get_target_dist_weights_cl(train_data, eval_data, kernel, bandwidth) -> np.array:
-    data = to_numpy(eval_data)
+def get_target_dist_weights_cl(targets, *args, **kwargs) -> np.array:
+    data = to_numpy(targets)
 
     # clustering
     bin_index_per_label = cluster_labels(data)
@@ -308,9 +307,8 @@ def get_target_dist_weights_cl(train_data, eval_data, kernel, bandwidth) -> np.a
     return tdw_weights
 
 
-def cluster_labels(data, min_samples_in_cluster=2, eps=.1, n_clusters=100):
+def cluster_labels(data, min_samples_in_cluster=2, eps=.5, n_clusters=100):
     data = standardize(data)
-    data = data / np.max(data)
     # n_clusters = min(n_clusters, len(np.unique(labels)))
     # clustering = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
     clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(data)
@@ -409,10 +407,7 @@ def unroll_mac(model, obs_tensor, comm_net=None, shared_messages=None, aggregati
             actions_enc = torch.eye(kwargs["n_actions"]).float().to(obs.device)[actions]
             obs = torch.cat([obs, actions_enc], dim=-1)
 
-        try:
-            q, h = mac(model, obs, h, **kwargs)
-        except:
-            raise RuntimeError()
+        q, h = mac(model, obs, h, **kwargs)
         mac_out.append(q)
         mac_h_out.extend(h)
     mac_out = torch.stack(mac_out, dim=1)  # Concat over time

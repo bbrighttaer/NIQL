@@ -138,29 +138,23 @@ class WIQL(NIQLBasePolicy):
             self, targets.detach().clone().view(B * T, -1), self.config["similarity_threshold"]
         )
         tdw_weights = tdw_weights.view(B, T)
-        # tdw_weights = self.get_tdw_weights(
-        #     training_data=uniform_batch,
-        #     obs=obs.view(B * T, -1),
-        #     actions=actions.view(B * T, -1),
-        #     rewards=rewards.view(B * T, -1),
-        # )
+        # tdw_weights = self.get_tdw_weights(targets)
         # tdw_weights = tdw_weights.view(*targets.shape)
 
         # Td-error
-        td_delta = chosen_action_qvals - targets.detach()
-        weights = is_weights * tdw_weights
+        td_error = chosen_action_qvals - targets.detach()
         # weights /= torch.clamp(weights.max(), 1e-7)
         # weights = weights ** self.adaptive_gamma()
-        td_error = td_delta * weights
-
-        mask = mask.expand_as(td_error)
-        self.model.tower_stats["td_error"] = to_numpy(td_delta * mask)
 
         # 0-out the targets that came from padded data
+        mask = mask.expand_as(td_error)
         masked_td_error = td_error * mask
+        self.model.tower_stats["td_error"] = to_numpy(masked_td_error)
 
         # Normal L2 loss, take mean over actual data
-        loss = huber_loss(masked_td_error).sum() / mask.sum()
+        weights = is_weights * tdw_weights
+        loss = weights * huber_loss(masked_td_error)
+        loss = loss.sum() / mask.sum()
         self.model.tower_stats["loss"] = to_numpy(loss)
         tb_add_scalar(self, "loss", loss.item())
 

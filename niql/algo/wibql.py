@@ -26,8 +26,9 @@ class WIBQLPolicy(NIQLBasePolicy):
 
     def compute_trajectory_q_loss(self,
                                   rewards,
-                                  weights,
+                                  is_weights,
                                   actions,
+                                  prev_actions,
                                   terminated,
                                   mask,
                                   obs,
@@ -44,8 +45,9 @@ class WIBQLPolicy(NIQLBasePolicy):
 
         Args:
             rewards: Tensor of shape [B, T]
-            weights: Tensor of shape [B, T]
+            is_weights: Tensor of shape [B, T]
             actions: Tensor of shape [B, T]
+            prev_actions: Tensor of shape [B, T]
             terminated: Tensor of shape [B, T]
             mask: Tensor of shape [B, T]
             obs: Tensor of shape [B, T, obs_size]
@@ -68,6 +70,11 @@ class WIBQLPolicy(NIQLBasePolicy):
         else:
             all_neighbour_msgs = None
 
+        kwargs = {}
+        if self.add_action_to_obs:
+            kwargs["prev_actions"] = torch.cat([prev_actions, actions[:, -1:]], dim=-1)
+            kwargs["n_actions"] = self.n_actions
+
         # Auxiliary encoder objective
         # Qe(s, a_i)
         qe_out, qe_h_out = unroll_mac_squeeze_wrapper(
@@ -76,7 +83,8 @@ class WIBQLPolicy(NIQLBasePolicy):
                 whole_obs,
                 self.comm_net,
                 all_neighbour_msgs,
-                partial(self.aggregate_messages, False)
+                partial(self.aggregate_messages, False),
+                **kwargs,
             )
         )
         qe_qvals = torch.gather(qe_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
@@ -88,7 +96,8 @@ class WIBQLPolicy(NIQLBasePolicy):
                 whole_obs,
                 self.comm_net,
                 all_neighbour_msgs,
-                partial(self.aggregate_messages, False)
+                partial(self.aggregate_messages, False),
+                **kwargs,
             )
         )
         # qi_out is used for Qi(s,a) objective, we clone it here to avoid setting values to -np.inf
@@ -102,20 +111,25 @@ class WIBQLPolicy(NIQLBasePolicy):
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
 
         # Get target distribution weights
-        tdw_weights = target_distribution_weighting(
-            self, targets.detach().clone().view(B * T, -1),
-        )
-        tdw_weights = tdw_weights.view(B, T)
+        # tdw_weights = target_distribution_weighting(
+        #     self, targets.detach().clone().view(B * T, -1),
+        # )
+        # tdw_weights = tdw_weights.view(B, T)
+        tdw_weights = self.get_tdw_weights(targets.detach().clone())
+        tdw_weights = tdw_weights.view(*targets.shape)
 
         # Qe_i TD error
-        td_delta = qe_qvals - targets.detach()
-        qe_td_error = tdw_weights * weights * td_delta
-        mask = mask.expand_as(qe_td_error)
+        td_error = qe_qvals - targets.detach()
+
         # 0-out the targets that came from padded data
-        masked_td_error = qe_td_error * mask
-        qe_loss = huber_loss(masked_td_error).sum() / mask.sum()
+        mask = mask.expand_as(td_error)
+        masked_td_error = td_error * mask
+        self.model.tower_stats["td_error"] = to_numpy(masked_td_error)
+
+        # Qe loss
+        qe_loss = tdw_weights * is_weights * huber_loss(masked_td_error)
+        qe_loss = qe_loss.sum() / mask.sum()
         self.model.tower_stats["Qe_loss"] = to_numpy(qe_loss)
-        self.model.tower_stats["td_error"] = to_numpy(td_delta * mask)
         tb_add_scalar(self, "qe_loss", qe_loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
@@ -134,7 +148,8 @@ class WIBQLPolicy(NIQLBasePolicy):
                 whole_obs,
                 self.comm_net_target,
                 all_neighbour_msgs,
-                partial(self.aggregate_messages, True)
+                partial(self.aggregate_messages, True),
+                **kwargs,
             )
         )
         qe_bar_out = qe_bar_out.detach()

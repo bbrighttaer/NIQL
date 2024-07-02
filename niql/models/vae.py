@@ -51,7 +51,6 @@ class VAE(nn.Module):
         return self.decoder(z), mu, logvar
 
     def estimate_density(self, x):
-        self.eval()
         with torch.no_grad():
             # Encode the input to obtain the latent parameters
             params = self.encoder(x)

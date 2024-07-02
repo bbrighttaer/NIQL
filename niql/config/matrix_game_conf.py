@@ -45,6 +45,7 @@ MATRIX_GAME = {
             'hdims': [16],
         },
         'mha_num_heads': 2,
+        'add_action_dim': False,
         'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator_dim': 10,
