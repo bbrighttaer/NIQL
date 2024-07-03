@@ -3,6 +3,7 @@ from functools import partial
 
 import numpy as np
 import torch
+from ray.rllib import SampleBatch
 from ray.rllib.utils.torch_ops import huber_loss
 
 from niql.algo.base_policy import NIQLBasePolicy
@@ -11,6 +12,13 @@ from niql.utils import to_numpy, tb_add_scalar, \
     target_distribution_weighting, unroll_mac, unroll_mac_squeeze_wrapper, soft_update, tb_add_histogram
 
 logger = logging.getLogger(__name__)
+
+
+def construct_vae_data(obs, prev_actions=None, n_actions=None):
+    if prev_actions is not None and n_actions:
+        actions_enc = torch.eye(n_actions).float().to(obs.device)[prev_actions.view(-1, )]
+        obs = torch.cat([obs, actions_enc], dim=-1)
+    return obs
 
 
 class WIQL(NIQLBasePolicy):
@@ -134,12 +142,24 @@ class WIQL(NIQLBasePolicy):
         #     SampleBatch.ACTIONS: actions.view(B * T, -1),
         #     SampleBatch.REWARDS: rewards.view(B * T, -1),
         # }))
-        tdw_weights = target_distribution_weighting(
-            self, targets.detach().clone().view(B * T, -1), self.config["similarity_threshold"]
-        )
-        tdw_weights = tdw_weights.view(B, T)
+        # tdw_weights = target_distribution_weighting(
+        #     self, targets.detach().clone().view(B * T, -1), self.config["similarity_threshold"]
+        # )
+        # tdw_weights = tdw_weights.view(B, T)
         # tdw_weights = self.get_tdw_weights(targets)
         # tdw_weights = tdw_weights.view(*targets.shape)
+        # vae_data = construct_vae_data(obs.view(B * T, -1), prev_actions, kwargs.get("n_actions"))
+        # tdw_weights = self.get_tdw_weights(
+        #     data=vae_data
+        # )
+        # tdw_weights = tdw_weights.view(*targets.shape)
+        tdw_weights = self.get_tdw_weights(
+            training_data=uniform_batch,
+            obs=obs.view(B * T, -1),
+            actions=actions.view(B * T, -1),
+            rewards=rewards.view(B * T, -1),
+        )
+        tdw_weights = tdw_weights.view(*targets.shape)
 
         # Td-error
         td_error = chosen_action_qvals - targets.detach()
@@ -157,6 +177,16 @@ class WIQL(NIQLBasePolicy):
         loss = loss.sum() / mask.sum()
         self.model.tower_stats["loss"] = to_numpy(loss)
         tb_add_scalar(self, "loss", loss.item())
+
+        # vae loss
+        # uniform_batch = self.convert_batch_to_tensor(uniform_batch)
+        # vae_data = construct_vae_data(
+        #     uniform_batch[SampleBatch.OBS], uniform_batch[SampleBatch.PREV_ACTIONS], kwargs.get("n_actions")
+        # )
+        # vae_loss = self.compute_vae_loss(vae_data)
+        # lamda = 0.5
+        # loss = loss + lamda * vae_loss
+        # tb_add_scalar(self, "vae_loss", vae_loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
         # if self.config.get("env_name") in DEBUG_ENVS:

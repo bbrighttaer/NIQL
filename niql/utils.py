@@ -11,7 +11,7 @@ from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN, HDBSCAN
 from sklearn.neighbors import KernelDensity
 
 from niql.torch_kde import TorchKernelDensity
@@ -219,11 +219,9 @@ def tb_add_scalars(policy, label, values_dict):
 def target_distribution_weighting(policy, targets, sim_threshold):
     targets_flat = targets.reshape(-1, 1)
     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
-        lds_weights = get_target_dist_weights_sk(
+        lds_weights = get_target_dist_weights_torch(
             targets_flat, sim_threshold
         )
-        scaling = len(lds_weights) / (lds_weights.sum() + 1e-7)
-        lds_weights *= scaling
         lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
         # min_w = max(1e-2, lds_weights.min())
         # lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2 * min_w)
@@ -259,13 +257,14 @@ def normalize_zero_mean_unit_variance(X):
     return X_normalized
 
 
-def get_target_dist_weights_torch(train_data, eval_data, kernel, bandwidth) -> np.array:
-    train_data = normalize_zero_mean_unit_variance(train_data)
-    eval_data = normalize_zero_mean_unit_variance(eval_data)
-    kde = TorchKernelDensity(bandwidth, kernel)
-    kde.fit(train_data)
-    densities = kde.score_samples(eval_data)
+def get_target_dist_weights_torch(targets, kernel, bandwidth=1) -> np.array:
+    targets = standardize(targets)
+    kde = TorchKernelDensity(kernel=TorchKernelDensity.gaussian, bandwidth=5.)
+    kde.fit(targets)
+    densities = kde.score_samples(targets)
     weights = 1. / (densities + 1e-7)
+    scaling = len(weights) / weights.sum()
+    weights *= scaling
     weights /= (weights.max() + 1e-7)
     return weights
 
@@ -304,10 +303,13 @@ def get_target_dist_weights_cl(targets, *args, **kwargs) -> np.array:
     eff_num_per_label = [emp_label_dist[bin_idx] for bin_idx in bin_index_per_label]
     weights = [1. / (x + 1e-6) for x in eff_num_per_label]
     tdw_weights = np.array(weights).reshape(len(data), -1)
+    scaling = len(tdw_weights) / (tdw_weights.sum() + 1e-7)
+    tdw_weights *= scaling
+    tdw_weights /= (tdw_weights.max() + 1e-7)
     return tdw_weights
 
 
-def cluster_labels(data, min_samples_in_cluster=2, eps=.5, n_clusters=100):
+def cluster_labels(data, min_samples_in_cluster=2, eps=10., n_clusters=100):
     data = standardize(data)
     # n_clusters = min(n_clusters, len(np.unique(labels)))
     # clustering = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))

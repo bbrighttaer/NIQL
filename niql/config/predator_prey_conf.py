@@ -7,8 +7,8 @@ PREDATOR_PREY = {
             'lr': 0.0005,
             'tdw_schedule': [
                 [0, 1.0],
-                [50000, 1.0],
-                [60000, 0.0],
+                [150000, 1.0],
+                [160000, 0.0],
             ],
             'tdw_bandwidth': 5.,
             'rollout_fragment_length': 1,
@@ -38,11 +38,12 @@ PREDATOR_PREY = {
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'tdw_vae': {
-            'latent_dim': 2,
-            'hdims': [32],
+            'latent_dim': 16,
+            'hdims': [128],
         },
         'mha_num_heads': 4,
         'add_action_dim': False,
+        'use_vae_encoder': False,
         'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator_dim': 10,

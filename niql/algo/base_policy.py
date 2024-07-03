@@ -116,7 +116,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         models_factory_class.__init__(self, agent_obs_space, action_space, config, core_arch)
         vae_args = model_arch_args = config["model"]["custom_model_config"]["model_arch_args"]["tdw_vae"]
         self.vae_model = VAE(
-            input_dim=1,
+            input_dim=self.obs_size + self.n_actions + 1,
             hidden_layer_dims=vae_args["hdims"],
             latent_dim=vae_args["latent_dim"],
         ).to(self.device)
@@ -446,10 +446,16 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         return MSE + KLD
 
-    def fit_vae(self, training_data, num_epochs=1):
-        # input_data = self.construct_tdw_dataset(training_data)
+    def compute_vae_loss(self, data):
+        vae = self.model.encoder
+        outputs, mu, logvar = vae.encode_decode(data)
+        loss = self.vae_loss_function(outputs, data, mu, logvar)
+        return loss
 
-        dataset = TensorDataset(training_data)
+    def fit_vae(self, training_data, num_epochs=5):
+        input_data = self.construct_tdw_dataset(training_data)
+
+        dataset = TensorDataset(input_data)
         data_loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
         self.vae_model.train()
@@ -480,18 +486,34 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         data = torch.cat([obs, actions, rewards], dim=-1)
         return data
 
-    def get_tdw_weights(self, targets):
-        targets_flat = standardize(targets.view(-1, 1))
-        if random.random() < self.tdw_schedule.value(self.global_timestep):
-            self.fit_vae(targets_flat)
-            densities = self.vae_model.estimate_density(targets_flat)
-            densities += 1e-7
+    # def get_tdw_weights(self, data):
+    #     if self.global_timestep > 10000 and random.random() < self.tdw_schedule.value(self.global_timestep):
+    #         vae = self.model.encoder
+    #         densities = vae.estimate_density(data)
+    #         tdw_weights = 1. / (densities + 1e-7)
+    #         tdw_weights /= tdw_weights.max()
+    #         # min_w = max(1e-2, tdw_weights.min())
+    #         # tdw_weights = torch.clamp(torch.log(tdw_weights), min_w, max=2 * min_w)
+    #
+    #         tb_add_scalars(self, "tdw_stats", {
+    #             # "scaling": scaling,
+    #             "max_weight": tdw_weights.max(),
+    #             "min_weight": tdw_weights.min(),
+    #             "mean_weight": tdw_weights.mean(),
+    #         })
+    #     else:
+    #         tdw_weights = torch.ones((len(data), 1))
+    #     return tdw_weights
 
+    def get_tdw_weights(self, training_data, obs, actions, rewards):
+        if training_data and random.random() < self.tdw_schedule.value(self.global_timestep):
+            self.fit_vae(training_data)
+
+            actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions.view(-1, )]
+            data = torch.cat([obs, actions, rewards], dim=-1)
+            densities = self.vae_model.estimate_density(data)
             tdw_weights = 1. / (densities + 1e-7)
             tdw_weights /= (tdw_weights.max() + 1e-7)
-
-            # min_w = max(1e-10, tdw_weights.min())
-            # tdw_weights = torch.clamp(torch.log(1. + tdw_weights), max=5)
 
             tb_add_scalars(self, "tdw_stats", {
                 # "scaling": scaling,
@@ -500,7 +522,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 "mean_weight": tdw_weights.mean(),
             })
         else:
-            tdw_weights = torch.ones_like(targets)
+            tdw_weights = torch.ones_like(rewards)
         return tdw_weights
 
     def adaptive_gamma(self, alpha=0.01, beta=10000):
