@@ -153,13 +153,15 @@ class WIQL(NIQLBasePolicy):
         #     data=vae_data
         # )
         # tdw_weights = tdw_weights.view(*targets.shape)
-        tdw_weights = self.get_tdw_weights(
-            training_data=uniform_batch,
-            obs=obs.view(B * T, -1),
-            actions=actions.view(B * T, -1),
-            rewards=rewards.view(B * T, -1),
-        )
-        tdw_weights = tdw_weights.view(*targets.shape)
+        # tdw_weights = self.get_tdw_weights(
+        #     training_data=uniform_batch,
+        #     obs=obs.view(B * T, -1),
+        #     actions=actions.view(B * T, -1),
+        #     rewards=rewards.view(B * T, -1),
+        # )
+        # tdw_weights = tdw_weights.view(*targets.shape)
+        tdw_weights = target_distribution_weighting(self, chosen_action_qvals, targets)
+        tdw_weights = tdw_weights.view(B, T)
 
         # Td-error
         td_error = chosen_action_qvals - targets.detach()
@@ -172,8 +174,8 @@ class WIQL(NIQLBasePolicy):
         self.model.tower_stats["td_error"] = to_numpy(masked_td_error)
 
         # Normal L2 loss, take mean over actual data
-        weights = is_weights * tdw_weights
-        loss = weights * huber_loss(masked_td_error)
+        # weights = is_weights * tdw_weights
+        loss = tdw_weights * huber_loss(masked_td_error)
         loss = loss.sum() / mask.sum()
         self.model.tower_stats["loss"] = to_numpy(loss)
         tb_add_scalar(self, "loss", loss.item())

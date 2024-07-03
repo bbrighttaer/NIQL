@@ -13,7 +13,7 @@ PREDATOR_PREY = {
             'tdw_bandwidth': 5.,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
-            'enable_stochastic_eviction': True,
+            'enable_stochastic_eviction': False,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
