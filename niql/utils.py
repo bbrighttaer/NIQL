@@ -223,34 +223,31 @@ def estimate_density(data, bandwidth=5):
 
 
 def target_distribution_weighting(policy, q_targets, p_targets):
-    if random.random() < policy.tdw_schedule.value(policy.global_timestep):
-        q_targets_flat = q_targets.view(-1, 1)
-        p_targets_flat = p_targets.view(-1, 1)
+    q_targets_flat = q_targets.view(-1, 1)
+    p_targets_flat = p_targets.view(-1, 1)
 
-        # kde for q(x)
-        q_density = estimate_density(to_numpy(q_targets_flat))
-        q_x = convert_to_torch_tensor(q_density, q_targets.device)
+    # kde for q(x)
+    q_density = estimate_density(to_numpy(q_targets_flat))
+    q_x = convert_to_torch_tensor(q_density, q_targets.device)
 
-        # kde for approximating p(x)
-        p_density = estimate_density(to_numpy(p_targets_flat))
-        p_density = convert_to_torch_tensor(p_density, p_targets.device)
-        p_density = 1. / (p_density + 1e-7)
-        p_density = apply_scaling(p_density)
-        p_weights = torch.sigmoid(standardize(p_targets_flat))
-        p_x = p_weights * p_density
+    # kde for approximating p(x)
+    p_density = estimate_density(to_numpy(p_targets_flat))
+    p_density = convert_to_torch_tensor(p_density, p_targets.device)
+    p_density = 1. / (p_density + 1e-7)
+    p_density = apply_scaling(p_density)
+    p_weights = torch.sigmoid(standardize(p_targets_flat))
+    p_x = p_weights * p_density
 
-        # compute weights
-        weights = p_x / (q_x + 1e-7)
-        weights = apply_scaling(weights)
+    # compute weights
+    weights = p_x / (q_x + 1e-7)
+    weights = apply_scaling(weights)
 
-        tb_add_scalars(policy, "tdw_stats", {
-            # "scaling": scaling,
-            "max_weight": weights.max(),
-            "min_weight": weights.min(),
-            "mean_weight": weights.mean(),
-        })
-    else:
-        weights = torch.ones_like(q_targets)
+    tb_add_scalars(policy, "tdw_stats", {
+        # "scaling": scaling,
+        "max_weight": weights.max(),
+        "min_weight": weights.min(),
+        "mean_weight": weights.mean(),
+    })
 
     return weights
 
