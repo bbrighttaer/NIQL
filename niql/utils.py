@@ -216,7 +216,7 @@ def tb_add_scalars(policy, label, values_dict):
         )
 
 
-def estimate_density(data, bandwidth=5.):
+def estimate_density(data, bandwidth=.00001):
     data = standardize(data)
     kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(data)
     return np.exp(kde.score_samples(data)).reshape(-1, 1)

@@ -12,7 +12,7 @@ MPE = {
             ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
-            'enable_stochastic_eviction': True,
+            'enable_stochastic_eviction': False,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
@@ -36,6 +36,10 @@ MPE = {
         # 'model': 'DuelingQFCN',
         'hidden_layer_dims': [64, 64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
+        'tdw_vae': {
+            'latent_dim': 16,
+            'hdims': [128],
+        },
         'mha_num_heads': 2,
         'add_action_dim': False,
         'comm_dim': 0,
