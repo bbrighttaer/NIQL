@@ -165,8 +165,6 @@ class WIQL(NIQLBasePolicy):
 
         # Td-error
         td_error = chosen_action_qvals - targets.detach()
-        # weights /= torch.clamp(weights.max(), 1e-7)
-        # weights = weights ** self.adaptive_gamma()
 
         # 0-out the targets that came from padded data
         mask = mask.expand_as(td_error)
@@ -175,6 +173,7 @@ class WIQL(NIQLBasePolicy):
 
         # Normal L2 loss, take mean over actual data
         # weights = is_weights * tdw_weights
+        tdw_weights = tdw_weights ** 0.5  # self.adaptive_gamma()
         loss = tdw_weights * huber_loss(masked_td_error)
         loss = loss.sum() / mask.sum()
         self.model.tower_stats["loss"] = to_numpy(loss)
