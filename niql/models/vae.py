@@ -21,7 +21,7 @@ class VAE(nn.Module):
                 nn.ReLU(),
             ])
             prev_dim = hdim
-        bottle_neck = nn.Linear(prev_dim, latent_dim * 2)  # Mean and log-variance
+        bottle_neck = nn.Linear(prev_dim, latent_dim * 4)  # Mean and log-variance
         encoder_layers.append(bottle_neck)
 
         prev_dim = latent_dim
@@ -44,23 +44,17 @@ class VAE(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    def forward(self, x):
+    def forward(self, x, dist):
         params = self.encoder(x)
+        params = params[:, : self.latent_dim * 2] if dist == "p" else params[:, self.latent_dim * 2:]
         mu, logvar = params[:, : self.latent_dim], params[:, self.latent_dim:]
         z = self.reparameterize(mu, logvar)
         return self.decoder(z), mu, logvar
 
-    def estimate_density(self, x):
+    def estimate_density(self, x, dist):
         with torch.no_grad():
-            # Encode the input to obtain the latent parameters
-            params = self.encoder(x)
-            mu, logvar = params[:, :self.latent_dim], params[:, self.latent_dim:]
-
-            # Reparameterize to get z
-            z = self.reparameterize(mu, logvar)
-
             # Decode z to get reconstructed x
-            recon_x = self.decoder(z)
+            recon_x, mu, logvar = self.forward(x, dist)
 
             # Compute the reconstruction loss (log-likelihood)
             recon_loss = mse_loss(recon_x, x, reduction='none')
