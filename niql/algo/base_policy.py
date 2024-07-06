@@ -19,10 +19,10 @@ from torch.nn.functional import mse_loss
 from torch.utils.data import TensorDataset, DataLoader
 
 from niql.config import FINGERPRINT_SIZE
-from niql.models import SimpleCommNet, AttentionCommMessagesAggregator
+from niql.models import SimpleCommNet, AttentionCommMessagesAggregator, VAEEncoder
 from niql.models.comm_net import ConcatCommMessagesAggregator
 from niql.models.vae import VAE
-from niql.utils import get_size, tb_add_scalar, tb_add_scalars, standardize
+from niql.utils import get_size, tb_add_scalar, tb_add_scalars, standardize, kde_density, shift_and_scale, apply_scaling
 from niql.utils import unpack_observation, preprocess_trajectory_batch, to_numpy, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, \
     batch_message_inter_agent_sharing, mac
 
@@ -448,8 +448,11 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
 
     def compute_vae_loss(self, data):
         vae = self.model.encoder
-        outputs, mu, logvar = vae.encode_decode(data)
-        loss = self.vae_loss_function(outputs, data, mu, logvar)
+        if isinstance(vae, VAEEncoder):
+            outputs, mu, logvar = vae.encode_decode(data)
+            loss = self.vae_loss_function(outputs, data, mu, logvar)
+        else:
+            loss = 0.
         return loss
 
     def fit_vae(self, training_data, num_epochs=5):
@@ -505,25 +508,39 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
     #         tdw_weights = torch.ones((len(data), 1))
     #     return tdw_weights
 
-    def get_tdw_weights(self, training_data, obs, actions, rewards):
-        if training_data and random.random() < self.tdw_schedule.value(self.global_timestep):
-            self.fit_vae(training_data)
+    @torch.no_grad()
+    def get_tdw_weights(self, data, targets):
+        targets_flat = targets.detach().view(-1, 1)
+        vae = self.model.encoder
+        target_vae = self.target_model.encoder
 
-            actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions.view(-1, )]
-            data = torch.cat([obs, actions, rewards], dim=-1)
-            densities = self.vae_model.estimate_density(data)
-            tdw_weights = 1. / (densities + 1e-7)
-            tdw_weights /= (tdw_weights.max() + 1e-7)
+        if isinstance(vae, VAEEncoder):
+            eps = 1e-7
+
+            # q densities
+            outputs, mu, logvar = vae.encode(data)
+            q_densities = kde_density(outputs, mu, logvar)
+            q_densities = apply_scaling(q_densities)
+
+            # p densities
+            targets_scaled = shift_and_scale(targets_flat)
+            target_outputs, target_mu, target_logvar = target_vae.encode(data)
+            p_densities = targets_scaled / (kde_density(target_outputs, target_mu, target_logvar) + eps)
+            p_densities /= (p_densities.max() + eps)
+
+            # compute weights
+            weights = p_densities / (q_densities + eps)
+            weights = apply_scaling(weights)
 
             tb_add_scalars(self, "tdw_stats", {
                 # "scaling": scaling,
-                "max_weight": tdw_weights.max(),
-                "min_weight": tdw_weights.min(),
-                "mean_weight": tdw_weights.mean(),
+                "max_weight": weights.max(),
+                "min_weight": weights.min(),
+                "mean_weight": weights.mean(),
             })
         else:
-            tdw_weights = torch.ones_like(rewards)
-        return tdw_weights
+            weights = torch.ones_like(targets_flat)
+        return weights
 
     def adaptive_gamma(self, alpha=0.01, beta=10000):
         """

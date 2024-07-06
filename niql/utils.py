@@ -1,3 +1,4 @@
+import time
 from typing import Callable
 
 import pandas as pd
@@ -216,7 +217,7 @@ def tb_add_scalars(policy, label, values_dict):
         )
 
 
-def estimate_density(data, bandwidth=5):
+def estimate_density(data, bandwidth=1):
     data = standardize(data)
     kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(data)
     return np.exp(kde.score_samples(data)).reshape(-1, 1)
@@ -235,7 +236,8 @@ def target_distribution_weighting(policy, q_targets, p_targets):
     p_density = convert_to_torch_tensor(p_density, p_targets.device)
     p_density = 1. / (p_density + 1e-7)
     p_density = apply_scaling(p_density)
-    p_weights = torch.sigmoid(standardize(p_targets_flat))
+    # p_weights = torch.sigmoid(standardize(p_targets_flat))
+    p_weights = shift_and_scale(p_density)
     p_x = p_weights * p_density
 
     # compute weights
@@ -253,10 +255,28 @@ def target_distribution_weighting(policy, q_targets, p_targets):
 
 
 def apply_scaling(vector):
+    # Compute scaling factor
     scaling = len(vector) / vector.sum()
+
+    # Scale the vector
     vector *= scaling
+
+    # Normalise to [0, 1]
     vector /= (vector.max() + 1e-7)
     return vector
+
+
+def shift_and_scale(x):
+    # Find the minimum value
+    x_min = x.min()
+
+    # Shift the vector to make all elements non-negative
+    x_shifted = (x - x_min) + 1e-4
+
+    # Normalise to [0, 1]
+    x_scaled = x_shifted / (x_shifted.max() + 1e-7)
+
+    return x_scaled
 
 
 # def target_distribution_weighting(policy, targets, sim_threshold):
@@ -642,3 +662,108 @@ def add_evaluation_config(config: dict) -> dict:
         # "evaluation_unit": "timesteps", # not supported in ray 1.8.0
     })
     return config
+
+
+def gaussian_density(z, mu, logvar):
+    """
+    Compute the Gaussian density of z given a Gaussian defined by mu and logvar.
+
+    Parameters:
+    z (tensor): Input tensor of shape (N, D).
+    mu (tensor): Mean tensor of shape (N, D).
+    logvar (tensor): Log variance tensor of shape (N, D).
+
+    Returns:
+    tensor: Gaussian density of shape (N, D).
+    """
+    std = torch.exp(0.5 * logvar)
+    var = std ** 2
+    normalization = torch.sqrt(2 * np.pi * var)
+
+    # Compute exponent
+    x = -0.5 * ((z - mu) ** 2 / var)
+
+    # Compute density
+    exponent = torch.exp(x)
+    density = exponent / normalization
+
+    return density
+
+
+def nystroem_gaussian_density(z, mu, logvar, num_samples=1000):
+    """
+    Compute the Nystroem approximation of the Gaussian density of z given a Gaussian defined by mu and logvar.
+
+    Parameters:
+    z (tensor): Input tensor of shape (N, D).
+    mu (tensor): Mean tensor of shape (N, D).
+    logvar (tensor): Log variance tensor of shape (N, D).
+    num_samples (int): Number of samples for the Nystroem approximation.
+
+    Returns:
+    tensor: Approximated Gaussian density of shape (N, D).
+    """
+    N, D = z.shape
+    std = torch.exp(0.5 * logvar)
+    var = std ** 2
+
+    # Sample selection
+    indices = torch.randperm(N)[:num_samples]
+    z_sampled = z[indices]
+    mu_sampled = mu[indices]
+    logvar_sampled = logvar[indices]
+    var_sampled = var[indices]
+
+    # Compute kernel submatrix K_m
+    K_m = torch.exp(-0.5 * torch.cdist(z_sampled, z_sampled) ** 2 / var_sampled.mean(dim=1, keepdim=True))
+
+    # Compute cross-kernel matrix K_{Nm}
+    K_Nm = torch.exp(-0.5 * torch.cdist(z, z_sampled) ** 2 / var.mean(dim=1, keepdim=True))
+
+    # Compute the approximate kernel matrix
+    K_m_inv = torch.linalg.pinv(K_m)
+    K_approx = K_Nm @ K_m_inv @ K_Nm.T
+
+    # Compute the density using the approximated kernel matrix
+    normalization = torch.sqrt(2 * np.pi * var)
+    x = -0.5 * ((z.unsqueeze(1) - mu_sampled) ** 2 / var_sampled).sum(dim=2)
+    exponent = torch.exp(x)
+    density = exponent / normalization
+
+    return density
+
+
+def kde_density(Z, mus, logvars):
+    """
+    Compute the density of each sample z_i in Z by merging all individual Gaussian distributions.
+
+    Parameters:
+    Z (tensor): NxD tensor of samples.
+    mus (tensor): NxD tensor of means.
+    logvars (tensor): NxD tensor of log variances.
+
+    Returns:
+    tensor: Nx1 tensor of densities for each sample.
+    """
+    N, D = Z.shape
+
+    # Expand dimensions for broadcasting
+    Z_expanded = Z.detach().unsqueeze(1)
+    mus_expanded = mus.detach().unsqueeze(0)
+    logvars_expanded = logvars.detach().unsqueeze(0)
+
+    # Compute pairwise Gaussian densities
+    pairwise_densities = gaussian_density(Z_expanded, mus_expanded, logvars_expanded)
+
+    # Compute product of densities across dimensions
+    pairwise_densities_prod = pairwise_densities.prod(dim=2)
+
+    # Sum densities excluding self
+    mask = 1 - torch.eye(N, device=Z.device)
+    densities_sum = (pairwise_densities_prod * mask).sum(dim=1)
+
+    # Normalize by N-1
+    densities = densities_sum / (N - 1)
+    densities = densities.view(-1, 1)
+
+    return densities

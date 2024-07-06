@@ -7,3 +7,4 @@ from .dueling_q import DuelingQFCN
 from .obs_encoder import MultiHeadSelfAttentionEncoder, FCNEncoder, HyperEncoder, CNNEncoder
 from .comm_net import SimpleCommNet, AttentionCommMessagesAggregator, GNNCommMessagesAggregator
 from .models_factory import DQNModelsFactory, BQLModelsFactory
+from .vae_encoder import VAEEncoder

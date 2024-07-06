@@ -21,6 +21,8 @@ class VAEEncoder(nn.Module):
         encode_layer = self.custom_config["model_arch_args"]["encode_layer"]
         encoder_layer_dim = encode_layer.split("-")
         encoder_layer_dim = [int(i) for i in encoder_layer_dim]
+        assert len(encoder_layer_dim) > 1, "VAE must have at least one hidden layer before bottleneck layer"
+        self.output_dim = encoder_layer_dim[0]
         self.latent_dim = encoder_layer_dim[-1]
         hidden_layer_dims = encoder_layer_dim[:-1]
 
@@ -40,11 +42,11 @@ class VAEEncoder(nn.Module):
 
         # Mean and log-variance
         bottle_neck = SlimFC(
-                    in_size=prev_dim,
-                    out_size=self.latent_dim * 2,
-                    initializer=normc_initializer(1.0),
-                    activation_fn=self.activation
-                )
+            in_size=prev_dim,
+            out_size=self.latent_dim * 2,
+            initializer=normc_initializer(1.0),
+            activation_fn=self.activation
+        )
         encoder_layers.append(bottle_neck)
 
         # create decoder
@@ -60,20 +62,24 @@ class VAEEncoder(nn.Module):
                 )
             )
             prev_dim = hdim
-        output_layer = SlimFC(
-                    in_size=prev_dim,
-                    out_size=input_dim,
-                    initializer=normc_initializer(1.0),
-                    activation_fn=None
-                )
-        decoder_layers.append(output_layer)
+        decoder_output_layer = SlimFC(
+            in_size=prev_dim,
+            out_size=input_dim,
+            initializer=normc_initializer(1.0),
+            activation_fn=None
+        )
+        decoder_layers.append(decoder_output_layer)
 
         self.encoder = nn.Sequential(*encoder_layers)
         self.decoder = nn.Sequential(*decoder_layers)
-
-    @property
-    def output_dim(self):
-        return self.latent_dim
+        self.output_layer = nn.Sequential(
+            SlimFC(
+                in_size=self.latent_dim,
+                out_size=self.output_dim,
+                initializer=normc_initializer(1.0),
+                activation_fn=self.activation,
+            )
+        )
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
@@ -84,37 +90,15 @@ class VAEEncoder(nn.Module):
         params = self.encoder(x)
         mu, logvar = params[:, : self.latent_dim], params[:, self.latent_dim:]
         z = self.reparameterize(mu, logvar)
-        return z
+        x = self.output_layer(z)
+        return x
 
-    def encode_decode(self, x):
+    def encode(self, x):
         params = self.encoder(x)
         mu, logvar = params[:, : self.latent_dim], params[:, self.latent_dim:]
         z = self.reparameterize(mu, logvar)
+        return z, mu, logvar
+
+    def encode_decode(self, x):
+        z, mu, logvar = self.encode(x)
         return self.decoder(z), mu, logvar
-
-    def estimate_density(self, x):
-        with torch.no_grad():
-            # Encode the input to obtain the latent parameters
-            params = self.encoder(x)
-            mu, logvar = params[:, :self.latent_dim], params[:, self.latent_dim:]
-
-            # Reparameterize to get z
-            z = self.reparameterize(mu, logvar)
-
-            # Decode z to get reconstructed x
-            recon_x = self.decoder(z)
-
-            # Compute the reconstruction loss (log-likelihood)
-            recon_loss = mse_loss(recon_x, x, reduction='none')
-            recon_loss = recon_loss.sum(dim=1)
-
-            # Compute the KL divergence
-            KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
-
-            # Compute the ELBO
-            elbo = recon_loss + KLD
-
-            # Convert ELBO to density estimate
-            density_estimate = torch.exp(-elbo)
-
-            return density_estimate

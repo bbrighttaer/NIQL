@@ -68,6 +68,7 @@ class WIQL(NIQLBasePolicy):
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
+
         if neighbour_obs is not None:
             all_neighbour_msgs = torch.cat((neighbour_obs[:, 0:1], neighbour_next_obs), axis=1)
         else:
@@ -78,6 +79,9 @@ class WIQL(NIQLBasePolicy):
         if self.add_action_to_obs:
             kwargs["prev_actions"] = torch.cat([prev_actions, actions[:, -1:]], dim=-1)
             kwargs["n_actions"] = self.n_actions
+
+        # VAE data
+        vae_data = construct_vae_data(obs.view(B * T, -1), prev_actions, kwargs.get("n_actions"))
 
         # Calculate estimated Q-Values
         mac_out, mac_out_h = unroll_mac_squeeze_wrapper(
@@ -148,7 +152,6 @@ class WIQL(NIQLBasePolicy):
         # tdw_weights = tdw_weights.view(B, T)
         # tdw_weights = self.get_tdw_weights(targets)
         # tdw_weights = tdw_weights.view(*targets.shape)
-        # vae_data = construct_vae_data(obs.view(B * T, -1), prev_actions, kwargs.get("n_actions"))
         # tdw_weights = self.get_tdw_weights(
         #     data=vae_data
         # )
@@ -160,7 +163,8 @@ class WIQL(NIQLBasePolicy):
         #     rewards=rewards.view(B * T, -1),
         # )
         # tdw_weights = tdw_weights.view(*targets.shape)
-        tdw_weights = target_distribution_weighting(self, chosen_action_qvals, targets)
+        # tdw_weights = target_distribution_weighting(self, chosen_action_qvals, targets)
+        tdw_weights = self.get_tdw_weights(vae_data, targets)
         tdw_weights = tdw_weights.view(B, T)
 
         # Td-error
@@ -173,21 +177,18 @@ class WIQL(NIQLBasePolicy):
 
         # Normal L2 loss, take mean over actual data
         # weights = is_weights * tdw_weights
-        tdw_weights = tdw_weights ** 0.5  # self.adaptive_gamma()
+        tdw_weights = tdw_weights ** 1.0  # self.adaptive_gamma()
         loss = tdw_weights * huber_loss(masked_td_error)
         loss = loss.sum() / mask.sum()
-        self.model.tower_stats["loss"] = to_numpy(loss)
+        self.model.tower_stats["loss"] = loss.item()
         tb_add_scalar(self, "loss", loss.item())
 
         # vae loss
-        # uniform_batch = self.convert_batch_to_tensor(uniform_batch)
-        # vae_data = construct_vae_data(
-        #     uniform_batch[SampleBatch.OBS], uniform_batch[SampleBatch.PREV_ACTIONS], kwargs.get("n_actions")
-        # )
-        # vae_loss = self.compute_vae_loss(vae_data)
-        # lamda = 0.5
-        # loss = loss + lamda * vae_loss
-        # tb_add_scalar(self, "vae_loss", vae_loss.item())
+        vae_loss = self.compute_vae_loss(vae_data)
+        lamda = 0.7
+        loss = loss + lamda * vae_loss
+        tb_add_scalar(self, "joint_loss", loss.item())
+        tb_add_scalar(self, "vae_loss", vae_loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
         # if self.config.get("env_name") in DEBUG_ENVS:
