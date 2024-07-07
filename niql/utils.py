@@ -690,49 +690,6 @@ def gaussian_density(z, mu, logvar):
     return density
 
 
-def nystroem_gaussian_density(z, mu, logvar, num_samples=1000):
-    """
-    Compute the Nystroem approximation of the Gaussian density of z given a Gaussian defined by mu and logvar.
-
-    Parameters:
-    z (tensor): Input tensor of shape (N, D).
-    mu (tensor): Mean tensor of shape (N, D).
-    logvar (tensor): Log variance tensor of shape (N, D).
-    num_samples (int): Number of samples for the Nystroem approximation.
-
-    Returns:
-    tensor: Approximated Gaussian density of shape (N, D).
-    """
-    N, D = z.shape
-    std = torch.exp(0.5 * logvar)
-    var = std ** 2
-
-    # Sample selection
-    indices = torch.randperm(N)[:num_samples]
-    z_sampled = z[indices]
-    mu_sampled = mu[indices]
-    logvar_sampled = logvar[indices]
-    var_sampled = var[indices]
-
-    # Compute kernel submatrix K_m
-    K_m = torch.exp(-0.5 * torch.cdist(z_sampled, z_sampled) ** 2 / var_sampled.mean(dim=1, keepdim=True))
-
-    # Compute cross-kernel matrix K_{Nm}
-    K_Nm = torch.exp(-0.5 * torch.cdist(z, z_sampled) ** 2 / var.mean(dim=1, keepdim=True))
-
-    # Compute the approximate kernel matrix
-    K_m_inv = torch.linalg.pinv(K_m)
-    K_approx = K_Nm @ K_m_inv @ K_Nm.T
-
-    # Compute the density using the approximated kernel matrix
-    normalization = torch.sqrt(2 * np.pi * var)
-    x = -0.5 * ((z.unsqueeze(1) - mu_sampled) ** 2 / var_sampled).sum(dim=2)
-    exponent = torch.exp(x)
-    density = exponent / normalization
-
-    return density
-
-
 def kde_density(Z, mus, logvars):
     """
     Compute the density of each sample z_i in Z by merging all individual Gaussian distributions.

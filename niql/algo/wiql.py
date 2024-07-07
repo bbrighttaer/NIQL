@@ -81,7 +81,7 @@ class WIQL(NIQLBasePolicy):
             kwargs["n_actions"] = self.n_actions
 
         # VAE data
-        vae_data = construct_vae_data(obs.view(B * T, -1), prev_actions, kwargs.get("n_actions"))
+        # vae_data = construct_vae_data(obs.view(B * T, -1), prev_actions, kwargs.get("n_actions"))
 
         # Calculate estimated Q-Values
         mac_out, mac_out_h = unroll_mac_squeeze_wrapper(
@@ -141,11 +141,11 @@ class WIQL(NIQLBasePolicy):
 
         # Get target distribution weights
         # tdw_train_data = self.construct_tdw_dataset(uniform_batch)
-        # tdw_x = self.construct_tdw_dataset(SampleBatch({
-        #     SampleBatch.OBS: obs.view(B * T, -1),
-        #     SampleBatch.ACTIONS: actions.view(B * T, -1),
-        #     SampleBatch.REWARDS: rewards.view(B * T, -1),
-        # }))
+        vae_data = self.construct_tdw_dataset(SampleBatch({
+            SampleBatch.OBS: obs.view(B * T, -1),
+            SampleBatch.ACTIONS: actions.view(B * T, -1),
+            SampleBatch.REWARDS: targets.view(B * T, -1),
+        }))
         # tdw_weights = target_distribution_weighting(
         #     self, targets.detach().clone().view(B * T, -1), self.config["similarity_threshold"]
         # )
@@ -184,11 +184,11 @@ class WIQL(NIQLBasePolicy):
         tb_add_scalar(self, "loss", loss.item())
 
         # vae loss
-        vae_loss = self.compute_vae_loss(vae_data)
-        lamda = 0.7
-        loss = loss + lamda * vae_loss
-        tb_add_scalar(self, "joint_loss", loss.item())
-        tb_add_scalar(self, "vae_loss", vae_loss.item())
+        # vae_loss = self.compute_vae_loss(vae_data)
+        # lamda = 0.7
+        # loss = loss + lamda * vae_loss
+        # tb_add_scalar(self, "joint_loss", loss.item())
+        # tb_add_scalar(self, "vae_loss", vae_loss.item())
 
         # gather td error for each unique target for analysis (matrix game case - discrete reward)
         # if self.config.get("env_name") in DEBUG_ENVS:
@@ -217,7 +217,8 @@ class WIQL(NIQLBasePolicy):
         wts = {
             "model": self._cpu_dict(self.model.state_dict()),
             "target_model": self._cpu_dict(self.target_model.state_dict()),
-            # "vae_model": self._cpu_dict(self.vae_model.state_dict()),
+            "vae_model": self._cpu_dict(self.vae_model.state_dict()),
+            "target_vae_model": self._cpu_dict(self.target_vae_model.state_dict()),
         }
         if self.use_comm:
             wts["comm_net"] = self._cpu_dict(self.comm_net.state_dict())
@@ -232,6 +233,7 @@ class WIQL(NIQLBasePolicy):
         # self.comm_net_target.load_state_dict(self.comm_net.state_dict())
         # self.comm_aggregator_target.load_state_dict(self.comm_aggregator.state_dict())
         self.target_model = soft_update(self.target_model, self.model, self.tau)
+        self.target_vae_model = soft_update(self.target_vae_model, self.vae_model, self.tau)
         if self.use_comm:
             self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
             self.comm_aggregator_target = soft_update(self.comm_aggregator_target, self.comm_aggregator, self.tau)

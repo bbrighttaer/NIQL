@@ -1,5 +1,6 @@
 import logging
 import random
+import time
 from abc import ABC, abstractmethod
 from functools import partial
 from typing import Union, List, Optional, Dict, Tuple
@@ -22,7 +23,8 @@ from niql.config import FINGERPRINT_SIZE
 from niql.models import SimpleCommNet, AttentionCommMessagesAggregator, VAEEncoder
 from niql.models.comm_net import ConcatCommMessagesAggregator
 from niql.models.vae import VAE
-from niql.utils import get_size, tb_add_scalar, tb_add_scalars, standardize, kde_density, shift_and_scale, apply_scaling
+from niql.utils import get_size, tb_add_scalar, tb_add_scalars, standardize, kde_density, shift_and_scale, \
+    apply_scaling, normalize_zero_mean_unit_variance
 from niql.utils import unpack_observation, preprocess_trajectory_batch, to_numpy, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, \
     batch_message_inter_agent_sharing, mac
 
@@ -116,7 +118,12 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         models_factory_class.__init__(self, agent_obs_space, action_space, config, core_arch)
         vae_args = model_arch_args = config["model"]["custom_model_config"]["model_arch_args"]["tdw_vae"]
         self.vae_model = VAE(
-            input_dim=self.obs_size + self.n_actions + 1,
+            input_dim=self.obs_size + (action_space.n if self.add_action_to_obs else 0) + 1,
+            hidden_layer_dims=vae_args["hdims"],
+            latent_dim=vae_args["latent_dim"],
+        ).to(self.device)
+        self.target_vae_model = VAE(
+            input_dim=self.obs_size + (action_space.n if self.add_action_to_obs else 0) + 1,
             hidden_layer_dims=vae_args["hdims"],
             latent_dim=vae_args["latent_dim"],
         ).to(self.device)
@@ -160,7 +167,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 lr=config["lr"])
             self.vae_optimiser = RMSprop(
                 params=self.vae_model.parameters(),
-                lr=0.0005)
+                lr=config["lr"])
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
@@ -169,7 +176,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 lr=config["lr"], )
             self.vae_optimiser = Adam(
                 params=self.vae_model.parameters(),
-                lr=0.0005, )
+                lr=config["lr"])
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -456,9 +463,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         return loss
 
     def fit_vae(self, training_data, num_epochs=5):
-        input_data = self.construct_tdw_dataset(training_data)
-
-        dataset = TensorDataset(input_data)
+        dataset = TensorDataset(training_data)
         data_loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
         self.vae_model.train()
@@ -475,6 +480,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 self.vae_optimiser.step()
             training_loss.append(ep_loss / len(dataset))
         tb_add_scalar(self, "vae_loss", np.mean(training_loss))
+        self.vae_model.eval()
 
     def construct_tdw_dataset(self, samples: SampleBatch):
         # construct training data
@@ -484,9 +490,13 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         sample_size = samples.count
         obs = samples[SampleBatch.OBS].reshape(sample_size, -1)
         actions = samples[SampleBatch.ACTIONS].reshape(sample_size, )
-        actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions]
         rewards = samples[SampleBatch.REWARDS].reshape(sample_size, -1)
-        data = torch.cat([obs, actions, rewards], dim=-1)
+        if self.add_action_to_obs:
+            actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions]
+            data = torch.cat([obs, actions, rewards], dim=-1)
+        else:
+            data = torch.cat([obs, rewards], dim=-1)
+        data = normalize_zero_mean_unit_variance(data)
         return data
 
     # def get_tdw_weights(self, data):
@@ -508,15 +518,17 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
     #         tdw_weights = torch.ones((len(data), 1))
     #     return tdw_weights
 
-    @torch.no_grad()
     def get_tdw_weights(self, data, targets):
         targets_flat = targets.detach().view(-1, 1)
-        vae = self.model.encoder
-        target_vae = self.target_model.encoder
+        vae = self.vae_model
+        target_vae = self.target_vae_model
 
-        if isinstance(vae, VAEEncoder):
-            eps = 1e-7
+        eps = 1e-7
 
+        # train
+        self.fit_vae(data)
+
+        with torch.no_grad():
             # q densities
             outputs, mu, logvar = vae.encode(data)
             q_densities = kde_density(outputs, mu, logvar)
@@ -538,8 +550,6 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 "min_weight": weights.min(),
                 "mean_weight": weights.mean(),
             })
-        else:
-            weights = torch.ones_like(targets_flat)
         return weights
 
     def adaptive_gamma(self, alpha=0.01, beta=10000):

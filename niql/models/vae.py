@@ -2,7 +2,6 @@ from typing import List
 
 import torch
 import torch.nn as nn
-from torch.nn.functional import mse_loss
 
 
 class VAE(nn.Module):
@@ -21,7 +20,7 @@ class VAE(nn.Module):
                 nn.ReLU(),
             ])
             prev_dim = hdim
-        bottle_neck = nn.Linear(prev_dim, latent_dim * 4)  # Mean and log-variance
+        bottle_neck = nn.Linear(prev_dim, latent_dim * 2)  # Mean and log-variance
         encoder_layers.append(bottle_neck)
 
         prev_dim = latent_dim
@@ -44,30 +43,15 @@ class VAE(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    def forward(self, x, dist):
-        params = self.encoder(x)
-        params = params[:, : self.latent_dim * 2] if dist == "p" else params[:, self.latent_dim * 2:]
-        mu, logvar = params[:, : self.latent_dim], params[:, self.latent_dim:]
-        z = self.reparameterize(mu, logvar)
+    def forward(self, x):
+        z, mu, logvar = self.encode(x)
         return self.decoder(z), mu, logvar
 
-    def estimate_density(self, x, dist):
-        with torch.no_grad():
-            # Decode z to get reconstructed x
-            recon_x, mu, logvar = self.forward(x, dist)
+    def encode(self, x):
+        params = self.encoder(x)
+        mu, logvar = params[:, : self.latent_dim], params[:, self.latent_dim:]
+        z = self.reparameterize(mu, logvar)
+        return z, mu, logvar
 
-            # Compute the reconstruction loss (log-likelihood)
-            recon_loss = mse_loss(recon_x, x, reduction='none')
-            recon_loss = recon_loss.sum(dim=1)
-
-            # Compute the KL divergence
-            KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
-
-            # Compute the ELBO
-            elbo = recon_loss + KLD
-
-            # Convert ELBO to density estimate
-            density_estimate = torch.exp(-elbo)
-
-            return density_estimate
-
+    def encode_decode(self, x):
+        return self.forward(x)

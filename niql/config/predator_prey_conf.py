@@ -30,7 +30,7 @@ PREDATOR_PREY = {
     },
     'model_preference': {
         'core_arch': 'gru',  # mlp | gru
-        "encode_layer": "128-16",  # for RNN model
+        "encode_layer": "128",  # for RNN model
         'hidden_state_size': 128,  # for RNN model
         'fcnet_activation': 'relu',
         'model': 'DRQNModel',
@@ -43,7 +43,7 @@ PREDATOR_PREY = {
         },
         'mha_num_heads': 4,
         'add_action_dim': False,
-        'use_vae_encoder': True,
+        'use_vae_encoder': False,
         'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator_dim': 10,
