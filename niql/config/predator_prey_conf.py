@@ -10,6 +10,12 @@ PREDATOR_PREY = {
                 [50000, 1.0],
                 [60000, 0.0],
             ],
+            'vae_lr': 0.0005,
+            'vae_lr_schedule': [
+                [0, 0.0005],
+                [20000, 0.00005],
+                [40000, 0.00001],
+            ],
             'tdw_bandwidth': 5.,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,

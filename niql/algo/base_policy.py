@@ -62,6 +62,16 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             outside_value=self.config["tdw_schedule"][-1][-1]  # use value of last schedule
         )
 
+        self.kld_schedule = PiecewiseSchedule(
+            framework=None,
+            endpoints=[
+                [0, .0],
+                [20000, 0.5],
+                [40000, 0.9],
+            ],
+            outside_value=1.0
+        )
+
         agent_obs_space = obs_space.original_space
         if isinstance(agent_obs_space, GymDict):
             space_keys = set(agent_obs_space.spaces.keys())
@@ -116,7 +126,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         # create models
         self.params = []
         models_factory_class.__init__(self, agent_obs_space, action_space, config, core_arch)
-        vae_args = model_arch_args = config["model"]["custom_model_config"]["model_arch_args"]["tdw_vae"]
+        vae_args = model_arch_args["tdw_vae"]
         self.vae_model = VAE(
             input_dim=self.obs_size + (action_space.n if self.add_action_to_obs else 0) + 1,
             hidden_layer_dims=vae_args["hdims"],
@@ -167,7 +177,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 lr=config["lr"])
             self.vae_optimiser = RMSprop(
                 params=self.vae_model.parameters(),
-                lr=config["lr"])
+                lr=config["vae_lr"])
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
@@ -176,7 +186,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 lr=config["lr"], )
             self.vae_optimiser = Adam(
                 params=self.vae_model.parameters(),
-                lr=config["lr"])
+                lr=config["vae_lr"])
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -192,7 +202,8 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
 
     @property
     def _optimizers(self):
-        return [self.optimiser, self.comm_params]
+        # list of optimisers controlled by LR schedule
+        return []
 
     @override(Policy)
     def compute_actions(
@@ -449,9 +460,10 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         return out
 
     def vae_loss_function(self, recon_x, x, mu, logvar):
+        w = self.kld_schedule.value(self.global_timestep)
         MSE = mse_loss(recon_x, x, reduction='sum')
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        return MSE + KLD
+        return MSE + KLD, MSE, KLD
 
     def compute_vae_loss(self, data):
         vae = self.model.encoder
@@ -468,19 +480,33 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
 
         self.vae_model.train()
         training_loss = []
+        mse_losses = []
+        kld_losses = []
+
         for epoch in range(num_epochs):
             ep_loss = 0
+            ep_mse_loss = 0
+            ep_kld_loss = 0
+
             for batch in data_loader:
                 batch = batch[0]
                 self.vae_optimiser.zero_grad()
                 recon_batch, mu, logvar = self.vae_model(batch)
-                loss = self.vae_loss_function(recon_batch, batch, mu, logvar)
+                loss, mse_, kld_ = self.vae_loss_function(recon_batch, batch, mu, logvar)
                 loss.backward()
                 ep_loss += loss.item()
+                ep_mse_loss += mse_.item()
+                ep_kld_loss += kld_.item()
                 self.vae_optimiser.step()
+
             training_loss.append(ep_loss / len(dataset))
-        tb_add_scalar(self, "vae_loss", np.mean(training_loss))
+            mse_losses.append(ep_mse_loss / len(dataset))
+            kld_losses.append(ep_kld_loss / len(dataset))
         self.vae_model.eval()
+
+        tb_add_scalar(self, "vae_loss", np.mean(training_loss))
+        tb_add_scalar(self, "vae_mse_loss", np.mean(mse_losses))
+        tb_add_scalar(self, "vae_kld_loss", np.mean(kld_losses))
 
     def construct_tdw_dataset(self, samples: SampleBatch):
         # construct training data
@@ -489,11 +515,12 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         )
         sample_size = samples.count
         obs = samples[SampleBatch.OBS].reshape(sample_size, -1)
+        next_obs = samples[SampleBatch.NEXT_OBS].reshape(sample_size, -1)
         actions = samples[SampleBatch.ACTIONS].reshape(sample_size, )
         rewards = samples[SampleBatch.REWARDS].reshape(sample_size, -1)
         if self.add_action_to_obs:
             actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions]
-            data = torch.cat([obs, actions, rewards], dim=-1)
+            data = torch.cat([obs, actions, rewards, next_obs], dim=-1)
         else:
             data = torch.cat([obs, rewards], dim=-1)
         data = normalize_zero_mean_unit_variance(data)

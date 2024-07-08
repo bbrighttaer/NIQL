@@ -690,6 +690,47 @@ def gaussian_density(z, mu, logvar):
     return density
 
 
+def nystroem_gaussian_density(z, mu, logvar, num_samples=50):
+    """
+    Compute the Gaussian density of z given a Gaussian defined by mu and logvar.
+
+    Parameters:
+    z (tensor): Input tensor of shape (N, 1, D).
+    mu (tensor): Mean tensor of shape (1, N, D).
+    logvar (tensor): Log variance tensor of shape (1, N, D).
+    num_samples (int): Number of samples for the Nystroem approximation.
+
+    Returns:
+    tensor: Gaussian density of shape (N, D).
+    """
+    N = z.shape[0]
+    std = torch.exp(0.5 * logvar)
+    var = std ** 2
+
+    # Sample selection
+    indices = torch.randperm(N)[:num_samples]
+    z_sampled = z[indices]
+    mu_sampled = mu[:, indices]
+    var_sampled = var[:, indices]
+    normalization = torch.sqrt(2 * np.pi * var_sampled)
+
+    # Compute kernel submatrix K_m
+    K_m = torch.exp(-0.5 * ((z_sampled - mu_sampled) ** 2 / var_sampled)) / normalization
+    K_m = K_m.permute(2, 0, 1)
+
+    # Compute cross-kernel submatrix K_Nm
+    K_Nm = torch.exp(-0.5 * ((z - mu_sampled) ** 2 / var_sampled)) / normalization
+    K_Nm = K_Nm.permute(2, 0, 1)
+
+    # Compute the approximate kernel matrix
+    K_m_inv = torch.linalg.pinv(K_m)
+    K_Nm_T = K_Nm.permute(0, 2, 1)
+    K_approx = K_Nm @ K_m_inv @ K_Nm_T
+    K_approx = K_approx.permute(1, 2, 0)
+
+    return K_approx
+
+
 def kde_density(Z, mus, logvars):
     """
     Compute the density of each sample z_i in Z by merging all individual Gaussian distributions.
@@ -710,10 +751,11 @@ def kde_density(Z, mus, logvars):
     logvars_expanded = logvars.detach().unsqueeze(0)
 
     # Compute pairwise Gaussian densities
-    pairwise_densities = gaussian_density(Z_expanded, mus_expanded, logvars_expanded)
+    # pairwise_densities = gaussian_density(Z_expanded, mus_expanded, logvars_expanded)
+    approx_pairwise_densities = nystroem_gaussian_density(Z_expanded, mus_expanded, logvars_expanded)
 
     # Compute product of densities across dimensions
-    pairwise_densities_prod = pairwise_densities.prod(dim=2)
+    pairwise_densities_prod = approx_pairwise_densities.prod(dim=2)
 
     # Sum densities excluding self
     mask = 1 - torch.eye(N, device=Z.device)

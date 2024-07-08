@@ -145,6 +145,7 @@ class WIQL(NIQLBasePolicy):
             SampleBatch.OBS: obs.view(B * T, -1),
             SampleBatch.ACTIONS: actions.view(B * T, -1),
             SampleBatch.REWARDS: targets.view(B * T, -1),
+            SampleBatch.NEXT_OBS: next_obs.view(B * T, -1),
         }))
         # tdw_weights = target_distribution_weighting(
         #     self, targets.detach().clone().view(B * T, -1), self.config["similarity_threshold"]

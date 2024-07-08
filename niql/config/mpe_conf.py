@@ -10,13 +10,19 @@ MPE = {
                 [50000, 1.0],
                 [55000, 0.0],
             ],
+            'vae_lr': 0.00005,
+            'vae_lr_schedule': [
+                [0, 0.0005],
+                [20000, 0.00005],
+                [40000, 0.00001],
+            ],
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': False,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
-            'optimizer': 'rmsprop',  # "adam"
+            'optimizer': 'rmsprop',  # "rmsprop | adam"
             'reward_standardize': True,
             'gamma': 0.99,
             'lambda': 0.6,
@@ -42,6 +48,7 @@ MPE = {
         },
         'mha_num_heads': 2,
         'add_action_dim': False,
+        'use_vae_encoder': False,
         'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator': 'concat',

@@ -126,6 +126,8 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
             "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps
             "learning_starts": episode_limit * train_batch_episode,
             "lr": lr if restore is None else 1e-10,
+            "vae_lr": _param.get("vae_lr") or 1e-10,
+            "vae_lr_schedule": _param.get("vae_lr_schedule"),
             "exploration_config": {
                 "type": "EpsilonGreedy",
                 "initial_epsilon": 1.0,
