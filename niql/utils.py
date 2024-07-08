@@ -690,7 +690,7 @@ def gaussian_density(z, mu, logvar):
     return density
 
 
-def nystroem_gaussian_density(z, mu, logvar, num_samples=50):
+def nystroem_gaussian_density(z, mu, logvar, num_samples=100):
     """
     Compute the Gaussian density of z given a Gaussian defined by mu and logvar.
 
