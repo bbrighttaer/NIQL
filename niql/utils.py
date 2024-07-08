@@ -690,7 +690,32 @@ def gaussian_density(z, mu, logvar):
     return density
 
 
-def nystroem_gaussian_density(z, mu, logvar, num_samples=100):
+def compute_gaussian_densities(Z, logvars, mus):
+    N, D = Z.shape
+
+    # Expand dimensions for broadcasting
+    Z_expanded = Z.detach().unsqueeze(1)
+    mus_expanded = mus.detach().unsqueeze(0)
+    logvars_expanded = logvars.detach().unsqueeze(0)
+
+    # Compute pairwise Gaussian densities
+    pairwise_densities = gaussian_density(Z_expanded, mus_expanded, logvars_expanded)
+
+    # Compute product of densities across dimensions
+    pairwise_densities_prod = pairwise_densities.prod(dim=2)
+
+    # Sum densities excluding self
+    mask = 1 - torch.eye(N, device=Z.device)
+    densities_sum = (pairwise_densities_prod * mask).sum(dim=1)
+
+    # Normalize by N-1
+    densities = densities_sum / (N - 1)
+    densities = densities.view(-1, 1)
+
+    return densities
+
+
+def nystroem_gaussian_density(z, mu, logvar, num_samples):
     """
     Compute the Gaussian density of z given a Gaussian defined by mu and logvar.
 
@@ -716,12 +741,12 @@ def nystroem_gaussian_density(z, mu, logvar, num_samples=100):
     # Compute normalization factors
     normalization = torch.sqrt(2 * np.pi * var_sampled)
 
-    # Compute kernel submatrix K_m
+    # Compute kernel sub-matrix K_m
     diff = z_sampled.unsqueeze(1) - mu_sampled.unsqueeze(0)
     K_m = torch.exp(-0.5 * (diff ** 2 / var_sampled.unsqueeze(0))) / normalization.unsqueeze(0)
     K_m = K_m.view(num_samples, num_samples, D).prod(dim=2)
 
-    # Compute cross-kernel submatrix K_Nm
+    # Compute cross-kernel sub-matrix K_Nm
     diff = z.unsqueeze(1) - mu_sampled.unsqueeze(0)
     K_Nm = torch.exp(-0.5 * (diff ** 2 / var_sampled.unsqueeze(0))) / normalization.unsqueeze(0)
     K_Nm = K_Nm.view(N, num_samples, D).prod(dim=2)
@@ -738,7 +763,7 @@ def nystroem_gaussian_density(z, mu, logvar, num_samples=100):
     return density
 
 
-def kde_density(Z, mus, logvars):
+def kde_density(Z, mus, logvars, approx=True, num_samples=100):
     """
     Compute the density of each sample z_i in Z by merging all individual Gaussian distributions.
 
@@ -746,30 +771,15 @@ def kde_density(Z, mus, logvars):
     Z (tensor): NxD tensor of samples.
     mus (tensor): NxD tensor of means.
     logvars (tensor): NxD tensor of log variances.
+    approx: whether to use an approximation method for KDE
+    num_samples: only applicable when approx is set to True
 
     Returns:
     tensor: Nx1 tensor of densities for each sample.
     """
-    N, D = Z.shape
+    if approx:
+        densities = nystroem_gaussian_density(Z, mus, logvars, num_samples)
+    else:
+        densities = compute_gaussian_densities(Z, logvars, mus)
 
-    # Expand dimensions for broadcasting
-    # Z_expanded = Z.detach().unsqueeze(1)
-    # mus_expanded = mus.detach().unsqueeze(0)
-    # logvars_expanded = logvars.detach().unsqueeze(0)
-
-    # Compute pairwise Gaussian densities
-    # pairwise_densities = gaussian_density(Z_expanded, mus_expanded, logvars_expanded)
-    approx_densities = nystroem_gaussian_density(Z, mus, logvars)
-
-    # Compute product of densities across dimensions
-    # pairwise_densities_prod = approx_pairwise_densities.prod(dim=2)
-
-    # Sum densities excluding self
-    # mask = 1 - torch.eye(N, device=Z.device)
-    # densities_sum = (pairwise_densities_prod * mask).sum(dim=1)
-
-    # Normalize by N-1
-    # densities = densities_sum / (N - 1)
-    # densities = densities.view(-1, 1)
-
-    return approx_densities
+    return densities
