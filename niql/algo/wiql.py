@@ -1,4 +1,5 @@
 import logging
+import random
 from functools import partial
 
 import numpy as np
@@ -28,7 +29,7 @@ class WIQL(NIQLBasePolicy):
 
     def compute_trajectory_q_loss(self,
                                   rewards,
-                                  is_weights,
+                                  weights,
                                   actions,
                                   prev_actions,
                                   terminated,
@@ -48,7 +49,7 @@ class WIQL(NIQLBasePolicy):
 
         Args:
             rewards: Tensor of shape [B, T]
-            is_weights: Tensor of shape [B, T]
+            weights: Tensor of shape [B, T]
             actions: Tensor of shape [B, T]
             prev_actions: Tensor of shape [B, T]
             terminated: Tensor of shape [B, T]
@@ -139,34 +140,23 @@ class WIQL(NIQLBasePolicy):
         targets = rewards + self.config["gamma"] * (1 - terminated) * target_max_qvals
         tb_add_histogram(self, "batch_targets", targets)
 
-        # Get target distribution weights
-        # tdw_train_data = self.construct_tdw_dataset(uniform_batch)
+        # Construct data for training tdw vae
         vae_data = self.construct_tdw_dataset(SampleBatch({
             SampleBatch.OBS: obs.view(B * T, -1),
             SampleBatch.ACTIONS: actions.view(B * T, -1),
             SampleBatch.REWARDS: targets.view(B * T, -1),
             SampleBatch.NEXT_OBS: next_obs.view(B * T, -1),
         }))
-        # tdw_weights = target_distribution_weighting(
-        #     self, targets.detach().clone().view(B * T, -1), self.config["similarity_threshold"]
-        # )
-        # tdw_weights = tdw_weights.view(B, T)
-        # tdw_weights = self.get_tdw_weights(targets)
-        # tdw_weights = tdw_weights.view(*targets.shape)
-        # tdw_weights = self.get_tdw_weights(
-        #     data=vae_data
-        # )
-        # tdw_weights = tdw_weights.view(*targets.shape)
-        # tdw_weights = self.get_tdw_weights(
-        #     training_data=uniform_batch,
-        #     obs=obs.view(B * T, -1),
-        #     actions=actions.view(B * T, -1),
-        #     rewards=rewards.view(B * T, -1),
-        # )
-        # tdw_weights = tdw_weights.view(*targets.shape)
-        # tdw_weights = target_distribution_weighting(self, chosen_action_qvals, targets)
-        tdw_weights = self.get_tdw_weights(vae_data, targets)
-        tdw_weights = tdw_weights.view(B, T)
+
+        # Get target distribution weights
+        if self.global_timestep < self.config["tdw_warm_steps"]:
+            self.fit_vae(vae_data, num_epochs=2)
+        elif random.random() < self.tdw_schedule.value(self.global_timestep):
+            tdw_weights = self.get_tdw_weights(vae_data, targets)
+            tdw_weights = tdw_weights.view(B, T)
+            weights = tdw_weights ** 1.0  # self.adaptive_gamma()
+        else:
+            weights = torch.ones_like(targets)
 
         # Td-error
         td_error = chosen_action_qvals - targets.detach()
@@ -176,10 +166,8 @@ class WIQL(NIQLBasePolicy):
         masked_td_error = td_error * mask
         self.model.tower_stats["td_error"] = to_numpy(masked_td_error)
 
-        # Normal L2 loss, take mean over actual data
-        # weights = is_weights * tdw_weights
-        tdw_weights = tdw_weights ** 1.0  # self.adaptive_gamma()
-        loss = tdw_weights * huber_loss(masked_td_error)
+        # Calculate loss
+        loss = weights * huber_loss(masked_td_error)
         loss = loss.sum() / mask.sum()
         self.model.tower_stats["loss"] = loss.item()
         tb_add_scalar(self, "loss", loss.item())

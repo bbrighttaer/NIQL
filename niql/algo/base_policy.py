@@ -62,15 +62,15 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             outside_value=self.config["tdw_schedule"][-1][-1]  # use value of last schedule
         )
 
-        self.kld_schedule = PiecewiseSchedule(
-            framework=None,
-            endpoints=[
-                [0, .0],
-                [20000, 0.5],
-                [40000, 0.9],
-            ],
-            outside_value=1.0
-        )
+        # self.kld_schedule = PiecewiseSchedule(
+        #     framework=None,
+        #     endpoints=[
+        #         [0, .0],
+        #         [20000, 0.5],
+        #         [40000, 0.9],
+        #     ],
+        #     outside_value=1.0
+        # )
 
         agent_obs_space = obs_space.original_space
         if isinstance(agent_obs_space, GymDict):
@@ -177,7 +177,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 lr=config["lr"])
             self.vae_optimiser = RMSprop(
                 params=self.vae_model.parameters(),
-                lr=config["vae_lr"])
+                lr=config["lr"])
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
@@ -186,7 +186,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 lr=config["lr"], )
             self.vae_optimiser = Adam(
                 params=self.vae_model.parameters(),
-                lr=config["vae_lr"])
+                lr=config["lr"])
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -203,7 +203,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
     @property
     def _optimizers(self):
         # list of optimisers controlled by LR schedule
-        return []
+        return [self.vae_optimiser]
 
     @override(Policy)
     def compute_actions(
@@ -460,7 +460,6 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         return out
 
     def vae_loss_function(self, recon_x, x, mu, logvar):
-        w = self.kld_schedule.value(self.global_timestep)
         MSE = mse_loss(recon_x, x, reduction='sum')
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         return MSE + KLD, MSE, KLD
@@ -474,9 +473,9 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             loss = 0.
         return loss
 
-    def fit_vae(self, training_data, num_epochs=5):
+    def fit_vae(self, training_data, num_epochs=2):
         dataset = TensorDataset(training_data)
-        data_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+        data_loader = DataLoader(dataset, batch_size=64, shuffle=True)
 
         self.vae_model.train()
         training_loss = []
@@ -550,21 +549,25 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         vae = self.vae_model
         target_vae = self.target_vae_model
 
+        # set training and eval properties
         eps = 1e-7
+        n_epochs = 2
+        ns = self.config.get("kde_subset_size") or 100
 
         # train
-        self.fit_vae(data)
+        self.fit_vae(data, num_epochs=n_epochs)
 
         with torch.no_grad():
+
             # q densities
             outputs, mu, logvar = vae.encode(data)
-            q_densities = kde_density(outputs, mu, logvar)
+            q_densities = kde_density(outputs, mu, logvar, ns)
             q_densities = apply_scaling(q_densities)
 
             # p densities
             targets_scaled = shift_and_scale(targets_flat)
             target_outputs, target_mu, target_logvar = target_vae.encode(data)
-            p_densities = targets_scaled / (kde_density(target_outputs, target_mu, target_logvar) + eps)
+            p_densities = targets_scaled / (kde_density(target_outputs, target_mu, target_logvar, ns) + eps)
             p_densities /= (p_densities.max() + eps)
 
             # compute weights

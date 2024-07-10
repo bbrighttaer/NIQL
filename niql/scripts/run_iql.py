@@ -126,8 +126,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
             "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps
             "learning_starts": episode_limit * train_batch_episode,
             "lr": lr if restore is None else 1e-10,
-            "vae_lr": _param.get("vae_lr") or 1e-10,
-            "vae_lr_schedule": _param.get("vae_lr_schedule"),
+            "lr_schedule": _param.get("lr_schedule"),
             "exploration_config": {
                 "type": "EpsilonGreedy",
                 "initial_epsilon": 1.0,
@@ -138,7 +137,8 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
             "comm_num_agents": env["num_agents"],
             "tdw_schedule": _param.get("tdw_schedule"),
             "tdw_kernel": TorchKernelDensity.gaussian,
-            "tdw_bandwidth": _param.get("tdw_bandwidth", 1.),
+            "tdw_warm_steps": _param.get("tdw_warm_steps", 1000),
+            "kde_subset_size": _param.get("kde_subset_size"),
             "similarity_threshold": _param.get("similarity_threshold", 0.01)
         })
 
