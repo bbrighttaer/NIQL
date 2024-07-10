@@ -141,6 +141,11 @@ class IQLPolicy(LearningRateSchedule, Policy):
         # initial target network sync
         self.update_target()
 
+    @property
+    def _optimizers(self):
+        # list of optimisers controlled by LR schedule
+        return []
+
     @override(Policy)
     def compute_actions(
             self,
@@ -533,7 +538,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
         self.model.tower_stats["td_error"] = to_numpy(masked_td_error)
 
         # Normal L2 loss, take mean over actual data
-        loss = weights * huber_loss(masked_td_error)
+        loss = huber_loss(masked_td_error)
         loss = loss.sum() / mask.sum()
         self.model.tower_stats["loss"] = to_numpy(loss)
         tb_add_scalar(self, "loss", loss.item())

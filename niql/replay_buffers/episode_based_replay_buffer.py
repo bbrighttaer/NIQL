@@ -48,11 +48,11 @@ class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
                 return joint_replay_buffer
 
             self.replay_buffers = collections.defaultdict(new_buffer)
-        elif enable_stochastic_eviction:
-            def new_buffer():
-                return PrioritizedReplayBufferWithStochasticEviction(self.capacity, alpha=prioritized_replay_alpha)
-
-            self.replay_buffers = collections.defaultdict(new_buffer)
+        # elif enable_stochastic_eviction:
+        #     def new_buffer():
+        #         return PrioritizedReplayBufferWithStochasticEviction(self.capacity, alpha=prioritized_replay_alpha)
+        #
+        #     self.replay_buffers = collections.defaultdict(new_buffer)
 
     def plot_statistics(self, summary_writer, timestep):
         for policy_id, replay_buffer in self.replay_buffers.items():
