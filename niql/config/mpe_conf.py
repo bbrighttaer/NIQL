@@ -5,17 +5,18 @@ MPE = {
         'algo_args': {
             'batch_episode': 32,
             'lr': 0.0005,
+            'lr_schedule': [
+                [0, 0.0005],
+                [30000, 0.00005],
+                [50000, 0.000005],
+            ],
             'tdw_schedule': [
                 [0, 1.0],
                 [50000, 1.0],
-                [55000, 0.0],
+                [200000, 0.0],
             ],
-            'vae_lr': 0.0005,
-            'vae_lr_schedule': [
-                [0, 0.0005],
-                [20000, 0.00005],
-                [40000, 0.00001],
-            ],
+            'tdw_warm_steps': 3000,
+            'kde_subset_size': 200,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': False,
@@ -58,6 +59,6 @@ MPE = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 1000000,
+        'timesteps_total': 2000000,
     }
 }
