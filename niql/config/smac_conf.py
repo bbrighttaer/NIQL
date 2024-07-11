@@ -13,7 +13,7 @@ SMAC = {
             'tdw_schedule': [
                 [0, 1.0],
                 [50000, 1.0],
-                # [200000, 0.0],
+                [500000, 0.0],
             ],
             'kde_subset_size': 0.1,
             'tdw_warm_steps': 3000,
@@ -44,7 +44,7 @@ SMAC = {
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'tdw_vae': {
-            'latent_dim': 16,
+            'latent_dim': 32,
             'hdims': [128],
         },
         'mha_num_heads': 4,
