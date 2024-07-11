@@ -13,7 +13,7 @@ PREDATOR_PREY = {
             'tdw_schedule': [
                 [0, 1.0],
                 [50000, 1.0],
-                [200000, 0.0],
+                # [200000, 0.0],
             ],
             'kde_subset_size': 100,
             'tdw_warm_steps': 3000,
