@@ -16,7 +16,7 @@ MPE = {
                 [500000, 0.0],
             ],
             'tdw_warm_steps': 3000,
-            'kde_subset_size': 0.1,
+            'kde_subset_size': 200,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': False,

@@ -14,7 +14,7 @@ MATRIX_GAME = {
                 [2000, 1.0],
                 [3000, 0.0],
             ],
-            'kde_subset_size': 0.1,
+            'kde_subset_size': 10,
             'tdw_warm_steps': 1000,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,

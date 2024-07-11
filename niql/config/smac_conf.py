@@ -15,7 +15,7 @@ SMAC = {
                 [50000, 1.0],
                 # [500000, 1.0],
             ],
-            'kde_subset_size': 0.1,
+            'kde_subset_size': 200,
             'tdw_warm_steps': 3000,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
@@ -58,7 +58,7 @@ SMAC = {
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 1000000,
+        'timesteps_total': 2000000,
     }
 }
 
