@@ -763,7 +763,7 @@ def nystroem_gaussian_density(z, mu, logvar, num_samples):
     return density
 
 
-def kde_density(Z, mus, logvars, approx=True, num_samples=100):
+def kde_density(Z, mus, logvars, num_samples, approx=True):
     """
     Compute the density of each sample z_i in Z by merging all individual Gaussian distributions.
 

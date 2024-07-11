@@ -552,7 +552,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         # set training and eval properties
         eps = 1e-7
         n_epochs = 2
-        ns = self.config.get("kde_subset_size") or 100
+        ns = int(self.config.get("kde_subset_size") * data.shape[0])
 
         # train
         self.fit_vae(data, num_epochs=n_epochs)

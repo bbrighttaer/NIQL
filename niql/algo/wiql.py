@@ -1,5 +1,6 @@
 import logging
 import random
+import time
 from functools import partial
 
 import numpy as np
@@ -150,11 +151,15 @@ class WIQL(NIQLBasePolicy):
 
         # Get target distribution weights
         if self.global_timestep < self.config["tdw_warm_steps"]:
+            start = time.perf_counter()
             self.fit_vae(vae_data, num_epochs=2)
+            tb_add_scalar(self, "fit_vae_time", time.perf_counter() - start)
         elif random.random() < self.tdw_schedule.value(self.global_timestep):
+            start = time.perf_counter()
             tdw_weights = self.get_tdw_weights(vae_data, targets)
             tdw_weights = tdw_weights.view(B, T)
             weights = tdw_weights ** 1.0  # self.adaptive_gamma()
+            tb_add_scalar(self, "tdw_time", time.perf_counter() - start)
         else:
             weights = torch.ones_like(targets)
 

@@ -5,11 +5,17 @@ MATRIX_GAME = {
         'algo_args': {
             'batch_episode': 32,
             'lr': 0.0005,
+            'lr_schedule': [
+                [0, 0.0005],
+                [1000, 0.00005],
+            ],
             'tdw_schedule': [
                 [0, 1.0],
-                [3000, 0.],
+                [2000, 1.0],
+                [3000, 0.0],
             ],
-            'tdw_bandwidth': 1.0,
+            'kde_subset_size': 0.1,
+            'tdw_warm_steps': 1000,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': True,

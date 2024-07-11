@@ -15,7 +15,7 @@ SMAC = {
                 [50000, 1.0],
                 # [200000, 0.0],
             ],
-            'kde_subset_size': 100,
+            'kde_subset_size': 0.1,
             'tdw_warm_steps': 3000,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
