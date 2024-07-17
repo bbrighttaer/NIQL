@@ -58,6 +58,11 @@ class NIQLCallbacks(DefaultCallbacks):
                 "episode": episode,
             })
 
+        # clear shared local messages
+        for policy in list(policies.values()):
+            if hasattr(policy, "initialise_messages_hist"):
+                policy.initialise_messages_hist()
+
         # Get current env from worker
         env = worker.env
 

@@ -24,7 +24,7 @@ from niql.config import FINGERPRINT_SIZE
 from niql.envs import DEBUG_ENVS
 from niql.models import SimpleCommNet
 from niql.utils import unpack_observation, get_size, preprocess_trajectory_batch, to_numpy, tb_add_scalar, \
-    tb_add_scalars, add_comm_msg, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, batch_message_inter_agent_sharing, soft_update
+    tb_add_scalars, add_comm_msg, NEIGHBOUR_MSG, NEIGHBOUR_NEXT_MSG, batch_message_inter_agent_sharing, soft_update
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +255,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
          next_obs, obs, rewards, weights, terminated, n_obs, n_next_obs, seq_lens) = preprocess_trajectory_batch(
             policy=self,
             samples=samples,
-            has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
+            has_neighbour_data=NEIGHBOUR_MSG in samples and NEIGHBOUR_NEXT_MSG in samples,
         )
 
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(

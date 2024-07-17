@@ -25,7 +25,7 @@ from niql.models.comm_net import ConcatCommMessagesAggregator
 from niql.models.vae import VAE
 from niql.utils import get_size, tb_add_scalar, tb_add_scalars, standardize, kde_density, shift_and_scale, \
     apply_scaling, normalize_zero_mean_unit_variance
-from niql.utils import unpack_observation, preprocess_trajectory_batch, to_numpy, NEIGHBOUR_OBS, NEIGHBOUR_NEXT_OBS, \
+from niql.utils import unpack_observation, preprocess_trajectory_batch, to_numpy, NEIGHBOUR_MSG, NEIGHBOUR_NEXT_MSG, \
     batch_message_inter_agent_sharing, mac
 
 logger = logging.getLogger(__name__)
@@ -102,26 +102,14 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         self.add_action_to_obs = model_arch_args["add_action_dim"]
         config["model"]["action_dim"] = action_space.n if self.add_action_to_obs else 0
         self.use_comm = model_arch_args.get("comm_dim", 0) > 0
-        comm_dim = 0
-        self.comm_net = None
-        self.comm_net_target = None
+        self.comm_dim = 0
         if self.use_comm:
-            fp_size = config["comm_num_agents"]
-            comm_dim = model_arch_args["comm_dim"] + fp_size
-            comm_hdim = model_arch_args["comm_hdim"]
-            config["model"]["comm_dim"] = comm_dim
+            self.comm_dim = model_arch_args["comm_dim"]
+            config["model"]["comm_dim"] = self.comm_dim
             if model_arch_args["comm_aggregator"] == "concat":
-                config["model"]["comm_aggregator_dim"] = comm_dim * (config["comm_num_agents"] - 1)
+                config["model"]["comm_aggregator_dim"] = self.comm_dim * (config["comm_num_agents"] - 1)
             else:
                 config["model"]["comm_aggregator_dim"] = model_arch_args["comm_aggregator_dim"]
-            agent_index = int(self.policy_id.split("_")[-1])
-
-            self.comm_net = SimpleCommNet(
-                self.obs_size, comm_hdim, comm_dim, agent_index, fp_size, discrete=False
-            ).to(self.device)
-            self.comm_net_target = SimpleCommNet(
-                self.obs_size, comm_hdim, comm_dim, agent_index, fp_size, discrete=False
-            ).to(self.device)
 
         # create models
         self.params = []
@@ -155,13 +143,13 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 aggregator = AttentionCommMessagesAggregator
             self.comm_aggregator = aggregator(
                 query_dim=query_dim,
-                comm_dim=comm_dim,
+                comm_dim=self.comm_dim,
                 hidden_dims=model_arch_args["comm_aggregator_hdims"],
                 output_dim=model_arch_args["comm_aggregator_dim"],
             ).to(self.device)
             self.comm_aggregator_target = aggregator(
                 query_dim=query_dim,
-                comm_dim=comm_dim,
+                comm_dim=self.comm_dim,
                 hidden_dims=model_arch_args["comm_aggregator_hdims"],
                 output_dim=model_arch_args["comm_aggregator_dim"],
             ).to(self.device)
@@ -169,7 +157,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         # optimizer
         self.comm_params = []
         if self.use_comm:
-            self.params += list(self.comm_net.parameters()) + list(self.comm_aggregator.parameters())
+            self.params += list(self.comm_aggregator.parameters())
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
             self.optimiser = RMSprop(
@@ -200,10 +188,19 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         # initial target network sync
         self.update_target()
 
+        # initialise local messages history
+        self.initialise_messages_hist()
+
     @property
     def _optimizers(self):
         # list of optimisers controlled by LR schedule
         return [self.vae_optimiser]
+
+    def initialise_messages_hist(self):
+        self.local_messages_hist = []
+        self.local_messages_hist.append(
+            np.zeros((1, self.comm_dim), dtype=np.float32)
+        )
 
     @override(Policy)
     def compute_actions(
@@ -236,26 +233,32 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             # Call the exploration before_compute_actions hook.
             self.exploration.before_compute_actions(explore=explore, timestep=timestep)
 
-            if self.use_comm:
-                msg = self.comm_net(obs_batch)
-                if self.neighbour_messages:
-                    n = len(self.neighbour_messages)
-                    local_msg = msg.reshape(1, 1, -1)
-                    neighbour_msgs = convert_to_torch_tensor(
-                        np.array(self.neighbour_messages).reshape(1, n, -1), self.device)
-                    msg = torch.cat([local_msg, neighbour_msgs], dim=1)
-                    query = state_batches[0].unsqueeze(0) if self.is_recurrent else obs_batch
-                    msg = self.aggregate_messages(False, query, msg)
-                    self.neighbour_messages.clear()
-                obs_batch = torch.cat([obs_batch, msg], dim=-1)
-
+            # Add previous action to input
             if self.add_action_to_obs:
                 one_hot_tensor = torch.eye(self.n_actions).float().to(self.device)
                 actions = one_hot_tensor[prev_action_batch].unsqueeze(1)
                 obs_batch = torch.cat([obs_batch, actions], dim=-1)
 
+            # Add shared neighbour messages (t-1) to input
+            if self.use_comm:
+                if self.neighbour_messages:
+                    n = len(self.neighbour_messages)
+                    neighbour_msgs = convert_to_torch_tensor(
+                        np.array(self.neighbour_messages).reshape(1, n, -1), self.device)
+                    query = state_batches[0].unsqueeze(0) if self.is_recurrent else obs_batch
+                    msg = self.aggregate_messages(False, query, neighbour_msgs)
+                    self.neighbour_messages.clear()
+                obs_batch = torch.cat([obs_batch, msg], dim=-1)
+
             # predict q-vals
-            q_values, hiddens = mac(self.model, obs_batch, state_batches)
+            mac_out = mac(self.model, obs_batch, state_batches)
+            if self.use_comm:
+                q_values, (hiddens, local_msg) = mac_out
+                self.local_messages_hist.append(
+                    local_msg.detach().cpu().numpy().reshape(1, self.comm_dim)
+                )
+            else:
+                q_values, hiddens = mac_out
             avail_actions = convert_to_torch_tensor(action_mask, self.device)
             masked_q_values = q_values.clone()
             masked_q_values[avail_actions == 0.0] = -float("inf")
@@ -310,10 +313,10 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         )
 
         (action_mask, actions, prev_actions, env_global_state, mask, next_action_mask, next_env_global_state,
-         next_obs, obs, rewards, weights, terminated, n_obs, n_next_obs, seq_lens) = preprocess_trajectory_batch(
+         next_obs, obs, rewards, weights, terminated, n_msg, n_next_msg, seq_lens) = preprocess_trajectory_batch(
             policy=self,
             samples=samples,
-            has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
+            has_neighbour_data=NEIGHBOUR_MSG in samples and NEIGHBOUR_NEXT_MSG in samples,
         )
 
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(
@@ -329,8 +332,8 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             next_action_mask,
             env_global_state,
             next_env_global_state,
-            n_obs,
-            n_next_obs,
+            n_msg,
+            n_next_msg,
             samples.get("uniform_batch"),
         )
 
@@ -340,10 +343,9 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         grad_norm_clipping_ = self.config["grad_clip"]
         grad_norm = torch.nn.utils.clip_grad_norm_(self.params, grad_norm_clipping_)
         if self.use_comm:
-            comm_net_grad_norm = torch.nn.utils.clip_grad_norm_(self.comm_net.parameters(), grad_norm_clipping_)
             comm_agg_grad_norm = torch.nn.utils.clip_grad_norm_(self.comm_aggregator.parameters(), grad_norm_clipping_)
         else:
-            comm_net_grad_norm = comm_agg_grad_norm = 0.
+           comm_agg_grad_norm = 0.
         self.optimiser.step()
 
         mask_elems = mask.sum().item()
@@ -353,7 +355,6 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() / mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
-            "comm_net_norm": comm_net_grad_norm if isinstance(comm_net_grad_norm, float) else comm_net_grad_norm.item(),
             "comm_agg_norm": comm_agg_grad_norm if isinstance(comm_agg_grad_norm, float) else comm_agg_grad_norm.item()
         }
         data = {
@@ -418,19 +419,11 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         sample_batch[SampleBatch.NEXT_OBS] = next_obs
         return sample_batch
 
-    def get_message(self, obs):
-        if obs.ndim < 2:
-            obs = np.expand_dims(obs, axis=0)
-        obs, _, _ = unpack_observation(
-            self,
-            obs,
-        )
-        if self.use_comm:
-            self.comm_net.eval()
-            obs = convert_to_torch_tensor(obs, self.device).float()
-            msg = self.comm_net(obs)
-            obs = to_numpy(msg)
-        return obs
+    def get_message(self, obs, batch=False):
+        if batch:
+            return np.concatenate(self.local_messages_hist)
+        else:
+            return self.local_messages_hist[-1]
 
     def aggregate_messages(self, is_target, query, all_messages):
         """
@@ -448,16 +441,10 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         # select aggregator to be used
         model = self.comm_aggregator_target if is_target else self.comm_aggregator
 
-        # get local message
-        local_msg = all_messages[:, 0:1, :]
-
         # aggregate messages
         agg_msg = model(query, all_messages).unsqueeze(1)
 
-        # construct final output
-        out = torch.cat([local_msg, agg_msg], dim=-1)
-
-        return out
+        return agg_msg
 
     def vae_loss_function(self, recon_x, x, mu, logvar):
         MSE = mse_loss(recon_x, x, reduction='sum')
@@ -630,8 +617,8 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                                   next_action_mask,
                                   state=None,
                                   next_state=None,
-                                  neighbour_obs=None,
-                                  neighbour_next_obs=None,
+                                  neighbour_msg=None,
+                                  neighbour_next_msg=None,
                                   uniform_batch=None):
         """
         Computes the Q loss.
@@ -650,8 +637,8 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             next_action_mask: Tensor of shape [B, T, n_actions]
             state: Tensor of shape [B, T, state_dim] (optional)
             next_state: Tensor of shape [B, T, state_dim] (optional)
-            neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
-            neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+            neighbour_msg: Tensor of shape [B, T, num_neighbours, obs_size]
+            neighbour_next_msg: Tensor of shape [B, T, num_neighbours, obs_size]
             uniform_batch: VAE training data
         """
         ...

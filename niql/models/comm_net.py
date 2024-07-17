@@ -9,25 +9,20 @@ from niql.models.obs_encoder import StraightThroughEstimator
 
 class SimpleCommNet(nn.Module):
 
-    def __init__(self, input_dim, hdim, com_dim, agent_index, fp_size, discrete=False):
+    def __init__(self, input_dim, hdim, comm_dim, discrete=False):
         super().__init__()
-        com_dim -= fp_size
-        self.fc1 = nn.Linear(input_dim, hdim)
-        self.fc2 = nn.Linear(hdim, hdim)
-        self.fc3 = nn.Linear(hdim, com_dim)
+        self.model = nn.Sequential(
+            nn.Linear(input_dim, hdim),
+            nn.ReLU(),
+            # nn.Linear(hdim, hdim),
+            # nn.ReLU(),
+            nn.Linear(hdim, comm_dim)
+        )
         self.ste = StraightThroughEstimator() if discrete else lambda x: x
-        self.fp = torch.eye(fp_size, fp_size).float()[agent_index].view(1, 1, -1)
 
-    def forward(self, obs):
-        x = F.relu(self.fc1(obs))
-        x = F.relu(self.fc2(x))
-        x = self.ste(self.fc3(x))
-
-        # add sender fingerprint
-        fp = self.fp.to(x.device)
-        fp = fp.repeat(*x.shape[:-1], 1)
-        x = torch.cat([x, fp], dim=-1)
-
+    def forward(self, input_x):
+        x = self.model(input_x)
+        x = self.ste(x)
         return x
 
 
@@ -45,8 +40,7 @@ class ConcatCommMessagesAggregator(nn.Module):
         :param messages: local and shared neighbour messages, tensor of shape (bath_size, num_msgs, comm_dim)
         :return: aggregated neighbour messages, tensor of shape (batch_size, output_dim)
         """
-        neighbour_msgs = messages[:, 1:, :]
-        concat_msgs = neighbour_msgs.view(neighbour_msgs.shape[0], -1)
+        concat_msgs = messages.view(messages.shape[0], -1)
         return concat_msgs
 
 
@@ -71,14 +65,12 @@ class AttentionCommMessagesAggregator(nn.Module):
         :param messages: local and shared neighbour messages, tensor of shape (bath_size, num_msgs, comm_dim)
         :return: aggregated neighbour messages, tensor of shape (batch_size, output_dim)
         """
-        neighbour_msgs = messages[:, 1:, :]
-
         # Transform the agent's observation into the query space
         Q = self.fc_query(query).unsqueeze(1)  # Shape: (batch_size, 1, hidden_dim)
 
         # Transform the neighbor observations into the key and value spaces
-        K = self.fc_key(neighbour_msgs)
-        V = self.fc_value(neighbour_msgs)
+        K = self.fc_key(messages)
+        V = self.fc_value(messages)
 
         # Compute attention scores
         attention_scores = torch.matmul(Q, K.permute(0, 2, 1))

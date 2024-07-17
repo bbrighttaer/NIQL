@@ -22,7 +22,7 @@ from ray.rllib.utils.typing import TensorStructType, TensorType, AgentID
 
 from niql.envs import DEBUG_ENVS
 from niql.models import DRQNModel
-from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_OBS, NEIGHBOUR_OBS, unroll_mac, \
+from niql.utils import preprocess_trajectory_batch, unpack_observation, NEIGHBOUR_NEXT_MSG, NEIGHBOUR_MSG, unroll_mac, \
     unroll_mac_squeeze_wrapper, to_numpy, get_size, soft_update, tb_add_scalar, tb_add_scalars
 
 logger = logging.getLogger(__name__)
@@ -224,7 +224,7 @@ class BQLPolicy(LearningRateSchedule, Policy):
          next_obs, obs, rewards, weights, terminated, n_obs, n_next_obs, seq_lens) = preprocess_trajectory_batch(
             policy=self,
             samples=samples,
-            has_neighbour_data=NEIGHBOUR_OBS in samples and NEIGHBOUR_NEXT_OBS in samples,
+            has_neighbour_data=NEIGHBOUR_MSG in samples and NEIGHBOUR_NEXT_MSG in samples,
         )
 
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = self.compute_trajectory_q_loss(

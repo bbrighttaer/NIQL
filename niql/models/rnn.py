@@ -29,9 +29,9 @@ from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 
+from niql.models.comm_net import SimpleCommNet
 from niql.models.base_encoder import BaseEncoder
 from niql.models.base_torch_model import BaseTorchModel
-from niql.models.vae_encoder import VAEEncoder
 
 torch, nn = try_import_torch()
 
@@ -57,13 +57,18 @@ class JointQRNN(BaseTorchModel):
         self.activation = model_config.get("fcnet_activation")
 
         # encoder
-        encoder_class = VAEEncoder if model_arch_args.get("use_vae_encoder", False) else BaseEncoder
-        self.encoder = encoder_class(model_config, {'obs': self.full_obs_space})
+        self.encoder = BaseEncoder(model_config, {'obs': self.full_obs_space})
         self.hidden_state_size = model_arch_args["hidden_state_size"]
         self.rnn = nn.GRUCell(self.encoder.output_dim, self.hidden_state_size)
+        self.comm_dim = model_config.get("comm_dim", 0)
 
+        # communication net
+        if self.comm_dim > 0:
+            self.c_net = SimpleCommNet(self.hidden_state_size, 64, self.comm_dim, discrete=False)
+
+        # q-values head
         self.q_value = SlimFC(
-            in_size=self.hidden_state_size,
+            in_size=self.hidden_state_size + self.comm_dim,
             out_size=num_outputs,
             initializer=normc_initializer(0.01),
             activation_fn=None)
@@ -92,5 +97,14 @@ class JointQRNN(BaseTorchModel):
         x = self.encoder(inputs)
         h_in = hidden_state[0].reshape(-1, self.hidden_state_size)
         h = self.rnn(x, h_in)
-        q = self.q_value(h)
-        return q, [h]
+
+        if self.comm_dim > 0:
+            msg = self.c_net(h)
+            q_in = torch.cat([h, msg], dim=-1)
+            state = [h, msg]
+        else:
+            q_in = h
+            state = [h]
+
+        q = self.q_value(q_in)
+        return q, state

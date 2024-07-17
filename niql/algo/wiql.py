@@ -41,8 +41,8 @@ class WIQL(NIQLBasePolicy):
                                   next_action_mask,
                                   state=None,
                                   next_state=None,
-                                  neighbour_obs=None,
-                                  neighbour_next_obs=None,
+                                  neighbour_msg=None,
+                                  neighbour_next_msg=None,
                                   uniform_batch=None):
         """
         Computes the Q loss.
@@ -61,8 +61,8 @@ class WIQL(NIQLBasePolicy):
             next_action_mask: Tensor of shape [B, T, n_actions]
             state: Tensor of shape [B, T, state_dim] (optional)
             next_state: Tensor of shape [B, T, state_dim] (optional)
-            neighbour_obs: Tensor of shape [B, T, num_neighbours, obs_size]
-            neighbour_next_obs: Tensor of shape [B, T, num_neighbours, obs_size]
+            neighbour_msg: Tensor of shape [B, T, num_neighbours, obs_size]
+            neighbour_next_msg: Tensor of shape [B, T, num_neighbours, obs_size]
             uniform_batch: VAE training data
         """
         B, T = obs.shape[:2]
@@ -71,8 +71,8 @@ class WIQL(NIQLBasePolicy):
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
         whole_obs = whole_obs.unsqueeze(2)
 
-        if neighbour_obs is not None:
-            all_neighbour_msgs = torch.cat((neighbour_obs[:, 0:1], neighbour_next_obs), axis=1)
+        if neighbour_msg is not None:
+            all_neighbour_msgs = torch.cat((neighbour_msg[:, 0:1], neighbour_next_msg), axis=1)
         else:
             all_neighbour_msgs = None
         tb_add_histogram(self, "batch_rewards", rewards)
@@ -90,7 +90,6 @@ class WIQL(NIQLBasePolicy):
             unroll_mac(
                 self.model,
                 whole_obs,
-                self.comm_net,
                 all_neighbour_msgs,
                 partial(self.aggregate_messages, False),
                 **kwargs,
@@ -105,7 +104,6 @@ class WIQL(NIQLBasePolicy):
             unroll_mac(
                 self.target_model,
                 whole_obs,
-                self.comm_net_target,
                 all_neighbour_msgs,
                 partial(self.aggregate_messages, True),
                 **kwargs
@@ -142,26 +140,26 @@ class WIQL(NIQLBasePolicy):
         tb_add_histogram(self, "batch_targets", targets)
 
         # Construct data for training tdw vae
-        vae_data = self.construct_tdw_dataset(SampleBatch({
-            SampleBatch.OBS: obs.view(B * T, -1),
-            SampleBatch.ACTIONS: actions.view(B * T, -1),
-            SampleBatch.REWARDS: targets.view(B * T, -1),
-            SampleBatch.NEXT_OBS: next_obs.view(B * T, -1),
-        }))
+        # vae_data = self.construct_tdw_dataset(SampleBatch({
+        #     SampleBatch.OBS: obs.view(B * T, -1),
+        #     SampleBatch.ACTIONS: actions.view(B * T, -1),
+        #     SampleBatch.REWARDS: targets.view(B * T, -1),
+        #     SampleBatch.NEXT_OBS: next_obs.view(B * T, -1),
+        # }))
 
         # Get target distribution weights
-        if self.global_timestep < self.config["tdw_warm_steps"]:
-            start = time.perf_counter()
-            self.fit_vae(vae_data, num_epochs=2)
-            tb_add_scalar(self, "fit_vae_time", time.perf_counter() - start)
-        elif random.random() < self.tdw_schedule.value(self.global_timestep):
-            start = time.perf_counter()
-            tdw_weights = self.get_tdw_weights(vae_data, targets)
-            tdw_weights = tdw_weights.view(B, T)
-            weights = tdw_weights ** 1.0  # self.adaptive_gamma()
-            tb_add_scalar(self, "tdw_time", time.perf_counter() - start)
-        else:
-            weights = torch.ones_like(targets)
+        # if self.global_timestep < self.config["tdw_warm_steps"]:
+        #     start = time.perf_counter()
+        #     self.fit_vae(vae_data, num_epochs=2)
+        #     tb_add_scalar(self, "fit_vae_time", time.perf_counter() - start)
+        # elif random.random() < self.tdw_schedule.value(self.global_timestep):
+        #     start = time.perf_counter()
+        #     tdw_weights = self.get_tdw_weights(vae_data, targets)
+        #     tdw_weights = tdw_weights.view(B, T)
+        #     weights = tdw_weights ** 1.0  # self.adaptive_gamma()
+        #     tb_add_scalar(self, "tdw_time", time.perf_counter() - start)
+        # else:
+        weights = torch.ones_like(targets)
 
         # Td-error
         td_error = chosen_action_qvals - targets.detach()
@@ -198,12 +196,9 @@ class WIQL(NIQLBasePolicy):
     def set_weights(self, weights):
         self.model.load_state_dict(self._device_dict(weights["model"]))
         self.target_model.load_state_dict(self._device_dict(weights["target_model"]))
-        # self.vae_model.load_state_dict(self._device_dict(weights["vae_model"]))
+        self.vae_model.load_state_dict(self._device_dict(weights["vae_model"]))
 
-        if self.use_comm and "comm_net" in weights:
-            self.comm_net.load_state_dict(self._device_dict(weights["comm_net"]))
-            self.comm_net_target.load_state_dict(self._device_dict(weights["comm_net_target"]))
-
+        if self.use_comm:
             self.comm_aggregator.load_state_dict(self._device_dict(weights["comm_aggregator"]))
             self.comm_aggregator_target.load_state_dict(self._device_dict(weights["comm_aggregator_target"]))
 
@@ -215,21 +210,14 @@ class WIQL(NIQLBasePolicy):
             "target_vae_model": self._cpu_dict(self.target_vae_model.state_dict()),
         }
         if self.use_comm:
-            wts["comm_net"] = self._cpu_dict(self.comm_net.state_dict())
-            wts["comm_net_target"] = self._cpu_dict(self.comm_net_target.state_dict())
-
             wts["comm_aggregator"] = self._cpu_dict(self.comm_aggregator.state_dict())
             wts["comm_aggregator_target"] = self._cpu_dict(self.comm_aggregator_target.state_dict())
         return wts
 
     def update_target(self):
-        # self.target_model.load_state_dict(self.model.state_dict())
-        # self.comm_net_target.load_state_dict(self.comm_net.state_dict())
-        # self.comm_aggregator_target.load_state_dict(self.comm_aggregator.state_dict())
         self.target_model = soft_update(self.target_model, self.model, self.tau)
         self.target_vae_model = soft_update(self.target_vae_model, self.vae_model, self.tau)
         if self.use_comm:
-            self.comm_net_target = soft_update(self.comm_net_target, self.comm_net, self.tau)
             self.comm_aggregator_target = soft_update(self.comm_aggregator_target, self.comm_aggregator, self.tau)
         logger.debug("Updated target networks")
 
@@ -239,7 +227,6 @@ class WIQL(NIQLBasePolicy):
             self.model.eval()
 
         if self.use_comm:
-            self.comm_net.eval()
             self.comm_aggregator.eval()
 
     def switch_models_to_train_mode(self):
@@ -248,5 +235,4 @@ class WIQL(NIQLBasePolicy):
             self.model.train()
 
         if self.use_comm:
-            self.comm_net.train()
             self.comm_aggregator.train()

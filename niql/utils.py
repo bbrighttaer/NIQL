@@ -118,10 +118,10 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
         input_list.extend([env_global_state, next_env_global_state])
 
     if has_neighbour_data:
-        input_list.extend([samples[NEIGHBOUR_OBS], samples[NEIGHBOUR_NEXT_OBS]])
+        input_list.extend([samples[NEIGHBOUR_MSG], samples[NEIGHBOUR_NEXT_MSG]])
 
-    n_obs = None
-    n_next_obs = None
+    n_msg = None
+    n_next_msg = None
 
     output_list, _, seq_lens = chop_into_sequences(
         episode_ids=samples[SampleBatch.EPS_ID],
@@ -136,13 +136,13 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
     # These will be padded to shape [B * T, ...]
     if policy.has_env_global_state and has_neighbour_data:
         (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs,
-         env_global_state, next_env_global_state, n_obs, n_next_obs) = output_list
+         env_global_state, next_env_global_state, n_msg, n_next_msg) = output_list
     elif policy.has_env_global_state:
         (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs,
          env_global_state, next_env_global_state) = output_list
     elif has_neighbour_data:
         (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs,
-         n_obs, n_next_obs) = output_list
+         n_msg, n_next_msg) = output_list
     else:
         (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs,
          next_obs) = output_list
@@ -180,19 +180,19 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
         next_env_global_state = to_batches(next_env_global_state, torch.float)
 
     if has_neighbour_data:
-        n_obs = to_batches(n_obs, torch.float, squeeze=False)  # squeeze=False means maintain agent dim
-        n_next_obs = to_batches(n_next_obs, torch.float, squeeze=False)
+        n_msg = to_batches(n_msg, torch.float, squeeze=False)  # squeeze=False means maintain agent dim
+        n_next_msg = to_batches(n_next_msg, torch.float, squeeze=False)
 
     # Create mask for where index is < unpadded sequence length
     filled = np.reshape(np.tile(np.arange(T, dtype=np.float32), B), [B, T]) < np.expand_dims(seq_lens, 1)
     mask = torch.as_tensor(filled, dtype=torch.float, device=policy.device)
 
     return (action_mask, actions, prev_actions, env_global_state, mask, next_action_mask,
-            next_env_global_state, next_obs, obs, rewards, weights, terminated, n_obs, n_next_obs, seq_lens)
+            next_env_global_state, next_obs, obs, rewards, weights, terminated, n_msg, n_next_msg, seq_lens)
 
 
-NEIGHBOUR_NEXT_OBS = "n_next_obs"
-NEIGHBOUR_OBS = "n_obs"
+NEIGHBOUR_NEXT_MSG = "n_next_msg"
+NEIGHBOUR_MSG = "n_msg"
 LDS_WEIGHTS = "lds_weights"
 
 
@@ -433,7 +433,7 @@ def mac(model, obs, h, **kwargs):
         [B, n_agents, -1]), [s.reshape([B, n_agents, -1]) for s in h_flat]
 
 
-def unroll_mac(model, obs_tensor, comm_net=None, shared_messages=None, aggregation_func=None, **kwargs):
+def unroll_mac(model, obs_tensor, shared_messages=None, aggregation_func=None, **kwargs):
     """Computes the estimated Q values for an entire trajectory batch"""
     B = obs_tensor.size(0)
     T = obs_tensor.size(1)
@@ -450,13 +450,17 @@ def unroll_mac(model, obs_tensor, comm_net=None, shared_messages=None, aggregati
         # get input data for this time step
         obs = obs_tensor[:, t]
 
+        # add previous action to input
+        if prev_actions is not None:
+            actions = prev_actions[:, t:t + 1]
+            actions_enc = torch.eye(kwargs["n_actions"]).float().to(obs.device)[actions]
+            obs = torch.cat([obs, actions_enc], dim=-1)
+
         # if comm is enabled, process comm messages
-        if comm_net is not None:
-            # get local message sent to other agents
-            local_msg = comm_net(obs)
+        if shared_messages is not None:
 
             # put together local and received messages
-            msgs = torch.cat([local_msg, shared_messages[:, t]], dim=1)
+            msgs = shared_messages[:, t]
 
             # get query for message aggregation
             query = h[0] if is_recurrent else obs
@@ -467,12 +471,9 @@ def unroll_mac(model, obs_tensor, comm_net=None, shared_messages=None, aggregati
             # update input data with messages
             obs = torch.cat([obs, msg], dim=-1)
 
-        if prev_actions is not None:
-            actions = prev_actions[:, t:t + 1]
-            actions_enc = torch.eye(kwargs["n_actions"]).float().to(obs.device)[actions]
-            obs = torch.cat([obs, actions_enc], dim=-1)
-
         q, h = mac(model, obs, h, **kwargs)
+        if shared_messages is not None:
+            h = h[:-1]
         mac_out.append(q)
         mac_h_out.extend(h)
     mac_out = torch.stack(mac_out, dim=1)  # Concat over time
@@ -637,19 +638,14 @@ def add_comm_msg(model, obs, next_obs, neighbour_obs, neighbour_next_obs, msg_ag
 def batch_message_inter_agent_sharing(sample_batch, other_agent_batches):
     if len(other_agent_batches) > 0:
         sample_batch = sample_batch.copy()
-        n_obs = []
-        n_next_obs = []
+        n_msg = []
         for n_id, (policy, batch) in other_agent_batches.items():
-            n_obs.append(
-                policy.get_message(batch[SampleBatch.OBS])
+            n_msg.append(
+                policy.get_message(batch[SampleBatch.OBS], batch=True)
             )
-            n_next_obs.append(
-                policy.get_message(batch[SampleBatch.NEXT_OBS])
-            )
-        sample_batch[NEIGHBOUR_OBS] = np.array(n_obs).reshape(
-            len(sample_batch), len(other_agent_batches), -1)
-        sample_batch[NEIGHBOUR_NEXT_OBS] = np.array(n_next_obs).reshape(
-            len(sample_batch), len(other_agent_batches), -1)
+        shared_msgs = np.stack(n_msg).transpose(1, 0, 2)
+        sample_batch[NEIGHBOUR_MSG] = shared_msgs[:-1]
+        sample_batch[NEIGHBOUR_NEXT_MSG] = shared_msgs[1:]
     return sample_batch
 
 
