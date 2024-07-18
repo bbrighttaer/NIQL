@@ -104,13 +104,12 @@ class JointQRNN(BaseTorchModel):
         h_in = hidden_state[0].reshape(-1, self.hidden_state_size)
         h = self.rnn(x, h_in)
 
-        # if self.comm_dim > 0:
-        #     msg = self.c_net(h)
-        #     q_in = torch.cat([h, msg], dim=-1)
-        #     state = [h, torch.tanh(msg)]
-        # else:
-        #     q_in = h
-        #     state = [h]
-
-        q = self.q_value(h)
-        return q, [h, torch.tanh(q)]
+        if self.comm_dim > 0:
+            msg = self.c_net(h)
+            q_in = torch.cat([h, msg], dim=-1)
+            q = self.q_value(q_in)
+            state = [h, torch.tanh(msg)]
+            return q, state
+        else:
+            q = self.q_value(h)
+            return q, [h]

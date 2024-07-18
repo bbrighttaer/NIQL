@@ -483,6 +483,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 recon_batch, mu, logvar = self.vae_model(batch)
                 loss, mse_, kld_ = self.vae_loss_function(recon_batch, batch, mu, logvar)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.vae_model.parameters(), self.config["grad_clip"])
                 ep_loss += loss.item()
                 ep_mse_loss += mse_.item()
                 ep_kld_loss += kld_.item()

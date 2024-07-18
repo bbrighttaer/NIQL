@@ -50,7 +50,7 @@ PREDATOR_PREY = {
         'mha_num_heads': 4,
         'add_action_dim': True,
         'use_vae_encoder': False,
-        'comm_dim': 10,
+        'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator': 'concat',
         'comm_aggregator_dim': 10,
