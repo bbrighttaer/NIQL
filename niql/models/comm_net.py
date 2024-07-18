@@ -9,20 +9,29 @@ from niql.models.obs_encoder import StraightThroughEstimator
 
 class SimpleCommNet(nn.Module):
 
-    def __init__(self, input_dim, hdim, comm_dim, discrete=False):
+    def __init__(self, input_dim, comm_dim, agent_index, fp_size, discrete=False):
         super().__init__()
+        comm_dim -= fp_size
+        hdim = input_dim * 2
         self.model = nn.Sequential(
             nn.Linear(input_dim, hdim),
             nn.ReLU(),
-            # nn.Linear(hdim, hdim),
-            # nn.ReLU(),
+            nn.Linear(hdim, hdim),
+            nn.ReLU(),
             nn.Linear(hdim, comm_dim)
         )
         self.ste = StraightThroughEstimator() if discrete else lambda x: x
+        self.fp = torch.eye(fp_size, fp_size).float()[agent_index].view(1, -1)
 
     def forward(self, input_x):
         x = self.model(input_x)
         x = self.ste(x)
+
+        # add sender fingerprint
+        fp = self.fp.to(x.device)
+        fp = fp.repeat(*x.shape[:-1], 1)
+        x = torch.cat([x, fp], dim=-1)
+
         return x
 
 

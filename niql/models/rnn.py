@@ -63,12 +63,18 @@ class JointQRNN(BaseTorchModel):
         self.comm_dim = model_config.get("comm_dim", 0)
 
         # communication net
-        if self.comm_dim > 0:
-            self.c_net = SimpleCommNet(self.hidden_state_size, 64, self.comm_dim, discrete=False)
+        # if self.comm_dim > 0:
+        #     self.c_net = SimpleCommNet(
+        #         self.hidden_state_size,
+        #         self.comm_dim,
+        #         discrete=False,
+        #         fp_size=model_config["fp_size"],
+        #         agent_index=model_config["agent_index"],
+        #     )
 
         # q-values head
         self.q_value = SlimFC(
-            in_size=self.hidden_state_size + self.comm_dim,
+            in_size=self.hidden_state_size,# + self.comm_dim,
             out_size=num_outputs,
             initializer=normc_initializer(0.01),
             activation_fn=None)
@@ -98,13 +104,13 @@ class JointQRNN(BaseTorchModel):
         h_in = hidden_state[0].reshape(-1, self.hidden_state_size)
         h = self.rnn(x, h_in)
 
-        if self.comm_dim > 0:
-            msg = self.c_net(h)
-            q_in = torch.cat([h, msg], dim=-1)
-            state = [h, msg]
-        else:
-            q_in = h
-            state = [h]
+        # if self.comm_dim > 0:
+        #     msg = self.c_net(h)
+        #     q_in = torch.cat([h, msg], dim=-1)
+        #     state = [h, torch.tanh(msg)]
+        # else:
+        #     q_in = h
+        #     state = [h]
 
-        q = self.q_value(q_in)
-        return q, state
+        q = self.q_value(h)
+        return q, [h, torch.tanh(q)]

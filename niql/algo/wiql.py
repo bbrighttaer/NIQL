@@ -140,26 +140,26 @@ class WIQL(NIQLBasePolicy):
         tb_add_histogram(self, "batch_targets", targets)
 
         # Construct data for training tdw vae
-        # vae_data = self.construct_tdw_dataset(SampleBatch({
-        #     SampleBatch.OBS: obs.view(B * T, -1),
-        #     SampleBatch.ACTIONS: actions.view(B * T, -1),
-        #     SampleBatch.REWARDS: targets.view(B * T, -1),
-        #     SampleBatch.NEXT_OBS: next_obs.view(B * T, -1),
-        # }))
+        vae_data = self.construct_tdw_dataset(SampleBatch({
+            SampleBatch.OBS: obs.view(B * T, -1),
+            SampleBatch.ACTIONS: actions.view(B * T, -1),
+            SampleBatch.REWARDS: targets.view(B * T, -1),
+            SampleBatch.NEXT_OBS: next_obs.view(B * T, -1),
+        }))
 
         # Get target distribution weights
-        # if self.global_timestep < self.config["tdw_warm_steps"]:
-        #     start = time.perf_counter()
-        #     self.fit_vae(vae_data, num_epochs=2)
-        #     tb_add_scalar(self, "fit_vae_time", time.perf_counter() - start)
-        # elif random.random() < self.tdw_schedule.value(self.global_timestep):
-        #     start = time.perf_counter()
-        #     tdw_weights = self.get_tdw_weights(vae_data, targets)
-        #     tdw_weights = tdw_weights.view(B, T)
-        #     weights = tdw_weights ** 1.0  # self.adaptive_gamma()
-        #     tb_add_scalar(self, "tdw_time", time.perf_counter() - start)
-        # else:
-        weights = torch.ones_like(targets)
+        if self.global_timestep < self.config["tdw_warm_steps"]:
+            start = time.perf_counter()
+            self.fit_vae(vae_data, num_epochs=2)
+            tb_add_scalar(self, "fit_vae_time", time.perf_counter() - start)
+        elif random.random() < self.tdw_schedule.value(self.global_timestep):
+            start = time.perf_counter()
+            tdw_weights = self.get_tdw_weights(vae_data, targets)
+            tdw_weights = tdw_weights.view(B, T)
+            weights = tdw_weights ** 1.0  # self.adaptive_gamma()
+            tb_add_scalar(self, "tdw_time", time.perf_counter() - start)
+        else:
+            weights = torch.ones_like(targets)
 
         # Td-error
         td_error = chosen_action_qvals - targets.detach()

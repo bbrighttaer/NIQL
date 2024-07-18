@@ -104,8 +104,11 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         self.use_comm = model_arch_args.get("comm_dim", 0) > 0
         self.comm_dim = 0
         if self.use_comm:
-            self.comm_dim = model_arch_args["comm_dim"]
+            fp_size = config["comm_num_agents"]
+            self.comm_dim = self.n_actions  # model_arch_args["comm_dim"] + fp_size
             config["model"]["comm_dim"] = self.comm_dim
+            config["model"]["agent_index"] = int(self.policy_id.split("_")[-1])
+            config["model"]["fp_size"] = fp_size
             if model_arch_args["comm_aggregator"] == "concat":
                 config["model"]["comm_aggregator_dim"] = self.comm_dim * (config["comm_num_agents"] - 1)
             else:
@@ -506,7 +509,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         rewards = samples[SampleBatch.REWARDS].reshape(sample_size, -1)
         if self.add_action_to_obs:
             actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions]
-            data = torch.cat([obs, actions, rewards, next_obs], dim=-1)
+            data = torch.cat([obs, actions, rewards], dim=-1)
         else:
             data = torch.cat([obs, rewards], dim=-1)
         data = normalize_zero_mean_unit_variance(data)
