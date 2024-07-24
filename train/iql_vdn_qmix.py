@@ -51,21 +51,18 @@ if __name__ == '__main__':
     # get env
     env, exp_config = envs.get_active_env()
 
-    # initialise algorithm with hyperparameters
-    if args.algo == 'qmix':
-        algo = marl.algos.qmix
-    elif args.algo == 'vdn':
-        algo = marl.algos.vdn
-    else:
-        algo = marl.algos.iql
-    algo.algo_parameters = exp_config['algo_parameters']
-
     # register execution script
     marl.algos.register_algo(
-        algo_name=algo.name,
-        style=algo.algo_type,
+        algo_name=args.algo,
+        style="VD",
         script=scripts.run_joint_q if mode == 'train' else trainer_loaders.load_joint_q_checkpoint,
     )
+
+    # initialise algorithm with hyperparameters
+    algo = getattr(marl.algos, args.algo)
+    algo.algo_parameters = exp_config['algo_parameters']
+
+
 
     # build model
     model_config = exp_config['model_preference']
@@ -84,7 +81,7 @@ if __name__ == '__main__':
             stop=exp_config['stop_condition'],
             local_mode=gpu_count == 0,
             num_gpus=gpu_count,
-            num_workers=0,
+            num_workers=5,
             share_policy='all',
             checkpoint_freq=MODEL_CHECKPOINT_FREQ,
         )

@@ -96,7 +96,7 @@ if __name__ == '__main__':
             stop=exp_config['stop_condition'],
             local_mode=gpu_count == 0,
             num_gpus=gpu_count,
-            num_workers=1,
+            num_workers=3,
             share_policy='individual',
             checkpoint_freq=10,
             info_sharing=not args.no_sharing,

@@ -1,3 +1,4 @@
+import copy
 import time
 from typing import Callable
 
@@ -20,11 +21,15 @@ from niql.torch_kde import TorchKernelDensity
 
 # -----------------------------------------------------------------------------------------------
 # Adapted from Adapted from https://github.com/Morphlng/MARLlib/blob/main/examples/eval.py
-class dotdict(dict):
+class DotDic(dict):
     """dot.notation access to dictionary attributes"""
 
     __getattr__ = dict.get
     __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+    def __deepcopy__(self, memo=None):
+        return DotDic(copy.deepcopy(dict(self), memo=memo))
 
 
 # ----------------------------------------------------------------------------------------------
@@ -109,7 +114,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
     )
 
     input_list = [
-        samples[SampleBatch.REWARDS], samples["weights"], action_mask, next_action_mask,
+        samples[SampleBatch.REWARDS], samples[SampleBatch.REWARDS], action_mask, next_action_mask,
         samples[SampleBatch.ACTIONS], samples[SampleBatch.PREV_ACTIONS], samples[SampleBatch.DONES],
         obs_batch, next_obs_batch
     ]
@@ -118,7 +123,7 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
         input_list.extend([env_global_state, next_env_global_state])
 
     if has_neighbour_data:
-        input_list.extend([samples[NEIGHBOUR_MSG], samples[NEIGHBOUR_NEXT_MSG]])
+        input_list.extend([samples[NEIGHBOUR_MSG], samples[NEIGHBOUR_NEXT_MSG], samples[SHARED_MESSAGES]])
 
     n_msg = None
     n_next_msg = None
@@ -136,13 +141,13 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
     # These will be padded to shape [B * T, ...]
     if policy.has_env_global_state and has_neighbour_data:
         (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs,
-         env_global_state, next_env_global_state, n_msg, n_next_msg) = output_list
+         env_global_state, next_env_global_state, n_msg, n_next_msg, shared_msg) = output_list
     elif policy.has_env_global_state:
         (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs,
          env_global_state, next_env_global_state) = output_list
     elif has_neighbour_data:
         (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs,
-         n_msg, n_next_msg) = output_list
+         n_msg, n_next_msg, shared_msg) = output_list
     else:
         (rew, wts, action_mask, next_action_mask, act, prev_act, dones, obs,
          next_obs) = output_list
@@ -182,18 +187,20 @@ def preprocess_trajectory_batch(policy, samples: SampleBatch, has_neighbour_data
     if has_neighbour_data:
         n_msg = to_batches(n_msg, torch.float, squeeze=False)  # squeeze=False means maintain agent dim
         n_next_msg = to_batches(n_next_msg, torch.float, squeeze=False)
+        shared_msg = to_batches(shared_msg, torch.float)
 
     # Create mask for where index is < unpadded sequence length
     filled = np.reshape(np.tile(np.arange(T, dtype=np.float32), B), [B, T]) < np.expand_dims(seq_lens, 1)
     mask = torch.as_tensor(filled, dtype=torch.float, device=policy.device)
 
     return (action_mask, actions, prev_actions, env_global_state, mask, next_action_mask,
-            next_env_global_state, next_obs, obs, rewards, weights, terminated, n_msg, n_next_msg, seq_lens)
+            next_env_global_state, next_obs, obs, rewards, weights, terminated, n_msg, n_next_msg, shared_msg, seq_lens)
 
 
 NEIGHBOUR_NEXT_MSG = "n_next_msg"
 NEIGHBOUR_MSG = "n_msg"
 LDS_WEIGHTS = "lds_weights"
+SHARED_MESSAGES = "messages"
 
 
 def standardize(r):
@@ -458,7 +465,6 @@ def unroll_mac(model, obs_tensor, shared_messages=None, aggregation_func=None, *
 
         # if comm is enabled, process comm messages
         if shared_messages is not None:
-
             # put together local and received messages
             msgs = shared_messages[:, t]
 
@@ -472,8 +478,36 @@ def unroll_mac(model, obs_tensor, shared_messages=None, aggregation_func=None, *
             obs = torch.cat([obs, msg], dim=-1)
 
         q, h = mac(model, obs, h, **kwargs)
-        if shared_messages is not None:
-            h = h[:-1]
+        mac_out.append(q)
+        mac_h_out.extend(h)
+    mac_out = torch.stack(mac_out, dim=1)  # Concat over time
+    mac_h_out = torch.stack(mac_h_out, dim=1)
+
+    return mac_out, mac_h_out
+
+
+def unroll_mac_switch(model, obs_tensor, **kwargs):
+    """Computes the estimated Q values for an entire trajectory batch"""
+    B = obs_tensor.size(0)
+    T = obs_tensor.size(1)
+    n_agents = obs_tensor.size(2)
+
+    mac_out = []
+    mac_h_out = []
+    h = [s.expand([B, n_agents, -1]) for s in model.get_initial_state()]
+
+    # forward propagation through time
+    for t in range(T):
+        # get input data for this time step
+        obs = obs_tensor[:, t]
+
+        # build new args with values of current time step
+        _kwargs = {
+            k: kwargs[k][:, t].reshape(B * n_agents, -1) for k in kwargs.keys()
+        }
+
+        # forward propagation
+        q, h = mac(model, obs, h, **_kwargs)
         mac_out.append(q)
         mac_h_out.extend(h)
     mac_out = torch.stack(mac_out, dim=1)  # Concat over time

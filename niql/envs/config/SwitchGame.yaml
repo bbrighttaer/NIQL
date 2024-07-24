@@ -1,0 +1,10 @@
+env: SwitchGame
+
+env_args:
+  map_name: "all_scenario"
+  n_agents: 3
+
+mask_flag: True
+global_state_flag: False
+opp_action_in_cc: True
+agent_level_batch_update: False

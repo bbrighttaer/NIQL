@@ -24,7 +24,7 @@ from niql.models import SimpleCommNet, AttentionCommMessagesAggregator, VAEEncod
 from niql.models.comm_net import ConcatCommMessagesAggregator
 from niql.models.vae import VAE
 from niql.utils import get_size, tb_add_scalar, tb_add_scalars, standardize, kde_density, shift_and_scale, \
-    apply_scaling, normalize_zero_mean_unit_variance
+    apply_scaling, normalize_zero_mean_unit_variance, SHARED_MESSAGES
 from niql.utils import unpack_observation, preprocess_trajectory_batch, to_numpy, NEIGHBOUR_MSG, NEIGHBOUR_NEXT_MSG, \
     batch_message_inter_agent_sharing, mac
 
@@ -105,7 +105,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         self.comm_dim = 0
         if self.use_comm:
             fp_size = config["comm_num_agents"]
-            self.comm_dim = self.n_actions  # model_arch_args["comm_dim"] + fp_size
+            self.comm_dim = model_arch_args["comm_dim"]  # + fp_size
             config["model"]["comm_dim"] = self.comm_dim
             config["model"]["agent_index"] = int(self.policy_id.split("_")[-1])
             config["model"]["fp_size"] = fp_size
@@ -239,8 +239,8 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             # Add previous action to input
             if self.add_action_to_obs:
                 one_hot_tensor = torch.eye(self.n_actions).float().to(self.device)
-                actions = one_hot_tensor[prev_action_batch].unsqueeze(1)
-                obs_batch = torch.cat([obs_batch, actions], dim=-1)
+                prev_actions = one_hot_tensor[prev_action_batch].unsqueeze(1)
+                obs_batch = torch.cat([obs_batch, prev_actions], dim=-1)
 
             # Add shared neighbour messages (t-1) to input
             if self.use_comm:
@@ -254,26 +254,25 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                 obs_batch = torch.cat([obs_batch, msg], dim=-1)
 
             # predict q-vals
-            mac_out = mac(self.model, obs_batch, state_batches)
+            q_values, hiddens = mac(self.model, obs_batch, state_batches)
             if self.use_comm:
-                q_values, (hiddens, local_msg) = mac_out
-                self.local_messages_hist.append(
-                    local_msg.detach().cpu().numpy().reshape(1, self.comm_dim)
-                )
-            else:
-                q_values, hiddens = mac_out
+                msg_q_values = q_values[:, :, self.n_actions:]
+                q_values = q_values[:, :, : self.n_actions]
+                msg_q_values = msg_q_values.squeeze(dim=1)
+
             avail_actions = convert_to_torch_tensor(action_mask, self.device)
             masked_q_values = q_values.clone()
             masked_q_values[avail_actions == 0.0] = -float("inf")
             masked_q_values_folded = torch.reshape(masked_q_values, [-1] + list(masked_q_values.shape)[2:])
 
             # select action
-            action_dist = self.dist_class(masked_q_values_folded, self.model)
-            actions, logp = self.exploration.get_exploration_action(
-                action_distribution=action_dist,
-                timestep=timestep,
-                explore=explore,
-            )
+            actions = self._select_action(explore, masked_q_values_folded, timestep)
+
+            # select message
+            if self.use_comm:
+                message = self._select_action(explore, msg_q_values, timestep)
+                message = torch.eye(self.comm_dim).to(self.device)[message]
+                self.local_messages_hist.append(message.cpu().detach().numpy())
 
             actions = actions.cpu().numpy()
             hiddens = [s.view(self.n_agents, -1).cpu().numpy() for s in hiddens]
@@ -284,6 +283,15 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             results = (actions, hiddens, {'q-values': [q_values]})
 
         return results
+
+    def _select_action(self, explore, masked_q_values_folded, timestep):
+        action_dist = self.dist_class(masked_q_values_folded, self.model)
+        actions, logp = self.exploration.get_exploration_action(
+            action_distribution=action_dist,
+            timestep=timestep,
+            explore=explore,
+        )
+        return actions
 
     def compute_single_action(self, *args, **kwargs) -> \
             Tuple[TensorStructType, List[TensorType], Dict[str, TensorType]]:
@@ -298,9 +306,11 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             episode: Optional["MultiAgentEpisode"] = None) -> SampleBatch:
         if self.use_fingerprint:
             sample_batch = self._pad_sample_batch(sample_batch)
+
         # observation sharing
         if self.use_comm:
             sample_batch = batch_message_inter_agent_sharing(sample_batch, other_agent_batches)
+            sample_batch[SHARED_MESSAGES] = np.array(self.local_messages_hist[1:]).reshape(-1, self.comm_dim)
         return sample_batch
 
     def learn_on_batch(self, samples: SampleBatch) -> Dict[str, TensorType]:
@@ -315,8 +325,10 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             result=learn_stats,
         )
 
-        (action_mask, actions, prev_actions, env_global_state, mask, next_action_mask, next_env_global_state,
-         next_obs, obs, rewards, weights, terminated, n_msg, n_next_msg, seq_lens) = preprocess_trajectory_batch(
+        (action_mask, actions, prev_actions, env_global_state,
+         mask, next_action_mask, next_env_global_state,
+         next_obs, obs, rewards, weights, terminated,
+         n_msg, n_next_msg, shared_msg, seq_lens) = preprocess_trajectory_batch(
             policy=self,
             samples=samples,
             has_neighbour_data=NEIGHBOUR_MSG in samples and NEIGHBOUR_NEXT_MSG in samples,
@@ -337,6 +349,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             next_env_global_state,
             n_msg,
             n_next_msg,
+            shared_msg,
             samples.get("uniform_batch"),
         )
 
@@ -623,6 +636,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
                                   next_state=None,
                                   neighbour_msg=None,
                                   neighbour_next_msg=None,
+                                  shared_msg=None,
                                   uniform_batch=None):
         """
         Computes the Q loss.
@@ -643,6 +657,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             next_state: Tensor of shape [B, T, state_dim] (optional)
             neighbour_msg: Tensor of shape [B, T, num_neighbours, obs_size]
             neighbour_next_msg: Tensor of shape [B, T, num_neighbours, obs_size]
+            shared_msg: Tensor of shape [B, T, comm_size]
             uniform_batch: VAE training data
         """
         ...

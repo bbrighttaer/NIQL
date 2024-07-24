@@ -43,6 +43,7 @@ class WIQL(NIQLBasePolicy):
                                   next_state=None,
                                   neighbour_msg=None,
                                   neighbour_next_msg=None,
+                                  shared_msg=None,
                                   uniform_batch=None):
         """
         Computes the Q loss.
@@ -63,6 +64,7 @@ class WIQL(NIQLBasePolicy):
             next_state: Tensor of shape [B, T, state_dim] (optional)
             neighbour_msg: Tensor of shape [B, T, num_neighbours, obs_size]
             neighbour_next_msg: Tensor of shape [B, T, num_neighbours, obs_size]
+            shared_msg: Tensor of shape [B, T, comm_size]
             uniform_batch: VAE training data
         """
         B, T = obs.shape[:2]
@@ -95,9 +97,15 @@ class WIQL(NIQLBasePolicy):
                 **kwargs,
             )
         )
+        msg_mac_out = mac_out[:, :, self.n_actions:]
+        mac_out = mac_out[:, :, : self.n_actions]
 
         # Pick the Q-Values for the actions taken -> [B * n_agents, T]
         chosen_action_qvals = torch.gather(mac_out[:, :-1], dim=2, index=actions.unsqueeze(2)).squeeze(2)
+
+        # Pick selected messages' q-values
+        chosen_msg_actions = shared_msg.max(dim=2)[1]
+        chosen_msg_qvals = torch.gather(msg_mac_out[:, :-1], dim=2, index=chosen_msg_actions.unsqueeze(2)).squeeze(2)
 
         # Calculate the Q-Values necessary for the target
         target_mac_out, target_mac_out_h = unroll_mac_squeeze_wrapper(
@@ -110,9 +118,12 @@ class WIQL(NIQLBasePolicy):
             )
         )
         target_mac_out = target_mac_out.detach()
+        msg_target_mac_out = target_mac_out[:, :, self.n_actions:]
+        target_mac_out = target_mac_out[:, :, : self.n_actions]
 
         # we only need target_mac_out for raw next_obs part
         target_mac_out = target_mac_out[:, 1:]
+        msg_target_mac_out = msg_target_mac_out[:, 1:]
 
         # Mask out unavailable actions for the t+1 step
         ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
@@ -122,58 +133,71 @@ class WIQL(NIQLBasePolicy):
         if self.config["double_q"]:
             mac_out_tp1 = mac_out.clone().detach()
             mac_out_tp1 = mac_out_tp1[:, 1:]
+            msg_mac_out_tp1 = msg_mac_out[:, 1:]
 
             # mask out unallowed actions
             mac_out_tp1[ignore_action_tp1] = -np.inf
 
             # obtain best actions at t+1 according to policy NN
             cur_max_actions = mac_out_tp1.argmax(dim=2, keepdim=True)
+            msg_cur_max_actions = msg_mac_out_tp1.argmax(dim=2, keepdim=True)
 
             # use the target network to estimate the Q-values of policy
             # network's selected actions
             target_max_qvals = torch.gather(target_mac_out, 2, cur_max_actions).squeeze(2)
+            msg_target_max_qvals = torch.gather(msg_target_mac_out, 2, msg_cur_max_actions).squeeze(2)
         else:
             target_max_qvals = target_mac_out.max(dim=2)[0]
+            msg_target_max_qvals = msg_target_mac_out.max(dim=2)[0]
 
-        # Calculate 1-step Q-Learning targets
+        # Calculate Q-Learning targets
         targets = rewards + self.config["gamma"] * (1 - terminated) * target_max_qvals
         tb_add_histogram(self, "batch_targets", targets)
 
+        # Calculate msg Q-learning targets
+        msg_targets = rewards + self.config["gamma"] * (1 - terminated) * msg_target_max_qvals
+
         # Construct data for training tdw vae
-        vae_data = self.construct_tdw_dataset(SampleBatch({
-            SampleBatch.OBS: obs.view(B * T, -1),
-            SampleBatch.ACTIONS: actions.view(B * T, -1),
-            SampleBatch.REWARDS: targets.view(B * T, -1),
-            SampleBatch.NEXT_OBS: next_obs.view(B * T, -1),
-        }))
+        # vae_data = self.construct_tdw_dataset(SampleBatch({
+        #     SampleBatch.OBS: obs.view(B * T, -1),
+        #     SampleBatch.ACTIONS: actions.view(B * T, -1),
+        #     SampleBatch.REWARDS: targets.view(B * T, -1),
+        #     SampleBatch.NEXT_OBS: next_obs.view(B * T, -1),
+        # }))
 
         # Get target distribution weights
-        if self.global_timestep < self.config["tdw_warm_steps"]:
-            start = time.perf_counter()
-            self.fit_vae(vae_data, num_epochs=2)
-            tb_add_scalar(self, "fit_vae_time", time.perf_counter() - start)
-        elif random.random() < self.tdw_schedule.value(self.global_timestep):
-            start = time.perf_counter()
-            tdw_weights = self.get_tdw_weights(vae_data, targets)
-            tdw_weights = tdw_weights.view(B, T)
-            weights = tdw_weights ** 1.0  # self.adaptive_gamma()
-            tb_add_scalar(self, "tdw_time", time.perf_counter() - start)
-        else:
-            weights = torch.ones_like(targets)
+        # if self.global_timestep < self.config["tdw_warm_steps"]:
+        #     start = time.perf_counter()
+        #     self.fit_vae(vae_data, num_epochs=2)
+        #     tb_add_scalar(self, "fit_vae_time", time.perf_counter() - start)
+        # elif random.random() < self.tdw_schedule.value(self.global_timestep):
+        #     start = time.perf_counter()
+        #     tdw_weights = self.get_tdw_weights(vae_data, targets)
+        #     tdw_weights = tdw_weights.view(B, T)
+        #     weights = tdw_weights ** 1.0  # self.adaptive_gamma()
+        #     tb_add_scalar(self, "tdw_time", time.perf_counter() - start)
+        # else:
+        weights = torch.ones_like(targets)
 
         # Td-error
         td_error = chosen_action_qvals - targets.detach()
+        msg_td_error = chosen_msg_qvals - msg_targets.detach()
 
         # 0-out the targets that came from padded data
         mask = mask.expand_as(td_error)
         masked_td_error = td_error * mask
-        self.model.tower_stats["td_error"] = to_numpy(masked_td_error)
+        masked_msg_td_error = msg_td_error * mask
+        self.model.tower_stats["td_error"] = to_numpy((masked_td_error + masked_msg_td_error) / 2.)
 
         # Calculate loss
         loss = weights * huber_loss(masked_td_error)
         loss = loss.sum() / mask.sum()
+        msg_loss = huber_loss(masked_msg_td_error)
+        msg_loss = msg_loss.sum() / mask.sum()
         self.model.tower_stats["loss"] = loss.item()
         tb_add_scalar(self, "loss", loss.item())
+        tb_add_scalar(self, "msg_loss", msg_loss.item())
+        loss += msg_loss
 
         # vae loss
         # vae_loss = self.compute_vae_loss(vae_data)

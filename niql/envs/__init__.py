@@ -3,18 +3,20 @@ from marllib import marl
 from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 
+from .switch_game import SwitchGame
 from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
 from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
 from .mpe_simple import MPESimple
 from .predator_prey import PredatorPrey
 from .utils import make_local_env
 from ..config import PREDATOR_PREY, SMAC, MPE, MATRIX_GAME
+from ..config.switch_game_conf import SWITCH_GAME
 
 DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
 
 
 def get_active_env(**kwargs):
-    return make_mpe_simple_spread_env(**kwargs)
+    return make_switch_game_env(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
@@ -132,6 +134,20 @@ def make_one_step_matrix_game_env(**kwargs):
         **kwargs,
     )
     return env, MATRIX_GAME
+
+
+def make_switch_game_env(**kwargs):
+    # register new env
+    ENV_REGISTRY["SwitchGame"] = SwitchGame
+    COOP_ENV_REGISTRY["SwitchGame"] = SwitchGame
+
+    # choose environment + scenario
+    env = make_local_env(
+        environment_name="SwitchGame",
+        map_name="all_scenario",
+        **kwargs,
+    )
+    return env, SWITCH_GAME
 
 
 def pad_obs_space(obs_space):

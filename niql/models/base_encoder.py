@@ -48,6 +48,7 @@ class BaseEncoder(nn.Module):
         layers = []
         msg_agg_dim = model_config.get("comm_aggregator_dim", 0)
         action_dim = model_config.get("action_dim", 0)
+        comm_dim = model_config.get("comm_dim", 0)
         if "fc_layer" in self.custom_config["model_arch_args"]:
             if "encode_layer" in self.custom_config["model_arch_args"]:
                 encode_layer = self.custom_config["model_arch_args"]["encode_layer"]

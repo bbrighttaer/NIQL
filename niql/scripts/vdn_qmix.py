@@ -29,12 +29,15 @@ from marllib.marl.algos.utils.log_dir_util import available_local_dir
 from marllib.marl.algos.utils.setup_utils import AlgVar
 from ray import tune
 from ray.rllib.agents.qmix.qmix import DEFAULT_CONFIG as JointQ_Config
+from ray.rllib.agents.trainer_template import default_execution_plan
 from ray.rllib.models import ModelCatalog
 from ray.tune import CLIReporter
 from ray.tune.analysis import ExperimentAnalysis
 from ray.tune.utils import merge_dicts
 
+from niql.algo import ParamSharingQLearningPolicy
 from niql.algo.vdn_qmix import JointQPolicy
+from niql.callbacks import ObservationCommWrapper
 from niql.utils import add_evaluation_config
 
 
@@ -76,7 +79,6 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
     mixer_dict = {
         "qmix": "qmix",
         "vdn": "vdn",
-        "iql": None
     }
 
     config = {
@@ -90,6 +92,8 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
     }
 
     config.update(run)
+    # config["multiagent"]["observation_fn"] = ObservationCommWrapper(config["multiagent"]["policy_mapping_fn"])
+    config["simple_optimizer"] = _param.get("simple_optimizer", False)
 
     JointQ_Config.update(
         {
@@ -105,7 +109,7 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
                 "final_epsilon": final_epsilon,
                 "epsilon_timesteps": epsilon_timesteps,
             },
-            "mixer": mixer_dict[algorithm]
+            "mixer": mixer_dict.get(algorithm)
         })
 
     JointQ_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
@@ -117,8 +121,14 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
     JQTrainer = JointQTrainer.with_updates(
         name=algorithm.upper(),
         default_policy=JointQPolicy,
-        default_config=JointQ_Config
+        default_config=JointQ_Config,
     )
+
+    if algorithm.lower() == "iql":
+        JQTrainer = JQTrainer.with_updates(
+            default_policy=ParamSharingQLearningPolicy,
+            execution_plan=default_execution_plan,
+        )
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]

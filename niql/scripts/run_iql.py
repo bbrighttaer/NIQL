@@ -116,6 +116,7 @@ def run_iql(model_class, exp, run_config, env, stop, restore):
 
     # add observation function
     config["multiagent"]["observation_fn"] = ObservationCommWrapper(config["multiagent"]["policy_mapping_fn"])
+    config["simple_optimizer"] = _param.get("simple_optimizer", False)
 
     IQL_Config.update(
         {

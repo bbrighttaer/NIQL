@@ -74,8 +74,8 @@ class JointQRNN(BaseTorchModel):
 
         # q-values head
         self.q_value = SlimFC(
-            in_size=self.hidden_state_size,# + self.comm_dim,
-            out_size=num_outputs,
+            in_size=self.hidden_state_size,
+            out_size=num_outputs + self.comm_dim,
             initializer=normc_initializer(0.01),
             activation_fn=None)
 
@@ -103,13 +103,5 @@ class JointQRNN(BaseTorchModel):
         x = self.encoder(inputs)
         h_in = hidden_state[0].reshape(-1, self.hidden_state_size)
         h = self.rnn(x, h_in)
-
-        if self.comm_dim > 0:
-            msg = self.c_net(h)
-            q_in = torch.cat([h, msg], dim=-1)
-            q = self.q_value(q_in)
-            state = [h, torch.tanh(msg)]
-            return q, state
-        else:
-            q = self.q_value(h)
-            return q, [h]
+        q = self.q_value(h)
+        return q, [h]

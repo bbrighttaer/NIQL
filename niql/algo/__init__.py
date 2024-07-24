@@ -7,13 +7,14 @@ from .wibql import WIBQLPolicy
 from .imix import IMIX
 from .iql import IQLPolicy
 from .wiql import WIQL
+from .ps_iql import ParamSharingQLearningPolicy
 from ..execution_plans import imix_episode_execution_plan, episode_execution_plan
 
 IQLTrainer = build_trainer(
     name="IQLTrainer",
     get_policy_class=lambda c: IQLPolicy,
     default_config=DEFAULT_CONFIG,
-    execution_plan=episode_execution_plan,
+    # execution_plan=episode_execution_plan,
 )
 
 IMIXTrainer = build_trainer(
