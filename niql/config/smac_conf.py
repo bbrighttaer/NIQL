@@ -26,7 +26,7 @@ SMAC = {
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': True,
             'gamma': 0.99,
-            'lambda': 0.6,
+            'lambda': 0.85,
             'tau': 0.5,  # target network soft update
             'beta': 0,
             'callbacks': NIQLCallbacks,
@@ -36,8 +36,8 @@ SMAC = {
     },
     'model_preference': {
         'core_arch': 'gru',  # mlp | gru
-        "encode_layer": "128",  # for RNN model
-        'hidden_state_size': 128,  # for RNN model
+        "encode_layer": "64",  # for RNN model
+        'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
         'model': 'DRQNModel',
         # 'model': 'DuelingQFCN',
