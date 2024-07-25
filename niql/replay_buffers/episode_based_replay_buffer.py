@@ -71,37 +71,8 @@ class SimpleReplayBuffer(ReplayBuffer):
         self._num_sampled = 0
 
     def sample(self, num_items: int, *args, **kwargs) -> SampleBatchType:
-        """
-        Basic replay sampling with modifications to have similar API as Prioritised Replay Buffer.
-        """
-        idxes = [
-            random.randint(0, len(self._storage) - 1) for _ in range(num_items)
-        ]
-
-        weights = []
-        batch_indexes = []
-
-        for idx in idxes:
-            weight = 1.
-            count = self._storage[idx].count
-            # If zero-padded, count will not be the actual batch size of the
-            # data.
-            if isinstance(self._storage[idx], SampleBatch) and \
-                    self._storage[idx].zero_padded:
-                actual_size = self._storage[idx].max_seq_len
-            else:
-                actual_size = count
-            weights.extend([weight] * actual_size)
-            batch_indexes.extend([idx] * actual_size)
-            self._num_timesteps_sampled += count
-
-        batch = self._encode_sample(idxes)
-
-        # Note: prioritization is not supported in lockstep replay mode.
-        if isinstance(batch, SampleBatch):
-            batch["weights"] = np.array(weights)
-            batch["batch_indexes"] = np.array(batch_indexes)
-
+        batch = super().sample(num_items)
+        batch["weights"] = np.ones_like(batch[SampleBatch.REWARDS])
         return batch
 
 

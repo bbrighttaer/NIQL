@@ -138,6 +138,11 @@ class BQLPolicy(LearningRateSchedule, Policy):
         # initial target network sync
         self.update_target()
 
+    @property
+    def _optimizers(self):
+        # list of optimisers controlled by LR schedule
+        return []
+
     @override(Policy)
     def compute_actions(
             self,
@@ -184,6 +189,9 @@ class BQLPolicy(LearningRateSchedule, Policy):
 
             actions = actions.cpu().numpy()
             hiddens = [s.view(self.n_agents, -1).cpu().numpy() for s in hiddens]
+
+            # Update our global timestep by the batch size.
+            self.global_timestep += len(obs_batch)
 
             # store q values selected in this time step for callbacks
             q_values = masked_q_values.squeeze().cpu().detach().numpy().tolist()
@@ -359,7 +367,7 @@ class BQLPolicy(LearningRateSchedule, Policy):
 
         # Qi(s', a'_i*)
         qi_out, qi_h_out = unroll_mac_squeeze_wrapper(unroll_mac(self.model, whole_obs))
-        qi_out_sp = qi_out[:, 1:]
+        qi_out_sp = torch.clone(qi_out[:, 1:])
         # Mask out unavailable actions for the t+1 step
         ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
         qi_out_sp[ignore_action_tp1] = -np.inf

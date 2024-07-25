@@ -47,8 +47,8 @@ class MatrixGameQMLP(BaseTorchModel):
         activation = model_config.get("fcnet_activation")
 
         # hidden layers
-        layers = []
         input_dim = self.full_obs_space.shape[0]
+        layers = []
         for out_dim in self.custom_config["model_arch_args"]["hidden_layer_dims"]:
             layers.append(
                 SlimFC(

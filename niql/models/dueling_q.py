@@ -6,20 +6,18 @@ import logging
 
 import gym
 import numpy as np
-from ray.rllib.models.torch.misc import normc_initializer, SlimFC
+from ray.rllib.models.torch.misc import SlimFC, normc_initializer
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.typing import Dict, TensorType, List, ModelConfigDict
-
-from niql.models.base_torch_model import BaseTorchModel
 
 torch, nn = try_import_torch()
 
 logger = logging.getLogger(__name__)
 
 
-class DuelingQFCN(BaseTorchModel):
+class DuelingQFCN(TorchModelV2, nn.Module):
     """Generic dueling fully connected network."""
 
     def __init__(self, obs_space: gym.spaces.Space,
@@ -35,35 +33,18 @@ class DuelingQFCN(BaseTorchModel):
             activation = model_config.get("post_fcnet_activation")
 
         layers = []
-        comm_dim = model_config.get("comm_dim", 0)
-        msg_agg_dim = model_config.get("comm_aggregator_dim", 0)
-        action_dim = model_config.get("action_dim", 0)
-        prev_layer_size = int(np.product(obs_space.shape)) + comm_dim + msg_agg_dim + action_dim
+        prev_layer_size = int(np.product(obs_space.shape))
         self._logits = None
 
         # Create layers 0 to second-last.
-        for size in hiddens[:-1]:
+        for size in hiddens:
             layers.append(
                 SlimFC(
                     in_size=prev_layer_size,
                     out_size=size,
                     initializer=normc_initializer(1.0),
-                    activation_fn=activation,
-                )
-            )
+                    activation_fn=activation))
             prev_layer_size = size
-
-        # remaining hidden layer
-        if len(hiddens) > 0:
-            layers.append(
-                SlimFC(
-                    in_size=prev_layer_size,
-                    out_size=hiddens[-1],
-                    initializer=normc_initializer(1.0),
-                    activation_fn=activation,
-                )
-            )
-            prev_layer_size = hiddens[-1]
 
         self.base_model = nn.Sequential(*layers)
 
@@ -82,11 +63,10 @@ class DuelingQFCN(BaseTorchModel):
     @override(TorchModelV2)
     def forward(self, input_dict: Dict[str, TensorType],
                 state: List[TensorType],
-                seq_lens: TensorType, labels=None, epoch=None) -> (TensorType, List[TensorType]):
+                seq_lens: TensorType) -> (TensorType, List[TensorType]):
         obs = input_dict["obs_flat"].float()
         x = self.base_model(obs)
-        x_smoothed = x
-        advantages = self.advantage_layer(x_smoothed)
-        values = self.value_layer(x_smoothed)
+        advantages = self.advantage_layer(x)
+        values = self.value_layer(x)
         q_values = values + (advantages - advantages.mean())
-        return q_values, [x]  # return latent representation
+        return q_values, state

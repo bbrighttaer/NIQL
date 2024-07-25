@@ -477,14 +477,15 @@ def unroll_mac(model, obs_tensor, shared_messages=None, aggregation_func=None, *
         mac_out.append(q)
         mac_h_out.extend(h)
     mac_out = torch.stack(mac_out, dim=1)  # Concat over time
-    mac_h_out = torch.stack(mac_h_out, dim=1)
+    if mac_h_out:
+        mac_h_out = torch.stack(mac_h_out, dim=1)
 
     return mac_out, mac_h_out
 
 
 def unroll_mac_squeeze_wrapper(model_outputs):
     pred, hs = model_outputs
-    return pred.squeeze(2), hs.squeeze(2)
+    return pred.squeeze(2), hs
 
 
 def soft_update(target_net, source_net, tau):

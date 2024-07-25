@@ -214,6 +214,9 @@ class IQLPolicy(LearningRateSchedule, Policy):
             # store q values selected in this time step for callbacks
             q_values = to_numpy(masked_q_values.squeeze()).tolist()
 
+            # Update our global timestep by the batch size.
+            self.global_timestep += len(obs_batch)
+
             results = (actions, hiddens, {'q-values': [q_values]})
 
         return results

@@ -5,10 +5,10 @@ MATRIX_GAME = {
         'algo_args': {
             'batch_episode': 32,
             'lr': 0.0005,
-            'lr_schedule': [
-                [0, 0.0005],
-                [1000, 0.00005],
-            ],
+            # 'lr_schedule': [
+            #     [0, 0.0005],
+            #     [1000, 0.00005],
+            # ],
             'tdw_schedule': [
                 [0, 1.0],
                 [2000, 1.0],
@@ -21,12 +21,12 @@ MATRIX_GAME = {
             'enable_stochastic_eviction': True,
             'target_network_update_freq': 10,
             'final_epsilon': 0.01,
-            'epsilon_timesteps': 2000,
-            'tdw_timesteps': 3000,
-            'optimizer': 'rmsprop',  # "adam"
+            'epsilon_timesteps': 3000,
+            'tdw_timesteps': 5000,
+            'optimizer': 'adam',  # "adam"
             'reward_standardize': False,
-            'gamma': 0.99,
-            'lambda': 0.8,
+            'gamma': 1.0,
+            'lambda': 0.5,
             'tau': 0.5,
             'beta': 0,
             'callbacks': NIQLCallbacks,
@@ -42,9 +42,9 @@ MATRIX_GAME = {
         'encode_layer': '64',  # for RNN model
         'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
-        'model': 'DuelingQFCN',
+        # 'model': 'DuelingQFCN',
         # 'model': 'DRQNModel',
-        # 'model': 'MatrixGameQMLP',
+        'model': 'MatrixGameQMLP',
         # 'model': 'MatrixGameSplitQMLP',
         'tdw_vae': {
             'latent_dim': 2,
