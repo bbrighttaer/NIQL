@@ -1,3 +1,4 @@
+import copy
 import time
 from typing import Callable
 
@@ -780,3 +781,14 @@ def kde_density(Z, mus, logvars, num_samples, approx=True):
         densities = compute_gaussian_densities(Z, logvars, mus)
 
     return densities
+
+
+class DotDic(dict):
+    """dot.notation access to dictionary attributes"""
+
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+    def __deepcopy__(self, memo=None):
+        return DotDic(copy.deepcopy(dict(self), memo=memo))
