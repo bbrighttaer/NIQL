@@ -299,7 +299,7 @@ def get_target_dist_weights_cl(train_data, eval_data, kernel, bandwidth) -> np.a
 
 def cluster_labels(data, min_samples_in_cluster=2, eps=.1, n_clusters=100):
     # data = standardize(data)
-    data = data / np.max(data)
+    # data = data / np.max(data)
     # n_clusters = min(n_clusters, len(np.unique(labels)))
     # clustering = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
     clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(data)
