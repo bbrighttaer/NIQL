@@ -18,7 +18,7 @@ PREDATOR_PREY = {
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
             'optimizer': 'rmsprop',  # "adam"
-            'reward_standardize': True,
+            'reward_standardize': False,
             'gamma': 0.99,
             'lambda': 0.6,
             'tau': 0.5,  # target network soft update
