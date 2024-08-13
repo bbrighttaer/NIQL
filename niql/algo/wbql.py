@@ -37,7 +37,8 @@ class WBQLPolicy(NIQLBasePolicy):
                                   state=None,
                                   next_state=None,
                                   neighbour_obs=None,
-                                  neighbour_next_obs=None):
+                                  neighbour_next_obs=None,
+                                  uniform_batch=None):
         """
         Computes the Q loss.
 
