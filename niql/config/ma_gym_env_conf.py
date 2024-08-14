@@ -1,6 +1,6 @@
 from niql.callbacks import NIQLCallbacks
 
-MPE = {
+default_config = {
     'algo_parameters': {
         'algo_args': {
             'batch_episode': 32,
@@ -10,6 +10,7 @@ MPE = {
                 [50000, 1.0],
                 [60000, 0.0],
             ],
+            'tdw_bandwidth': 5.,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
             'enable_stochastic_eviction': True,
@@ -19,7 +20,7 @@ MPE = {
             'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
             'gamma': 0.99,
-            'lambda': 0.8,
+            'lambda': 0.6,
             'tau': 0.5,  # target network soft update
             'beta': 0,
             'callbacks': NIQLCallbacks,
@@ -34,20 +35,22 @@ MPE = {
         'fcnet_activation': 'relu',
         'model': 'DRQNModel',
         # 'model': 'DuelingQFCN',
-        'hidden_layer_dims': [64, 64],  # for mlp model
+        'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'tdw_vae': {
             'latent_dim': 8,
             'hdims': [128],
         },
-        'mha_num_heads': 2,
+        'mha_num_heads': 4,
         'comm_dim': 0,
         'comm_hdim': 64,
         'comm_aggregator_dim': 10,
-        'comm_aggregator_hdims': [64],
+        'comm_aggregator_hdims': [128],
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 200000,
+        'timesteps_total': 1000000,
     }
 }
+
+REGISTRY = {}

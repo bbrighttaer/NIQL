@@ -3,12 +3,13 @@ from marllib import marl
 from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 
-from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
-from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
+from .ma_gym_env import MAGymEnv
 from .mpe_simple import MPESimple
+from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
 from .predator_prey import PredatorPrey
+from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
 from .utils import make_local_env
-from ..config import PREDATOR_PREY, SMAC, MPE, MATRIX_GAME
+from ..config import SMAC, MPE, MATRIX_GAME, ma_gym_env_conf
 
 DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
 
@@ -56,17 +57,27 @@ def make_mpe_simple_speaker_listener(**kwargs):
 
 
 def make_predator_prey_env(**kwargs):
+    return make_ma_gym_env(env_name="PredatorPrey", **kwargs)
+
+
+def make_checkers_env(**kwargs):
+    return make_ma_gym_env(env_name="Checkers", **kwargs)
+
+
+def make_ma_gym_env(env_name, **kwargs):
     # register new env
-    ENV_REGISTRY["PredatorPrey"] = PredatorPrey
-    COOP_ENV_REGISTRY["PredatorPrey"] = PredatorPrey
+    COOP_ENV_REGISTRY[env_name] = MAGymEnv
+    ENV_REGISTRY[env_name] = MAGymEnv
 
     # choose environment + scenario
     env = make_local_env(
-        environment_name="PredatorPrey",
+        environment_name=env_name,
         map_name="all_scenario",
+        force_coop=True,
         **kwargs,
     )
-    return env, PREDATOR_PREY
+    config = ma_gym_env_conf.REGISTRY.get(env_name, ma_gym_env_conf.default_config)
+    return env, config
 
 
 def make_smac_env(**kwargs):
