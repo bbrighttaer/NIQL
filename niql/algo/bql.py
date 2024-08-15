@@ -190,6 +190,9 @@ class BQLPolicy(LearningRateSchedule, Policy):
 
             results = convert_to_non_torch_type((actions, hiddens, {'q-values': [q_values]}))
 
+            # Update our global timestep by the batch size.
+            self.global_timestep += len(obs_batch)
+
         return results
 
     def compute_single_action(self, *args, **kwargs) -> \

@@ -1,0 +1,11 @@
+env: LumberJack
+
+env_args:
+  gym_id: "Lumberjacks-v0"
+  map_name: "all_scenario"
+  full_observable: False
+
+mask_flag: False
+global_state_flag: False
+opp_action_in_cc: True
+agent_level_batch_update: False
