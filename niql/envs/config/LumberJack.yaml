@@ -1,14 +1,9 @@
-env: PredatorPrey
+env: LumberJack
 
 env_args:
-  gym_id: "PredatorPrey7x7-v0"
+  gym_id: "Lumberjacks-v0"
   map_name: "all_scenario"
-  grid_shape: [7,7]
-  n_agents: 4
-  n_preys: 2
   full_observable: False
-  max_steps: 100
-  penalty: -0.75
 
 mask_flag: False
 global_state_flag: False

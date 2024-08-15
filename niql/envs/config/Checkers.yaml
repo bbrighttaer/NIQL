@@ -1,14 +1,10 @@
-env: PredatorPrey
+env: Checkers
 
 env_args:
-  gym_id: "PredatorPrey7x7-v0"
+  gym_id: "Checkers-v0"
   map_name: "all_scenario"
-  grid_shape: [7,7]
-  n_agents: 4
-  n_preys: 2
   full_observable: False
-  max_steps: 100
-  penalty: -0.75
+  step_cost: -0.01
 
 mask_flag: False
 global_state_flag: False

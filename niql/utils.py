@@ -1,5 +1,4 @@
 import copy
-import time
 from typing import Callable
 
 import pandas as pd
@@ -13,7 +12,7 @@ from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor
-from sklearn.cluster import DBSCAN, HDBSCAN
+from sklearn.cluster import DBSCAN
 from sklearn.neighbors import KernelDensity
 
 from niql.torch_kde import TorchKernelDensity
@@ -373,8 +372,9 @@ def get_target_dist_weights_cl(targets, *args, **kwargs) -> np.array:
     return tdw_weights
 
 
-def cluster_labels(data, min_samples_in_cluster=2, eps=10., n_clusters=100):
-    data = standardize(data)
+def cluster_labels(data, min_samples_in_cluster=2, eps=.1, n_clusters=100):
+    # data = standardize(data)
+    # data = data / np.max(data)
     # n_clusters = min(n_clusters, len(np.unique(labels)))
     # clustering = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
     clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(data)
@@ -459,7 +459,6 @@ def unroll_mac(model, obs_tensor, shared_messages=None, aggregation_func=None, *
 
         # if comm is enabled, process comm messages
         if shared_messages is not None:
-
             # put together local and received messages
             msgs = shared_messages[:, t]
 

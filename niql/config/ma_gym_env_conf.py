@@ -1,37 +1,31 @@
 from niql.callbacks import NIQLCallbacks
 
-MPE = {
+default_config = {
     'algo_parameters': {
         'algo_args': {
             'batch_episode': 32,
             'lr': 0.0005,
-            'lr_schedule': [
-                [0, 0.0005],
-                [30000, 0.00005],
-                [50000, 0.000005],
-            ],
             'tdw_schedule': [
                 [0, 1.0],
                 [50000, 1.0],
                 [60000, 0.0],
             ],
-            'tdw_warm_steps': 3000,
-            'kde_subset_size': 200,
+            'tdw_bandwidth': 5.,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
-            'enable_stochastic_eviction': False,
+            'enable_stochastic_eviction': True,
             'target_network_update_freq': 200,
             'final_epsilon': 0.05,
             'epsilon_timesteps': 50000,
-            'optimizer': 'rmsprop',  # "rmsprop | adam"
-            'reward_standardize': True,
+            'optimizer': 'rmsprop',  # "adam"
+            'reward_standardize': False,
             'gamma': 0.99,
-            'lambda': 0.8,
+            'lambda': 0.6,
             'tau': 0.5,  # target network soft update
             'beta': 0,
             'callbacks': NIQLCallbacks,
             'sharing_batch_size': 10,
-            'similarity_threshold': 0.01,
+            'similarity_threshold': 0.999,
         }
     },
     'model_preference': {
@@ -41,24 +35,22 @@ MPE = {
         'fcnet_activation': 'relu',
         'model': 'DRQNModel',
         # 'model': 'DuelingQFCN',
-        'hidden_layer_dims': [64, 64],  # for mlp model
+        'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'tdw_vae': {
-            'latent_dim': 16,
+            'latent_dim': 8,
             'hdims': [128],
         },
-        'mha_num_heads': 2,
-        'add_action_dim': True,
-        'use_vae_encoder': False,
-        'comm_dim': 10,
+        'mha_num_heads': 4,
+        'comm_dim': 0,
         'comm_hdim': 64,
-        'comm_aggregator': 'concat',
         'comm_aggregator_dim': 10,
-        'comm_aggregator_hdims': [64],
-        'kde_subset_size': 100,
+        'comm_aggregator_hdims': [128],
     },
     'stop_condition': {
         'episode_reward_mean': 2000,
-        'timesteps_total': 2000000,
+        'timesteps_total': 1000000,
     }
 }
+
+REGISTRY = {}
