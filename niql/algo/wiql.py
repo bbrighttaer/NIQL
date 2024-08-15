@@ -158,8 +158,8 @@ class WIQL(NIQLBasePolicy):
             tdw_weights = tdw_weights.view(B, T)
             weights = tdw_weights ** 1.0  # self.adaptive_gamma()
             tb_add_scalar(self, "tdw_time", time.perf_counter() - start)
-        else:
-            weights = torch.ones_like(targets)
+        # else:
+        #     weights = torch.ones_like(targets)
 
         # Td-error
         td_error = chosen_action_qvals - targets.detach()

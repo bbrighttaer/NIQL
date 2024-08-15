@@ -513,7 +513,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             data = torch.cat([obs, actions, rewards], dim=-1)
         else:
             data = torch.cat([obs, rewards], dim=-1)
-        data = normalize_zero_mean_unit_variance(data)
+        # data = normalize_zero_mean_unit_variance(data)
         return data
 
     # def get_tdw_weights(self, data):
@@ -553,13 +553,13 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             # q densities
             outputs, mu, logvar = vae.encode(data)
             q_densities = kde_density(outputs, mu, logvar, ns)
-            q_densities = apply_scaling(q_densities)
+            # q_densities = apply_scaling(q_densities)
 
             # p densities
             targets_scaled = shift_and_scale(targets_flat)
             target_outputs, target_mu, target_logvar = target_vae.encode(data)
             p_densities = targets_scaled / (kde_density(target_outputs, target_mu, target_logvar, ns) + eps)
-            p_densities /= (p_densities.max() + eps)
+            # p_densities /= (p_densities.max() + eps)
 
             # compute weights
             weights = p_densities / (q_densities + eps)

@@ -21,7 +21,6 @@ from ray.util.ml_utils.dict import merge_dicts
 from niql.algo import IMIXTrainer, BQLTrainer, BQLPolicy, IQLTrainer
 from niql.algo.vdn_qmix import JointQPolicy
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
-from niql.execution_plans import joint_episode_execution_plan
 from niql.utils import to_numpy
 
 
@@ -207,7 +206,6 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
     IQL_Config["act_space"] = GymTuple([action_space])
     IQL_Config["lambda"] = _param["lambda"]
     IQL_Config["tau"] = _param["tau"]
-    IQL_Config["enable_joint_buffer"] = _param.get("enable_joint_buffer")
     IQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
     IQL_Config["beta"] = _param["beta"]
     IQL_Config["reconcile_rewards"] = _param.get("reconcile_rewards")
@@ -227,7 +225,6 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
     elif algorithm == 'bql':
         trainer_class = BQLTrainer.with_updates(
             get_policy_class=lambda c: BQLPolicy,
-            execution_plan=joint_episode_execution_plan,
         )
     elif algorithm == 'dbql':
         trainer_class = BQLTrainer.with_updates(

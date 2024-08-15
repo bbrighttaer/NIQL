@@ -79,7 +79,6 @@ if __name__ == '__main__':
     # initialize algorithm
     bql = getattr(marl.algos, args.algo)  # (hyperparam_source="mpe")
     bql.algo_parameters = exp_config['algo_parameters']
-    bql.algo_parameters["algo_args"]["enable_joint_buffer"] = args.algo == "bql"
 
     # build agent model based on env + algorithms + user preference if checked available
     model_config = exp_config['model_preference']

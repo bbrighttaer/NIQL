@@ -1,16 +1,15 @@
 import collections
 import random
-from typing import List
 
 import numpy as np
+import torch
+import torch.nn.functional as F
 from marllib.marl.algos.utils.episode_replay_buffer import EpisodeBasedReplayBuffer as EpBasedReplayBuffer
 from ray.rllib import SampleBatch
 from ray.rllib.execution import ReplayBuffer, PrioritizedReplayBuffer
 from ray.rllib.execution.replay_buffer import warn_replay_capacity
 from ray.rllib.utils.deprecation import DEPRECATED_VALUE
 from ray.rllib.utils.typing import SampleBatchType
-import torch
-import torch.nn.functional as F
 
 from niql.utils import to_numpy
 
@@ -30,7 +29,6 @@ class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
             replay_sequence_length: int = 1,
             replay_burn_in: int = 0,
             replay_zero_init_states: bool = True,
-            enable_joint_buffer=False,
             enable_stochastic_eviction=False,
             buffer_size=DEPRECATED_VALUE,
     ):
@@ -39,20 +37,11 @@ class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
                          prioritized_replay_eps, replay_mode, replay_sequence_length, replay_burn_in,
                          replay_zero_init_states,
                          buffer_size)
-        if enable_joint_buffer:
-            # change experience replay buffer setup to joint for all agents
-            # joint_replay_buffer = PrioritizedReplayBuffer(self.capacity, alpha=prioritized_replay_alpha)
-            joint_replay_buffer = SimpleReplayBuffer(self.capacity)
-
+        if enable_stochastic_eviction:
             def new_buffer():
-                return joint_replay_buffer
+                return PrioritizedReplayBufferWithStochasticEviction(self.capacity, alpha=prioritized_replay_alpha)
 
             self.replay_buffers = collections.defaultdict(new_buffer)
-        # elif enable_stochastic_eviction:
-        #     def new_buffer():
-        #         return PrioritizedReplayBufferWithStochasticEviction(self.capacity, alpha=prioritized_replay_alpha)
-        #
-        #     self.replay_buffers = collections.defaultdict(new_buffer)
 
     def plot_statistics(self, summary_writer, timestep):
         for policy_id, replay_buffer in self.replay_buffers.items():

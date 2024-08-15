@@ -42,7 +42,7 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
 
     Args:
         trainer (Trainer): The Trainer object creating the execution plan.
-        workers (WorkerSet): The WorkerSet for training the Polic(y/ies)
+        workers (WorkerSet): The WorkerSet for training the Policies
             of the Trainer.
         config (TrainerConfigDict): The trainer's configuration dict.
 
@@ -80,16 +80,6 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     train_step_op = TrainOneStep(workers)
     policy_map = workers.local_worker().policy_map
 
-    # replay_op = Replay(local_buffer=local_replay_buffer) \
-    #     .for_each(lambda x: post_fn(x, workers, config,
-    #                                 policy_map=policy_map,
-    #                                 summary_writer=summary_writer,
-    #                                 replay_buffer=local_replay_buffer,
-    #                                 )) \
-    #     .for_each(train_step_op) \
-    #     .for_each(get_priority_update_func(local_replay_buffer, config)) \
-    #     .for_each(UpdateTargetNetwork(workers, config.get("target_network_update_freq", 200)))
-
     replay_op = Replay(local_buffer=local_replay_buffer) \
         .for_each(lambda x: post_fn(x, workers, config,
                                     policy_map=policy_map,
@@ -97,7 +87,17 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
                                     replay_buffer=local_replay_buffer,
                                     )) \
         .for_each(train_step_op) \
+        .for_each(get_priority_update_func(local_replay_buffer, config)) \
         .for_each(UpdateTargetNetwork(workers, config.get("target_network_update_freq", 200)))
+
+    # replay_op = Replay(local_buffer=local_replay_buffer) \
+    #     .for_each(lambda x: post_fn(x, workers, config,
+    #                                 policy_map=policy_map,
+    #                                 summary_writer=summary_writer,
+    #                                 replay_buffer=local_replay_buffer,
+    #                                 )) \
+    #     .for_each(train_step_op) \
+    #     .for_each(UpdateTargetNetwork(workers, config.get("target_network_update_freq", 200)))
 
     # Alternate deterministically between (1) and (2). Only return the output
     # of (2) since training metrics are not available until (2) runs.

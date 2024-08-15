@@ -18,12 +18,12 @@ MATRIX_GAME = {
             'tdw_warm_steps': 1000,
             'rollout_fragment_length': 1,
             'buffer_size': 5000,
-            'enable_stochastic_eviction': True,
+            'enable_stochastic_eviction': False,
             'target_network_update_freq': 10,
             'final_epsilon': 0.01,
             'epsilon_timesteps': 3000,
             'tdw_timesteps': 5000,
-            'optimizer': 'adam',  # "adam"
+            'optimizer': 'rmsprop',  # "adam"
             'reward_standardize': False,
             'gamma': 1.0,
             'lambda': 0.5,
