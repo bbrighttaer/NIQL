@@ -782,7 +782,7 @@ def kde_density(Z, mus, logvars, num_samples, approx=True):
     return densities
 
 
-class DotDic(dict):
+class DotDict(dict):
     """dot.notation access to dictionary attributes"""
 
     __getattr__ = dict.get
@@ -790,4 +790,34 @@ class DotDic(dict):
     __delattr__ = dict.__delitem__
 
     def __deepcopy__(self, memo=None):
-        return DotDic(copy.deepcopy(dict(self), memo=memo))
+        return DotDict(copy.deepcopy(dict(self), memo=memo))
+
+
+def row_frequencies(tensor):
+    """
+    Compute the frequency of each unique row in the tensor.
+
+    Args:
+        tensor (Tensor): A PyTorch tensor of binary row vectors, shape (M, D).
+
+    Returns:
+        Tensor: A 1D tensor containing the frequency of each row, shape (M,).
+    """
+    # Ensure tensor is of type int64 for accurate unique row handling
+    tensor = tensor.to(torch.int64)
+
+    # Convert rows to tuples so they can be used as dictionary keys
+    rows_as_tuples = [tuple(row.tolist()) for row in tensor]
+
+    # Count occurrences of each unique row
+    row_counts = {}
+    for row in rows_as_tuples:
+        if row in row_counts:
+            row_counts[row] += 1
+        else:
+            row_counts[row] = 1
+
+    # Create a tensor to hold the frequencies
+    frequencies = torch.tensor([row_counts[row] for row in rows_as_tuples], dtype=torch.int64)
+
+    return frequencies

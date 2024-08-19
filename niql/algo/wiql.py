@@ -196,7 +196,7 @@ class WIQL(NIQLBasePolicy):
     def set_weights(self, weights):
         self.model.load_state_dict(self._device_dict(weights["model"]))
         self.target_model.load_state_dict(self._device_dict(weights["target_model"]))
-        self.vae_model.load_state_dict(self._device_dict(weights["vae_model"]))
+        # self.vae_model.load_state_dict(self._device_dict(weights["vae_model"]))
 
         if self.use_comm:
             self.comm_aggregator.load_state_dict(self._device_dict(weights["comm_aggregator"]))
@@ -207,7 +207,7 @@ class WIQL(NIQLBasePolicy):
             "model": self._cpu_dict(self.model.state_dict()),
             "target_model": self._cpu_dict(self.target_model.state_dict()),
             "vae_model": self._cpu_dict(self.vae_model.state_dict()),
-            "target_vae_model": self._cpu_dict(self.target_vae_model.state_dict()),
+            # "target_vae_model": self._cpu_dict(self.target_vae_model.state_dict()),
         }
         if self.use_comm:
             wts["comm_aggregator"] = self._cpu_dict(self.comm_aggregator.state_dict())
@@ -216,7 +216,7 @@ class WIQL(NIQLBasePolicy):
 
     def update_target(self):
         self.target_model = soft_update(self.target_model, self.model, self.tau)
-        self.target_vae_model = soft_update(self.target_vae_model, self.vae_model, self.tau)
+        # self.target_vae_model = soft_update(self.target_vae_model, self.vae_model, self.tau)
         if self.use_comm:
             self.comm_aggregator_target = soft_update(self.comm_aggregator_target, self.comm_aggregator, self.tau)
         logger.debug("Updated target networks")

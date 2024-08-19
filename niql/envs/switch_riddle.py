@@ -7,7 +7,7 @@ from gym import spaces
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.typing import MultiAgentDict
 
-from niql.utils import DotDic
+from niql.utils import DotDict
 
 policy_mapping_dict = {
     "all_scenario": {
@@ -33,17 +33,17 @@ class SwitchRiddle(MultiAgentEnv):
             "state": spaces.Box(low=0, high=1, shape=(self.num_agents,), dtype=np.float32),
         })
 
-        self.game_actions = DotDic({
+        self.game_actions = DotDict({
             'NOTHING': 0,
             'TELL': 1,
         })
 
-        self.game_states = DotDic({
+        self.game_states = DotDict({
             'OUTSIDE': 0,
             'INSIDE': 1,
         })
 
-        self.action_masks = DotDic({
+        self.action_masks = DotDict({
             'NONE_ACTION_ONLY': [1, 0],
             'NONE_AND_TELL': [1, 1],
         })

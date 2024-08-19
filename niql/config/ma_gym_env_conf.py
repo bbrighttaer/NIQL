@@ -38,9 +38,11 @@ default_config = {
         'hidden_layer_dims': [64],  # for mlp model
         'mixer_embedding': 256,  # for mixer model
         'tdw_vae': {
-            'latent_dim': 8,
-            'hdims': [128],
+            'latent_dim': 64,
+            'hdims': [256],
+            'binary_hash_dim': 32
         },
+        'add_action_dim': False,
         'mha_num_heads': 4,
         'comm_dim': 0,
         'comm_hdim': 64,

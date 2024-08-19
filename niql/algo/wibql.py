@@ -1,9 +1,11 @@
 import logging
+import random
+import time
 from functools import partial
 
 import numpy as np
 import torch
-from ray.rllib import Policy
+from ray.rllib import Policy, SampleBatch
 from ray.rllib.utils import override
 from ray.rllib.utils.torch_ops import huber_loss
 
@@ -26,7 +28,7 @@ class WIBQLPolicy(NIQLBasePolicy):
 
     def compute_trajectory_q_loss(self,
                                   rewards,
-                                  is_weights,
+                                  weights,
                                   actions,
                                   prev_actions,
                                   terminated,
@@ -45,7 +47,7 @@ class WIBQLPolicy(NIQLBasePolicy):
 
         Args:
             rewards: Tensor of shape [B, T]
-            is_weights: Tensor of shape [B, T]
+            weights: Tensor of shape [B, T]
             actions: Tensor of shape [B, T]
             prev_actions: Tensor of shape [B, T]
             terminated: Tensor of shape [B, T]
@@ -81,7 +83,6 @@ class WIBQLPolicy(NIQLBasePolicy):
             unroll_mac(
                 self.auxiliary_model,
                 whole_obs,
-                self.comm_net,
                 all_neighbour_msgs,
                 partial(self.aggregate_messages, False),
                 **kwargs,
@@ -94,7 +95,6 @@ class WIBQLPolicy(NIQLBasePolicy):
             unroll_mac(
                 self.model,
                 whole_obs,
-                self.comm_net,
                 all_neighbour_msgs,
                 partial(self.aggregate_messages, False),
                 **kwargs,
@@ -109,17 +109,32 @@ class WIBQLPolicy(NIQLBasePolicy):
 
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.config["gamma"] * (1 - terminated) * qi_out_sp_qvals
+        targets = targets.detach()
+
+        # Construct data for training tdw vae
+        vae_data = self.construct_tdw_dataset(SampleBatch({
+            SampleBatch.OBS: obs.view(B * T, -1),
+            SampleBatch.ACTIONS: actions.view(B * T, -1),
+            SampleBatch.REWARDS: targets.view(B * T, -1),
+            SampleBatch.NEXT_OBS: next_obs.view(B * T, -1),
+        }))
 
         # Get target distribution weights
-        # tdw_weights = target_distribution_weighting(
-        #     self, targets.detach().clone().view(B * T, -1),
-        # )
-        # tdw_weights = tdw_weights.view(B, T)
-        tdw_weights = self.get_tdw_weights(targets.detach().clone())
-        tdw_weights = tdw_weights.view(*targets.shape)
+        if self.global_timestep < self.config["tdw_warm_steps"]:
+            start = time.perf_counter()
+            self.fit_vae(vae_data, num_epochs=2)
+            tb_add_scalar(self, "fit_vae_time", time.perf_counter() - start)
+        elif random.random() < self.tdw_schedule.value(self.global_timestep):
+            start = time.perf_counter()
+            tdw_weights = self.get_tdw_weights(vae_data, targets)
+            tdw_weights = tdw_weights.view(B, T)
+            weights = tdw_weights ** 1.0  # self.adaptive_gamma()
+            tb_add_scalar(self, "tdw_time", time.perf_counter() - start)
+        else:
+            weights = torch.ones_like(targets)
 
         # Qe_i TD error
-        td_error = qe_qvals - targets.detach()
+        td_error = qe_qvals - targets
 
         # 0-out the targets that came from padded data
         mask = mask.expand_as(td_error)
@@ -127,7 +142,7 @@ class WIBQLPolicy(NIQLBasePolicy):
         self.model.tower_stats["td_error"] = to_numpy(masked_td_error)
 
         # Qe loss
-        qe_loss = tdw_weights * is_weights * huber_loss(masked_td_error)
+        qe_loss = weights * huber_loss(masked_td_error)
         qe_loss = qe_loss.sum() / mask.sum()
         self.model.tower_stats["Qe_loss"] = to_numpy(qe_loss)
         tb_add_scalar(self, "qe_loss", qe_loss.item())
@@ -146,7 +161,6 @@ class WIBQLPolicy(NIQLBasePolicy):
             unroll_mac(
                 self.auxiliary_model_target,
                 whole_obs,
-                self.comm_net_target,
                 all_neighbour_msgs,
                 partial(self.aggregate_messages, True),
                 **kwargs,

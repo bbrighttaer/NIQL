@@ -104,6 +104,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
             "comm_aggregator_dims": _param.get("comm_aggregator_dims"),
             "tdw_schedule": _param.get("tdw_schedule"),
             "comm_num_agents": env["num_agents"],
+            "tdw_warm_steps": _param.get("tdw_warm_steps", 1000),
         })
 
     BQL_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on

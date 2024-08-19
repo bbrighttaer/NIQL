@@ -20,11 +20,11 @@ from torch.nn.functional import mse_loss
 from torch.utils.data import TensorDataset, DataLoader
 
 from niql.config import FINGERPRINT_SIZE
-from niql.models import SimpleCommNet, AttentionCommMessagesAggregator, VAEEncoder
+from niql.models import SimpleCommNet, AttentionCommMessagesAggregator, VAEEncoder, BinaryAutoEncoder
 from niql.models.comm_net import ConcatCommMessagesAggregator
 from niql.models.vae import VAE
 from niql.utils import get_size, tb_add_scalar, tb_add_scalars, standardize, kde_density, shift_and_scale, \
-    apply_scaling, normalize_zero_mean_unit_variance
+    apply_scaling, normalize_zero_mean_unit_variance, row_frequencies
 from niql.utils import unpack_observation, preprocess_trajectory_batch, to_numpy, NEIGHBOUR_MSG, NEIGHBOUR_NEXT_MSG, \
     batch_message_inter_agent_sharing, mac
 
@@ -118,16 +118,18 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         self.params = []
         models_factory_class.__init__(self, agent_obs_space, action_space, config, core_arch)
         vae_args = model_arch_args["tdw_vae"]
-        self.vae_model = VAE(
-            input_dim=self.obs_size + (action_space.n if self.add_action_to_obs else 0) + 1,
+        self._binary_hash_dim = vae_args["binary_hash_dim"]
+        self.vae_model = BinaryAutoEncoder(
+            input_dim=1,
             hidden_layer_dims=vae_args["hdims"],
             latent_dim=vae_args["latent_dim"],
+            k=self._binary_hash_dim,
         ).to(self.device)
-        self.target_vae_model = VAE(
-            input_dim=self.obs_size + (action_space.n if self.add_action_to_obs else 0) + 1,
-            hidden_layer_dims=vae_args["hdims"],
-            latent_dim=vae_args["latent_dim"],
-        ).to(self.device)
+        # self.target_vae_model = BinaryAutoEncoder(
+        #     input_dim=self.obs_size + (action_space.n if self.add_action_to_obs else 0) + 1,
+        #     hidden_layer_dims=vae_args["hdims"],
+        #     latent_dim=self.latent_dim,
+        # ).to(self.device)
 
         self.exploration = self._create_exploration()
         self.dist_class = TorchCategorical
@@ -463,7 +465,33 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             loss = 0.
         return loss
 
-    def fit_vae(self, training_data, num_epochs=2):
+    def compute_binary_code_loss(self, p, b, k, epsilon=1e-10, lambda_reg=0.5):
+        """
+        Args:
+            p (Tensor): Model outputs (probabilities), shape (batch_size, num_states)
+            b (Tensor): Binary codes, shape (batch_size, num_binary_units)
+            k (int): latent dimension
+            epsilon (float): small number for numerical stability
+            lambda_reg (float): regularization param
+        Returns:
+            Tensor: Total loss
+        """
+        # Clip probabilities to avoid log(0)
+        p_clipped = torch.clamp(p, min=epsilon)
+
+        # Negative log-likelihood term
+        neg_log_likelihood = -torch.mean(torch.log(p_clipped))
+
+        # Binary code regularization term
+        # For each binary unit in the binary code layer
+        regularization_term = torch.mean(torch.min((1 - b) ** 2, b ** 2))
+
+        # Total loss
+        total_loss = neg_log_likelihood + (lambda_reg / k) * regularization_term
+
+        return total_loss
+
+    def fit_vae(self, training_data, num_epochs=1):
         dataset = TensorDataset(training_data)
         data_loader = DataLoader(dataset, batch_size=64, shuffle=True)
 
@@ -480,13 +508,15 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             for batch in data_loader:
                 batch = batch[0]
                 self.vae_optimiser.zero_grad()
-                recon_batch, mu, logvar = self.vae_model(batch)
-                loss, mse_, kld_ = self.vae_loss_function(recon_batch, batch, mu, logvar)
+                latent_b, recon_p = self.vae_model(batch)
+                loss = self.compute_binary_code_loss(
+                    p=recon_p,
+                    b=latent_b,
+                    k=self._binary_hash_dim,
+                )
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.vae_model.parameters(), self.config["grad_clip"])
                 ep_loss += loss.item()
-                ep_mse_loss += mse_.item()
-                ep_kld_loss += kld_.item()
                 self.vae_optimiser.step()
 
             training_loss.append(ep_loss / len(dataset))
@@ -512,33 +542,12 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             actions = torch.eye(self.n_actions, self.n_actions).to(self.device).float()[actions]
             data = torch.cat([obs, actions, rewards], dim=-1)
         else:
-            data = torch.cat([obs, rewards], dim=-1)
+            data = torch.cat([rewards], dim=-1)
         # data = normalize_zero_mean_unit_variance(data)
         return data
 
-    # def get_tdw_weights(self, data):
-    #     if self.global_timestep > 10000 and random.random() < self.tdw_schedule.value(self.global_timestep):
-    #         vae = self.model.encoder
-    #         densities = vae.estimate_density(data)
-    #         tdw_weights = 1. / (densities + 1e-7)
-    #         tdw_weights /= tdw_weights.max()
-    #         # min_w = max(1e-2, tdw_weights.min())
-    #         # tdw_weights = torch.clamp(torch.log(tdw_weights), min_w, max=2 * min_w)
-    #
-    #         tb_add_scalars(self, "tdw_stats", {
-    #             # "scaling": scaling,
-    #             "max_weight": tdw_weights.max(),
-    #             "min_weight": tdw_weights.min(),
-    #             "mean_weight": tdw_weights.mean(),
-    #         })
-    #     else:
-    #         tdw_weights = torch.ones((len(data), 1))
-    #     return tdw_weights
-
     def get_tdw_weights(self, data, targets):
         targets_flat = targets.detach().view(-1, 1)
-        vae = self.vae_model
-        target_vae = self.target_vae_model
 
         # set training and eval properties
         eps = 1e-7
@@ -546,24 +555,23 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         ns = min(self.config.get("kde_subset_size") or 100, data.shape[0] // 3)
 
         # train
-        self.fit_vae(data, num_epochs=n_epochs)
+        if self.global_timestep % 3 == 0:
+            self.fit_vae(data, num_epochs=n_epochs)
 
         with torch.no_grad():
+            self.vae_model.eval()
 
-            # q densities
-            outputs, mu, logvar = vae.encode(data)
-            q_densities = kde_density(outputs, mu, logvar, ns)
-            # q_densities = apply_scaling(q_densities)
-
-            # p densities
-            targets_scaled = shift_and_scale(targets_flat)
-            target_outputs, target_mu, target_logvar = target_vae.encode(data)
-            p_densities = targets_scaled / (kde_density(target_outputs, target_mu, target_logvar, ns) + eps)
-            # p_densities /= (p_densities.max() + eps)
+            # binary codes
+            binary_codes = self.vae_model.encode(data)
+            densities = row_frequencies(binary_codes).view(-1, 1)
+            densities_inv = 1. / densities
+            scaling = len(densities_inv) / torch.sum(densities_inv)
+            densities_inv *= scaling
 
             # compute weights
-            weights = p_densities / (q_densities + eps)
-            weights = apply_scaling(weights)
+            targets_scaled = shift_and_scale(targets_flat)
+            weights = densities_inv
+            weights /= (weights.max() + 1e-10)
 
             tb_add_scalars(self, "tdw_stats", {
                 # "scaling": scaling,

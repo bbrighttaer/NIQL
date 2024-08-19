@@ -47,8 +47,9 @@ MATRIX_GAME = {
         'model': 'MatrixGameQMLP',
         # 'model': 'MatrixGameSplitQMLP',
         'tdw_vae': {
-            'latent_dim': 2,
-            'hdims': [16],
+            'latent_dim': 16,
+            'hdims': [32],
+            'binary_hash_dim': 4
         },
         'mha_num_heads': 2,
         'add_action_dim': False,
