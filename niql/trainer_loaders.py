@@ -1,6 +1,7 @@
 import copy
 from typing import Callable, Any, Dict
 
+import numpy as np
 import torch
 from gym.spaces import Tuple as GymTuple
 from marllib.envs.base_env import ENV_REGISTRY
@@ -18,10 +19,10 @@ from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.tune import register_env
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import IMIXTrainer, BQLTrainer, BQLPolicy, IQLTrainer
+from niql.algo import BQLTrainer, BQLPolicy, IQLTrainer
 from niql.algo.vdn_qmix import JointQPolicy
 from niql.envs.wrappers import create_fingerprint_env_wrapper_class
-from niql.execution_plans import joint_episode_execution_plan
+from niql.execution_plans import episode_execution_plan
 from niql.utils import to_numpy
 
 
@@ -219,15 +220,10 @@ def load_iql_checkpoint(model_class, exp, run_config, env, stop, restore) -> Che
     IQL_Config.update(run_config)
     IQL_Config["model"].update(model_config)
     model_path = restore_model(restore, exp)
-    if algorithm == 'imix':
-        trainer_class = IMIXTrainer.with_updates(
-            name=algorithm.upper(),
-            default_config=IQL_Config,
-        )
-    elif algorithm == 'bql':
+    if algorithm == 'bql':
         trainer_class = BQLTrainer.with_updates(
             get_policy_class=lambda c: BQLPolicy,
-            execution_plan=joint_episode_execution_plan,
+            execution_plan=episode_execution_plan,
         )
     elif algorithm == 'dbql':
         trainer_class = BQLTrainer.with_updates(

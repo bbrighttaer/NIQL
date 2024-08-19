@@ -17,7 +17,6 @@ from ray.util.ml_utils.dict import merge_dicts
 from niql.algo import BQLTrainer, BQLPolicy
 from niql.callbacks import ObservationCommWrapper
 from niql.envs import DEBUG_ENVS
-from niql.execution_plans import joint_episode_execution_plan
 from niql.utils import add_evaluation_config
 
 
@@ -123,7 +122,6 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     BQL_Config["lambda"] = _param["lambda"]
     BQL_Config["tau"] = _param["tau"]
     BQL_Config["beta"] = _param["beta"]
-    # BQL_Config["enable_joint_buffer"] = _param["enable_joint_buffer"]
     BQL_Config["sharing_batch_size"] = _param["sharing_batch_size"]
     BQL_Config["algorithm"] = algorithm
     BQL_Config["env_name"] = exp["env"]
@@ -134,13 +132,9 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
         name=algorithm.upper(),
         default_config=BQL_Config,
     )
-    if algorithm.lower() in ["bql", "ibql"]:
+    if algorithm.lower() in ["bql"]:
         trainer = trainer.with_updates(
             get_policy_class=lambda c: BQLPolicy,
-        )
-    if _param["enable_joint_buffer"]:
-        trainer = trainer.with_updates(
-            execution_plan=joint_episode_execution_plan,
         )
 
     map_name = exp["env_args"]["map_name"]
