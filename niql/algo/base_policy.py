@@ -108,7 +108,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         # create models
         self.params = []
         models_factory_class.__init__(self, agent_obs_space, action_space, config, core_arch)
-        vae_args = model_arch_args = config["model"]["custom_model_config"]["model_arch_args"]["tdw_vae"]
+        vae_args = config["model"]["custom_model_config"]["model_arch_args"]["tdw_vae"]
         self.vae_model = VAE(
             input_dim=self.obs_size + self.n_actions + 1,
             hidden_layer_dims=vae_args["hdims"],
@@ -192,6 +192,9 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
         explore = explore if explore is not None else self.config["explore"]
         timestep = timestep if timestep is not None else self.global_timestep
         obs_batch, action_mask, _ = unpack_observation(self, obs_batch)
+
+        if not explore:
+            x = 0
 
         if self.use_fingerprint:
             obs_batch = self._pad_observation(obs_batch)

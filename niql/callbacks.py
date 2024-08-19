@@ -65,38 +65,14 @@ class NIQLCallbacks(DefaultCallbacks):
         if hasattr(env, "env"):  # Needed because Marllib wraps the SMAC env
             env = env.env
             if hasattr(env, "death_tracker_ally") and hasattr(env, "death_tracker_enemy"):
-                ally_state = env.death_tracker_ally
-                enemy_state = env.death_tracker_enemy
-
-                # count battle win rate in recent 100 games
-                if self.battle_win_queue.full():
-                    self.battle_win_queue.get()  # pop FIFO
-
-                battle_win_this_episode = int(all(enemy_state == 1))  # all enemy died / win
-                self.battle_win_queue.put(battle_win_this_episode)
-
-                episode.custom_metrics["battle_win_rate"] = sum(
-                    self.battle_win_queue.queue) / self.battle_win_queue.qsize()
-
-                # count ally survive in recent 100 games
-                if self.ally_survive_queue.full():
-                    self.ally_survive_queue.get()  # pop FIFO
-
-                ally_survive_this_episode = sum(ally_state == 0) / ally_state.shape[0]  # all enemy died / win
-                self.ally_survive_queue.put(ally_survive_this_episode)
-
-                episode.custom_metrics["ally_survive_rate"] = sum(
-                    self.ally_survive_queue.queue) / self.ally_survive_queue.qsize()
-
-                # count enemy killing rate in recent 100 games
-                if self.enemy_killing_queue.full():
-                    self.enemy_killing_queue.get()  # pop FIFO
-
-                enemy_killing_this_episode = sum(enemy_state == 1) / enemy_state.shape[0]  # all enemy died / win
-                self.enemy_killing_queue.put(enemy_killing_this_episode)
-
-                episode.custom_metrics["enemy_kill_rate"] = sum(
-                    self.enemy_killing_queue.queue) / self.enemy_killing_queue.qsize()
+                stats = get_smac_stats(
+                    death_tracker_ally=env.death_tracker_ally,
+                    death_tracker_enemy=env.death_tracker_enemy,
+                    battle_win_queue=self.battle_win_queue,
+                    ally_survive_queue=self.ally_survive_queue,
+                    enemy_killing_queue=self.enemy_killing_queue,
+                )
+                episode.custom_metrics.update(stats)
 
 
 class ObservationCommWrapper(ObservationFunction):
@@ -125,3 +101,44 @@ class ObservationCommWrapper(ObservationFunction):
                         all_n_obs.append(message)
                 policy.neighbour_messages = all_n_obs
         return agent_obs
+
+
+def get_smac_stats(*,
+        death_tracker_ally,
+        death_tracker_enemy,
+        battle_win_queue,
+        ally_survive_queue,
+        enemy_killing_queue) -> dict:
+    # SMAC metrics (from https://github.com/Replicable-MARL/MARLlib/blob/mq_dev/SMAC/metric/smac_callback.py)
+    smac_stats = {}
+    ally_state = death_tracker_ally
+    enemy_state = death_tracker_enemy
+
+    # count battle win rate in recent 100 games
+    if battle_win_queue.full():
+        battle_win_queue.get()  # pop FIFO
+
+    # compute win rate
+    battle_win_this_episode = int(all(enemy_state == 1))  # all enemy died / win
+    battle_win_queue.put(battle_win_this_episode)
+    smac_stats["battle_win_rate"] = sum(battle_win_queue.queue) / battle_win_queue.qsize()
+
+    # count ally survive in recent 100 games
+    if ally_survive_queue.full():
+        ally_survive_queue.get()  # pop FIFO
+
+    # compute ally survive rate
+    ally_survive_this_episode = sum(ally_state == 0) / ally_state.shape[0]  # all enemy died / win
+    ally_survive_queue.put(ally_survive_this_episode)
+    smac_stats["ally_survive_rate"] = sum(ally_survive_queue.queue) / ally_survive_queue.qsize()
+
+    # count enemy killing rate in recent 100 games
+    if enemy_killing_queue.full():
+        enemy_killing_queue.get()  # pop FIFO
+
+    # compute enemy kill rate
+    enemy_killing_this_episode = sum(enemy_state == 1) / enemy_state.shape[0]  # all enemy died / win
+    enemy_killing_queue.put(enemy_killing_this_episode)
+    smac_stats["enemy_kill_rate"] = sum(enemy_killing_queue.queue) / enemy_killing_queue.qsize()
+
+    return smac_stats

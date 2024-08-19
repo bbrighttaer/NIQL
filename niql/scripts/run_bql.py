@@ -14,7 +14,7 @@ from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from ray.tune import CLIReporter
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import BQLTrainer, BQLPolicy
+from niql.algo import BQLTrainer, BQLPolicy, WBQLPolicy
 from niql.callbacks import ObservationCommWrapper
 from niql.envs import DEBUG_ENVS
 from niql.utils import add_evaluation_config
@@ -132,9 +132,9 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
         name=algorithm.upper(),
         default_config=BQL_Config,
     )
-    if algorithm.lower() in ["bql"]:
+    if algorithm.lower() in ["wbql"]:
         trainer = trainer.with_updates(
-            get_policy_class=lambda c: BQLPolicy,
+            get_policy_class=lambda c: WBQLPolicy,
         )
 
     map_name = exp["env_args"]["map_name"]

@@ -20,7 +20,7 @@ from niql.torch_kde import TorchKernelDensity
 
 # -----------------------------------------------------------------------------------------------
 # Adapted from Adapted from https://github.com/Morphlng/MARLlib/blob/main/examples/eval.py
-class dotdict(dict):
+class DotDic(dict):
     """dot.notation access to dictionary attributes"""
 
     __getattr__ = dict.get

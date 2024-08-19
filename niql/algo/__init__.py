@@ -16,7 +16,7 @@ IQLTrainer = build_trainer(
 
 BQLTrainer = build_trainer(
     name="BQLTrainer",
-    get_policy_class=lambda c: WBQLPolicy,
+    get_policy_class=lambda c: BQLPolicy,
     default_config=DEFAULT_CONFIG,
     execution_plan=episode_execution_plan,
 )

@@ -15,7 +15,7 @@ DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
 
 
 def get_active_env(**kwargs):
-    return make_predator_prey_env(**kwargs)
+    return make_smac_env(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
@@ -95,9 +95,7 @@ def make_ma_gym_env(env_name, **kwargs):
 def make_smac_env(**kwargs):
     env = marl.make_env(
         environment_name="smac",
-        map_name=kwargs.get("map_name", "3m"),
-        difficulty=kwargs.get("difficulty", "7"),
-        reward_scale_rate=kwargs.get("reward_scale_rate", 20),
+        map_name=kwargs.get("map_name", "2c_vs_64zg"),
     )
     return env, SMAC
 
