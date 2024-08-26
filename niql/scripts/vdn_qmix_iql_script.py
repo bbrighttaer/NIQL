@@ -32,7 +32,7 @@ from ray.tune import CLIReporter
 from ray.tune.analysis import ExperimentAnalysis
 from ray.tune.utils import merge_dicts
 
-from niql.algo import JointQPolicy
+from niql.algo import JointQPolicy, IQLPolicy
 from niql.algo.iqlps_vdn_qmix import JointQTrainer
 from niql.execution_plans import episode_execution_plan
 from niql.utils import add_evaluation_config
@@ -43,6 +43,7 @@ def get_policy_class(algorithm, config_):
         "qmix": JointQPolicy,
         "vdn": JointQPolicy,
         "iqlps": JointQPolicy,
+        "iql": IQLPolicy,
     }.get(algorithm)
 
 
@@ -100,7 +101,7 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
     JointQ_Config.update(
         {
             "rollout_fragment_length": 1,
-            "buffer_size": _param["buffer_size"],  # buffer_size * episode_limit,  # in timesteps
+            "buffer_size": buffer_size,  # buffer_size * episode_limit,  # in timesteps
             "train_batch_size": train_batch_episode,  # in sequence
             "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps
             "learning_starts": episode_limit * train_batch_episode,
@@ -112,6 +113,8 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
                 "final_epsilon": final_epsilon,
                 "epsilon_timesteps": epsilon_timesteps,
             },
+            "alpha": _param.get("alpha", 0.),
+            "beta": _param.get("beta", 0.),
             "mixer": mixer_dict.get(algorithm)
         })
 

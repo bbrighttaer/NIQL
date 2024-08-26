@@ -5,7 +5,7 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import tree
-from ray.rllib.agents.qmix.qmix_policy import _drop_agent_dim
+from ray.rllib.agents.qmix.qmix_policy import _drop_agent_dim, _mac
 from ray.rllib.execution.replay_buffer import *
 from ray.rllib.models.modelv2 import _unpack_obs
 from ray.rllib.models.preprocessors import get_preprocessor
@@ -410,6 +410,21 @@ def pairwise_l2_distance(tensor):
 #             map(laplace, np.arange(-half_ks, half_ks + 1)))
 #
 #     return kernel_window
+
+def _iql_unroll_mac(model, obs_tensor):
+    """Computes the estimated Q values for an entire trajectory batch"""
+    B = obs_tensor.size(0)
+    T = obs_tensor.size(1)
+    n_agents = obs_tensor.size(2)
+
+    mac_out = []
+    h = [s[0].view(1, -1).expand([B, n_agents, -1]) for s in model.get_initial_state()]
+    for t in range(T):
+        q, h = _mac(model, obs_tensor[:, t], h)
+        mac_out.append(q)
+    mac_out = torch.stack(mac_out, dim=1)  # Concat over time
+
+    return mac_out
 
 
 def mac(model, obs, h, **kwargs):

@@ -6,8 +6,9 @@ default_config = {
             "batch_episode": 32,
             "lr": 0.0001,
             "lr_schedule": [
-                [0, 0.001],
-                [200000, 0.00001]
+                [0, 0.0005],
+                [200000, 0.0001],
+                [400000, 0.00001]
             ],
             "tdw_schedule": [
                 [0, 1.0],
@@ -26,7 +27,8 @@ default_config = {
             "gamma": 0.99,
             "lambda": 0.6,
             "tau": 0.5,  # target network soft update
-            "beta": 0,
+            "beta": 0.4,
+            "alpha": 0.9,
             "callbacks": NIQLCallbacks,
             "sharing_batch_size": 10,
             "similarity_threshold": 0.999,
