@@ -3,23 +3,22 @@ from marllib import marl
 from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 
-from .switch_riddle import SwitchRiddle
-from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
-from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
 from .ma_gym_env import MAGymEnv
 from .mpe_simple import MPESimple
 from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
-from .predator_prey import PredatorPrey
+from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
+from .switch_riddle import SwitchRiddle
+from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
 from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
 from .utils import make_local_env
-from ..config.switch_game_conf import SWITCH_RIDDLE
 from ..config import SMAC, MPE, MATRIX_GAME, ma_gym_env_conf
+from ..config.switch_game_conf import SWITCH_RIDDLE
 
 DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
 
 
 def get_active_env(**kwargs):
-    return make_predator_prey_env(**kwargs)
+    return make_switch_env(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
@@ -103,7 +102,7 @@ def make_ma_gym_env(env_name, **kwargs):
         force_coop=True,
         **kwargs,
     )
-    config = ma_gym_env_conf.REGISTRY.get(env_name, ma_gym_env_conf.default_config)
+    config = ma_gym_env_conf.REGISTRY.get(env_name.lower(), ma_gym_env_conf.default_config)
     return env, config
 
 
@@ -185,4 +184,3 @@ def make_switch_riddle_env(**kwargs):
         **kwargs,
     )
     return env, SWITCH_RIDDLE
-

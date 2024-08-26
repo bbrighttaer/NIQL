@@ -5,7 +5,7 @@ from ray.rllib import MultiAgentEnv
 from gym.spaces import Dict as GymDict, Box
 from ray.rllib.utils.typing import MultiAgentDict
 
-from niql.config import FINGERPRINT_SIZE
+FINGERPRINT_SIZE = 2
 
 
 def create_fingerprint_env_wrapper_class(parent_env_class: type) -> type:

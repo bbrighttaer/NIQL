@@ -42,10 +42,6 @@ MATRIX_GAME = {
         'encode_layer': '64',  # for RNN model
         'hidden_state_size': 64,  # for RNN model
         'fcnet_activation': 'relu',
-        # 'model': 'DuelingQFCN',
-        # 'model': 'DRQNModel',
-        'model': 'MatrixGameQMLP',
-        # 'model': 'MatrixGameSplitQMLP',
         'tdw_vae': {
             'latent_dim': 16,
             'hdims': [32],

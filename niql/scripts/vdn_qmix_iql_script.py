@@ -1,5 +1,5 @@
 # MIT License
-
+from functools import partial
 # Copyright (c) 2023 Replicable-MARL
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,11 +19,9 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-# Adapted from Marllib
 
 from typing import Any, Dict
 
-from marllib.marl.algos.core.VD.iql_vdn_qmix import JointQTrainer
 from marllib.marl.algos.scripts.coma import restore_model
 from marllib.marl.algos.utils.log_dir_util import available_local_dir
 from marllib.marl.algos.utils.setup_utils import AlgVar
@@ -34,8 +32,18 @@ from ray.tune import CLIReporter
 from ray.tune.analysis import ExperimentAnalysis
 from ray.tune.utils import merge_dicts
 
-from niql.algo.vdn_qmix import JointQPolicy
+from niql.algo import JointQPolicy
+from niql.algo.iqlps_vdn_qmix import JointQTrainer
+from niql.execution_plans import episode_execution_plan
 from niql.utils import add_evaluation_config
+
+
+def get_policy_class(algorithm, config_):
+    return {
+        "qmix": JointQPolicy,
+        "vdn": JointQPolicy,
+        "iqlps": JointQPolicy,
+    }.get(algorithm)
 
 
 def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
@@ -55,8 +63,8 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
         TuneError: Any trials failed and `raise_on_failed_trial` is True.
     """
 
-    model_name = "Joint_Q_Model"
-    ModelCatalog.register_custom_model(model_name, model)
+    ModelCatalog.register_custom_model(
+        "Joint_Q_Model", model)
 
     _param = AlgVar(exp)
 
@@ -76,14 +84,12 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
     mixer_dict = {
         "qmix": "qmix",
         "vdn": "vdn",
-        "iql": None
     }
 
     config = {
         "model": {
             "max_seq_len": episode_limit,  # dynamic
             "custom_model_config": back_up_config,
-            "custom_model": model_name,
             "fcnet_activation": back_up_config["model_arch_args"]["fcnet_activation"],
             "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
         },
@@ -94,48 +100,44 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
     JointQ_Config.update(
         {
             "rollout_fragment_length": 1,
-            "buffer_size": buffer_size * episode_limit,  # in timesteps
+            "buffer_size": _param["buffer_size"],  # buffer_size * episode_limit,  # in timesteps
             "train_batch_size": train_batch_episode,  # in sequence
             "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps
             "learning_starts": episode_limit * train_batch_episode,
             "lr": lr if restore is None else 1e-10,
+            "lr_schedule": _param.get("lr_schedule"),
             "exploration_config": {
                 "type": "EpsilonGreedy",
                 "initial_epsilon": 1.0,
                 "final_epsilon": final_epsilon,
                 "epsilon_timesteps": epsilon_timesteps,
             },
-            "mixer": mixer_dict[algorithm]
+            "mixer": mixer_dict.get(algorithm)
         })
 
-    JointQ_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
+    JointQ_Config["reward_standardize"] = False # reward_standardize  # this may affect the final performance if you turn it on
     JointQ_Config["optimizer"] = optimizer
     JointQ_Config["training_intensity"] = None
-    JointQ_Config["gamma"] = _param.get("gamma", JointQ_Config["gamma"])
-    JointQ_Config["callbacks"] = _param.get("callbacks", JointQ_Config["callbacks"])
+    # JointQ_Config["rollout_fragment_length"] = _param["rollout_fragment_length"]
+    # JointQ_Config["batch_mode"] = "truncate_episodes"
 
     JQTrainer = JointQTrainer.with_updates(
         name=algorithm.upper(),
-        default_policy=JointQPolicy,
-        default_config=JointQ_Config
+        default_config=JointQ_Config,
+        default_policy=None,
+        get_policy_class=partial(get_policy_class, algorithm),
     )
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
-    if exp['model_arch_args'].get('model') == 'MatrixGameSplitQMLP':
-        param_sharing = 'ns'
-    else:
-        param_sharing = ''
-    if algorithm == 'iql':
-        algorithm += '_ps'
-    running_name = '_'.join([algorithm, arch, map_name] + ([param_sharing] if param_sharing else []))
+    RUNNING_NAME = '_'.join([algorithm, arch, map_name])
     model_path = restore_model(restore, exp)
 
     # Periodic evaluation of trained policy
     config = add_evaluation_config(config)
 
     results = tune.run(JQTrainer,
-                       name=running_name,
+                       name=RUNNING_NAME,
                        checkpoint_at_end=exp['checkpoint_end'],
                        checkpoint_freq=exp['checkpoint_freq'],
                        restore=model_path,

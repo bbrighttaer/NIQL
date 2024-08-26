@@ -5,22 +5,17 @@ from ray.rllib.agents.callbacks import DefaultCallbacks
 from ray.rllib.env import BaseEnv
 from ray.rllib.evaluation import MultiAgentEpisode
 from ray.rllib.evaluation import RolloutWorker
-from ray.rllib.evaluation.observation_function import ObservationFunction
 from ray.rllib.policy import Policy
-from ray.rllib.utils.typing import AgentID, PolicyID
-from ray.rllib.utils.typing import TensorType
+from ray.rllib.utils.typing import PolicyID
 
 if TYPE_CHECKING:
     from ray.rllib.evaluation import RolloutWorker
-
-from niql.comm import InterAgentComm
 
 
 class NIQLCallbacks(DefaultCallbacks):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.agent_comm = InterAgentComm()
         self.battle_win_queue = Queue(maxsize=100)
         self.ally_survive_queue = Queue(maxsize=100)
         self.enemy_killing_queue = Queue(maxsize=100)
@@ -102,31 +97,3 @@ class NIQLCallbacks(DefaultCallbacks):
 
                 episode.custom_metrics["enemy_kill_rate"] = sum(
                     self.enemy_killing_queue.queue) / self.enemy_killing_queue.qsize()
-
-
-class ObservationCommWrapper(ObservationFunction):
-    """
-    Facilitates inter agent communication in each time step.
-    """
-
-    def __init__(self, policy_mapping_fn):
-        self.policy_mapping_fn = policy_mapping_fn
-
-    def __call__(self, agent_obs: Dict[AgentID, TensorType],
-                 worker: RolloutWorker, base_env: BaseEnv,
-                 policies: Dict[PolicyID, Policy], episode: MultiAgentEpisode,
-                 **kw) -> Dict[AgentID, TensorType]:
-        # publish observation to other agents
-        for agent_id, obs in agent_obs.items():
-            policy_id = self.policy_mapping_fn(agent_id)
-            policy = policies[policy_id]
-            if hasattr(policy, "neighbour_messages") and policy.use_comm:
-                all_n_obs = []
-                for n_id, n_obs in agent_obs.items():
-                    if n_id != agent_id:
-                        n_policy_id = self.policy_mapping_fn(n_id)
-                        n_policy = policies[n_policy_id]
-                        message = n_policy.get_message(n_obs["obs"])
-                        all_n_obs.append(message)
-                policy.neighbour_messages = all_n_obs
-        return agent_obs

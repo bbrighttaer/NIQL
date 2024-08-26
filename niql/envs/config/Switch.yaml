@@ -1,9 +1,8 @@
 env: Switch
 
 env_args:
-  gym_id: "Switch2-v0"
+  gym_id: "Switch2-v1"
   map_name: "all_scenario"
-  full_observable: False
 
 mask_flag: False
 global_state_flag: False

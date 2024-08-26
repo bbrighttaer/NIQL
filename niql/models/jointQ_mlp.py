@@ -19,25 +19,21 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-"""
-From marllib
-"""
 
 from ray.rllib.models.modelv2 import ModelV2
-from ray.rllib.models.torch.misc import SlimFC, normc_initializer
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
+from ray.rllib.models.utils import get_activation_fn
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
-
-from niql.models.comm_net import SimpleCommNet
-from niql.models.base_encoder import BaseEncoder
-from niql.models.base_torch_model import BaseTorchModel
+from ray.rllib.models.preprocessors import get_preprocessor
+from ray.rllib.models.torch.misc import SlimFC, SlimConv2d, normc_initializer
+from marllib.marl.models.zoo.encoder.base_encoder import BaseEncoder
 
 torch, nn = try_import_torch()
 
 
-class JointQRNN(BaseTorchModel):
-    """The default GRU model for Joint Q."""
+class JointQMLP(TorchModelV2, nn.Module):
+    """sneaky gru-like mlp"""
 
     def __init__(self, obs_space, action_space, num_outputs, model_config,
                  name):
@@ -45,36 +41,23 @@ class JointQRNN(BaseTorchModel):
                               model_config, name)
         nn.Module.__init__(self)
         self.custom_config = model_config["custom_model_config"]
+        # decide the model arch
         self.full_obs_space = getattr(obs_space, "original_space", obs_space)
         self.n_agents = self.custom_config["num_agents"]
 
-        # only support gru cell
-        model_arch_args = self.custom_config["model_arch_args"]
-        if model_arch_args["core_arch"] != "gru":
-            raise ValueError(
-                "core arch should be gru, got {}".format(model_arch_args["core_arch"]))
+        # currently only support gru cell
+        if self.custom_config["model_arch_args"]["core_arch"] != "mlp":
+            raise ValueError("core_arch can only be MLP")
 
         self.activation = model_config.get("fcnet_activation")
+        self.activation_fn = get_activation_fn(self.activation, "torch")()
 
         # encoder
         self.encoder = BaseEncoder(model_config, {'obs': self.full_obs_space})
-        self.hidden_state_size = model_arch_args["hidden_state_size"]
-        self.rnn = nn.GRUCell(self.encoder.output_dim, self.hidden_state_size)
-        self.comm_dim = model_config.get("comm_dim", 0)
-
-        # communication net
-        # if self.comm_dim > 0:
-        #     self.c_net = SimpleCommNet(
-        #         self.hidden_state_size,
-        #         self.comm_dim,
-        #         discrete=False,
-        #         fp_size=model_config["fp_size"],
-        #         agent_index=model_config["agent_index"],
-        #     )
-
-        # q-values head
+        self.hidden_state_size = self.custom_config["model_arch_args"]["hidden_state_size"]
+        self.mlp = nn.Linear(self.encoder.output_dim, self.hidden_state_size)
         self.q_value = SlimFC(
-            in_size=self.hidden_state_size,# + self.comm_dim,
+            in_size=self.hidden_state_size,
             out_size=num_outputs,
             initializer=normc_initializer(0.01),
             activation_fn=None)
@@ -89,27 +72,22 @@ class JointQRNN(BaseTorchModel):
     @override(ModelV2)
     def get_initial_state(self):
         # Place hidden states on same device as model.
-        hidden_state = [
+        return [
             self.q_value._model._modules["0"].weight.new(self.n_agents,
                                                          self.hidden_state_size).zero_().squeeze(0)
         ]
-        return hidden_state
 
     @override(ModelV2)
-    def forward(self, input_dict, hidden_state, seq_lens, **kwargs):
+    def forward(self, input_dict, hidden_state, seq_lens):
         inputs = input_dict["obs_flat"].float()
         if len(self.full_obs_space.shape) == 3:  # 3D
             inputs = inputs.reshape((-1,) + self.full_obs_space.shape)
         x = self.encoder(inputs)
-        h_in = hidden_state[0].reshape(-1, self.hidden_state_size)
-        h = self.rnn(x, h_in)
+        h = hidden_state[0].reshape(-1, self.hidden_state_size)  # fake a hidden state no use
+        x = self.activation_fn(self.mlp(x))
+        q = self.q_value(x)
+        return q, [h]
 
-        if self.comm_dim > 0:
-            msg = self.c_net(h)
-            q_in = torch.cat([h, msg], dim=-1)
-            q = self.q_value(q_in)
-            state = [h, torch.tanh(msg)]
-            return q, state
-        else:
-            q = self.q_value(h)
-            return q, [h]
+
+def _get_size(obs_space):
+    return get_preprocessor(obs_space)(obs_space).size

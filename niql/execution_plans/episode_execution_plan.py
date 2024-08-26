@@ -33,6 +33,7 @@ from ray.util.iter import LocalIterator
 from torch.utils.tensorboard import SummaryWriter
 
 from niql.replay_buffers import EpisodeBasedReplayBuffer
+from niql.replay_buffers.cert_episode_buffer import CERTEpisodeBasedReplayBuffer
 from niql.utils import get_priority_update_func
 
 
@@ -50,7 +51,7 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
         LocalIterator[dict]: A local iterator over training metrics.
     """
     summary_writer = SummaryWriter()
-    local_replay_buffer = EpisodeBasedReplayBuffer(
+    local_replay_buffer = CERTEpisodeBasedReplayBuffer(
         learning_starts=config["learning_starts"],
         capacity=config["buffer_size"],
         replay_batch_size=config["train_batch_size"],
@@ -81,14 +82,15 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     policy_map = workers.local_worker().policy_map
 
     replay_op = Replay(local_buffer=local_replay_buffer) \
-        .for_each(lambda x: post_fn(x, workers, config,
-                                    policy_map=policy_map,
-                                    summary_writer=summary_writer,
-                                    replay_buffer=local_replay_buffer,
-                                    )) \
+        .for_each(lambda x: post_fn(x, workers, config)) \
         .for_each(train_step_op) \
-        .for_each(get_priority_update_func(local_replay_buffer, config)) \
         .for_each(UpdateTargetNetwork(workers, config.get("target_network_update_freq", 200)))
+
+    # replay_op = Replay(local_buffer=local_replay_buffer) \
+    #     .for_each(lambda x: post_fn(x, workers, config)) \
+    #     .for_each(train_step_op) \
+    #     .for_each(get_priority_update_func(local_replay_buffer, config)) \
+    #     .for_each(UpdateTargetNetwork(workers, config.get("target_network_update_freq", 200)))
 
     # replay_op = Replay(local_buffer=local_replay_buffer) \
     #     .for_each(lambda x: post_fn(x, workers, config,

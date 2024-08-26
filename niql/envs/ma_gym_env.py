@@ -31,7 +31,10 @@ class MAGymEnv(MultiAgentEnv):
         self.action_space = self.env.action_space[0]
         observation_space = self.env.observation_space[0]
         self._dtype = observation_space.dtype
-        self.observation_space = GymDict({"obs": observation_space})
+        self.observation_space = GymDict({
+            "obs": observation_space,
+            "terminal": Box(low=0., high=1., shape=(1,))
+        })
         self.agents = [f'agent_{i}' for i in range(self.env.n_agents)]
         self.num_agents = self.env.n_agents
         env_config["map_name"] = map_name
@@ -41,25 +44,31 @@ class MAGymEnv(MultiAgentEnv):
         raw_obs = self.env.reset()
         obs = {}
         for agent, r_obs in zip(self.agents, raw_obs):
-            obs[agent] = {'obs': np.array(r_obs, dtype=self._dtype)}
+            obs[agent] = {
+                "obs": np.array(r_obs, dtype=self._dtype),
+                "terminal": np.array([0.], dtype=self._dtype)
+            }
         return obs
 
     def step(self, action_dict):
         raw_obs, raw_rew, raw_done, raw_info = self.env.step(action_dict.values())
         obs = {}
         rew = {}
-        done = {'__all__': bool(sum(raw_done))}
+        done = {"__all__": all(raw_done)}
         info = {}
 
         for agent, r_obs, r_rew, r_done in zip(self.agents, raw_obs, raw_rew, raw_done):
-            obs[agent] = {'obs': np.array(r_obs, dtype=self._dtype)}
+            obs[agent] = {
+                "obs": np.array(r_obs, dtype=self._dtype),
+                "terminal": np.array([r_done], dtype=self._dtype)
+            }
             rew[agent] = r_rew
             done[agent] = r_done
             info[agent] = dict(raw_info)
 
         return obs, rew, done, info
 
-    def render(self, mode='human'):
+    def render(self, mode="human"):
         return self.env.render(mode)
 
     def get_env_info(self):
