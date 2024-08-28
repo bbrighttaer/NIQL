@@ -103,16 +103,16 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
             "rollout_fragment_length": 1,
             "buffer_size": buffer_size,  # buffer_size * episode_limit,  # in timesteps
             "train_batch_size": train_batch_episode,  # in sequence
-            "target_network_update_freq": episode_limit * target_network_update_frequency,  # in timesteps
+            "target_network_update_freq": target_network_update_frequency,  # in timesteps
             "learning_starts": episode_limit * train_batch_episode,
             "lr": lr if restore is None else 1e-10,
-            "lr_schedule": _param.get("lr_schedule"),
             "exploration_config": {
                 "type": "EpsilonGreedy",
                 "initial_epsilon": 1.0,
                 "final_epsilon": final_epsilon,
                 "epsilon_timesteps": epsilon_timesteps,
             },
+            "tau": _param["tau"],
             "hiql_alpha": _param.get("hiql_alpha", 0.),
             "hiql_beta": _param.get("hiql_beta", 0.),
             "bql_lambda": _param.get("bql_lambda", 0.5),

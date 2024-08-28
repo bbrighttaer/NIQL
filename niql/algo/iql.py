@@ -37,7 +37,7 @@ from ray.rllib.policy.torch_policy import LearningRateSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac
+from niql.utils import _iql_unroll_mac, soft_update
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -436,7 +436,8 @@ class IQLPolicy(LearningRateSchedule, Policy):
         self.set_epsilon(state["cur_epsilon"])
 
     def update_target(self):
-        self.target_models.load_state_dict(self.models.state_dict())
+        # self.target_models.load_state_dict(self.models.state_dict())
+        soft_update(self.target_models, self.models, self.config["tau"])
         logger.debug("Updated target networks")
 
     def set_epsilon(self, epsilon):

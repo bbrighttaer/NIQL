@@ -64,5 +64,5 @@ if __name__ == "__main__":
         num_gpus=gpu_count,
         num_workers=1,
         share_policy="all",
-        checkpoint_freq=1000,
+        checkpoint_freq=10000,
     )

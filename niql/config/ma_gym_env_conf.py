@@ -5,11 +5,6 @@ default_config = {
         "algo_args": {
             "batch_episode": 32,
             "lr": 0.0005,
-            "lr_schedule": [
-                [0, 0.0005],
-                [200000, 0.0005],
-                # [400000, 0.00001]
-            ],
             "tdw_schedule": [
                 [0, 1.0],
                 [50000, 1.0],
@@ -19,14 +14,14 @@ default_config = {
             "rollout_fragment_length": 1,
             "buffer_size": 50000,
             "enable_stochastic_eviction": True,
-            "target_network_update_freq": 10,
+            "target_network_update_freq": 1,
             "final_epsilon": 0.05,
             "epsilon_timesteps": 50000,
             "optimizer": "adam",
             "reward_standardize": False,
             "gamma": 0.99,
             "bql_lambda": 0.6,
-            "tau": 0.5,  # target network soft update
+            "tau": 0.01,  # target network soft update
             "hiql_alpha": 0.9,
             "hiql_beta": 0.4,
             "callbacks": NIQLCallbacks,
