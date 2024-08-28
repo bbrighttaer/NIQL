@@ -31,6 +31,8 @@ from marllib.envs.global_reward_env import COOP_ENV_REGISTRY as ENV_REGISTRY
 from marllib.marl.common import recursive_dict_update, dict_update
 from marllib.marl.algos.run_cc import restore_config_update
 
+from niql.algo import ALGORITHMS
+
 tf1, tf, tfv = try_import_tf()
 torch, nn = try_import_torch()
 
@@ -86,7 +88,7 @@ def run_vd(exp_info, env, model, stop=None):
     else:
         policy_mapping_info = policy_mapping_info[map_name]
 
-    if exp_info["algorithm"] in ["qmix", "vdn", "iqlps", "iql"]:
+    if exp_info["algorithm"] in ALGORITHMS:
         space_obs = env_info["space_obs"].spaces
         space_act = env_info["space_act"]
         # check the action space condition:

@@ -32,10 +32,9 @@ from ray.tune import CLIReporter
 from ray.tune.analysis import ExperimentAnalysis
 from ray.tune.utils import merge_dicts
 
-from niql.algo import JointQPolicy, IQLPolicy
+from niql.algo import JointQPolicy, IQLPolicy, HIQLPolicy, BQLPolicy
 from niql.algo.iqlps_vdn_qmix import JointQTrainer
-from niql.execution_plans import episode_execution_plan
-from niql.utils import add_evaluation_config
+from niql.execution_plans import episode_execution_plan  # noqa
 
 
 def get_policy_class(algorithm, config_):
@@ -44,6 +43,8 @@ def get_policy_class(algorithm, config_):
         "vdn": JointQPolicy,
         "iqlps": JointQPolicy,
         "iql": IQLPolicy,
+        "hiql": HIQLPolicy,
+        "bql": BQLPolicy,
     }.get(algorithm)
 
 
@@ -91,9 +92,8 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
         "model": {
             "max_seq_len": episode_limit,  # dynamic
             "custom_model_config": back_up_config,
-            "fcnet_activation": back_up_config["model_arch_args"]["fcnet_activation"],
             "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
-        },
+        }
     }
 
     config.update(run)
@@ -113,8 +113,9 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
                 "final_epsilon": final_epsilon,
                 "epsilon_timesteps": epsilon_timesteps,
             },
-            "alpha": _param.get("alpha", 0.),
-            "beta": _param.get("beta", 0.),
+            "hiql_alpha": _param.get("hiql_alpha", 0.),
+            "hiql_beta": _param.get("hiql_beta", 0.),
+            "bql_lambda": _param.get("bql_lambda", 0.5),
             "mixer": mixer_dict.get(algorithm)
         })
 
@@ -131,13 +132,18 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
         get_policy_class=partial(get_policy_class, algorithm),
     )
 
+    # add evaluation config
+    config.update({
+        "evaluation_interval": 10,  # x timesteps_per_iteration (default is 1000)
+        "evaluation_num_episodes": 10,
+        "evaluation_num_workers": 1,
+        "evaluation_parallel_to_training": True
+    })
+
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
     RUNNING_NAME = '_'.join([algorithm, arch, map_name])
     model_path = restore_model(restore, exp)
-
-    # Periodic evaluation of trained policy
-    config = add_evaluation_config(config)
 
     results = tune.run(JQTrainer,
                        name=RUNNING_NAME,

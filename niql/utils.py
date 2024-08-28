@@ -665,15 +665,15 @@ def batch_message_inter_agent_sharing(sample_batch, other_agent_batches):
     return sample_batch
 
 
-def add_evaluation_config(config: dict) -> dict:
-    config = dict(config)
-    config.update({
-        "evaluation_interval": 1,
-        "evaluation_num_episodes": 10,
-        "evaluation_num_workers": 1,
-        # "evaluation_unit": "timesteps", # not supported in ray 1.8.0
-    })
-    return config
+# def add_evaluation_config(config: dict) -> dict:
+#     config = dict(config)
+#     config.update({
+#         "evaluation_interval": 10,
+#         "evaluation_num_episodes": 10,
+#         "evaluation_num_workers": 1,
+#         # "evaluation_unit": "timesteps", # not supported in ray 1.8.0
+#     })
+#     return config
 
 
 def gaussian_density(z, mu, logvar):

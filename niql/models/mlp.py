@@ -20,18 +20,15 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import torch.nn as nn
 from ray.rllib.models.modelv2 import ModelV2
+from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
-from ray.rllib.models.torch.misc import SlimFC, normc_initializer
 from ray.rllib.utils.annotations import override
-from ray.rllib.utils.framework import try_import_torch, get_activation_fn
-from marllib.marl.models.zoo.encoder.base_encoder import BaseEncoder
-
-torch, nn = try_import_torch()
 
 
-class JointQRNN(TorchModelV2, nn.Module):
-    """The default GRU model for Joint Q."""
+class JointQMLP(TorchModelV2, nn.Module):
+    """sneaky gru-like mlp"""
 
     def __init__(self, obs_space, action_space, num_outputs, model_config,
                  name):
@@ -39,50 +36,42 @@ class JointQRNN(TorchModelV2, nn.Module):
                               model_config, name)
         nn.Module.__init__(self)
         self.custom_config = model_config["custom_model_config"]
+        # decide the model arch
         self.full_obs_space = getattr(obs_space, "original_space", obs_space)
         self.n_agents = self.custom_config["num_agents"]
 
-        # only support gru cell
-        if self.custom_config["model_arch_args"]["core_arch"] != "gru":
-            raise ValueError(
-                "core arch should be gru, got {}".format(self.custom_config["model_arch_args"]["core_arch"]))
+        # currently only support gru cell
+        if self.custom_config["model_arch_args"]["core_arch"] != "mlp":
+            raise ValueError("core_arch can only be MLP")
 
-        self.activation = model_config.get("fcnet_activation")
-        self.activation_fn = get_activation_fn(self.activation, "torch")()
+        # layers
+        input_dim = self.full_obs_space.shape[0]
+        hidden_layer_dims = self.custom_config["model_arch_args"]["hidden_layer_dims"]
+        layers = []
+        for hdim in hidden_layer_dims:
+            layers.extend([
+                nn.Linear(input_dim, hdim),
+                nn.ReLU()
+            ])
+            input_dim = hdim
+        layers.append(nn.Linear(input_dim, num_outputs))
 
-        # encoder
-        self.encoder = BaseEncoder(model_config, {'obs': self.full_obs_space})
-        self.hidden_state_size = self.custom_config["model_arch_args"]["hidden_state_size"]
-        self.rnn = nn.GRUCell(self.encoder.output_dim, self.hidden_state_size)
-        self.q_value = SlimFC(
-            in_size=self.hidden_state_size,
-            out_size=num_outputs,
-            initializer=normc_initializer(0.01),
-            activation_fn=None)
-
-        # record the custom config
-        if self.custom_config["global_state_flag"]:
-            state_dim = self.custom_config["space_obs"]["state"].shape
-        else:
-            state_dim = self.custom_config["space_obs"]["obs"].shape
-        self.raw_state_dim = state_dim
+        # create model
+        self._model = nn.Sequential(*layers)
 
     @override(ModelV2)
     def get_initial_state(self):
         # Place hidden states on same device as model.
-        hidden_state = [
-            self.q_value._model._modules["0"].weight.new(self.n_agents,
-                                                         self.hidden_state_size).zero_().squeeze(0)
-        ]
-        return hidden_state
+        return []
 
     @override(ModelV2)
     def forward(self, input_dict, hidden_state, seq_lens):
         inputs = input_dict["obs_flat"].float()
         if len(self.full_obs_space.shape) == 3:  # 3D
             inputs = inputs.reshape((-1,) + self.full_obs_space.shape)
-        x = self.encoder(inputs)
-        h_in = hidden_state[0].reshape(-1, self.hidden_state_size)
-        h = self.rnn(x, h_in)
-        q = self.q_value(h)
-        return q, [h]
+        q = self._model(inputs)
+        return q, hidden_state
+
+
+def _get_size(obs_space):
+    return get_preprocessor(obs_space)(obs_space).size

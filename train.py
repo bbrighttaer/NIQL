@@ -8,6 +8,7 @@ import torch
 from marllib.marl import build_model
 
 from niql import seed, algos, scripts, envs
+from niql.algo import ALGORITHMS
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ torch.manual_seed(seed)
 
 def register_algorithms():
     # register execution script
-    for a in ["iqlps", "vdn", "qmix", "iql"]:
+    for a in ALGORITHMS:
         algos.register_algo(
             algo_name=a,
             style="vd",
@@ -33,7 +34,7 @@ if __name__ == "__main__":
         "-a", "--algo",
         type=str,
         default="vdn",
-        choices=["vdn", "qmix", "iqlps", "iql"],
+        choices=ALGORITHMS,
         help="Select which CTDE algorithm to run.",
     )
 
@@ -59,7 +60,7 @@ if __name__ == "__main__":
         env,
         model,
         stop=exp_config["stop_condition"],
-        local_mode=gpu_count == 0,
+        local_mode=True,
         num_gpus=gpu_count,
         num_workers=1,
         share_policy="all",
