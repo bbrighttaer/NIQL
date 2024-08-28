@@ -4,7 +4,7 @@ import numpy as np
 import gym
 import ma_gym  # noqa
 from gym.spaces import Dict as GymDict, Box
-from ray.rllib import MultiAgentEnv
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 from niql import seed
 

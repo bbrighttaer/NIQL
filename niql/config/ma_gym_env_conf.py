@@ -15,13 +15,13 @@ default_config = {
             "buffer_size": 50000,
             "enable_stochastic_eviction": True,
             "target_network_update_freq": 1,
+            "tau": 0.05,  # target network soft update
             "final_epsilon": 0.05,
             "epsilon_timesteps": 50000,
             "optimizer": "adam",
             "reward_standardize": False,
             "gamma": 0.99,
             "bql_lambda": 0.6,
-            "tau": 0.01,  # target network soft update
             "hiql_alpha": 0.9,
             "hiql_beta": 0.4,
             "callbacks": NIQLCallbacks,

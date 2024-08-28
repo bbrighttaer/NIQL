@@ -1,4 +1,3 @@
-import random  # noqa
 from .runners import algos
 
 seed = 118359435

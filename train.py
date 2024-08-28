@@ -1,21 +1,16 @@
 import logging
 import os
-import random
 from argparse import ArgumentParser
 
-import numpy as np
 import torch
 from marllib.marl import build_model
 
-from niql import seed, algos, scripts, envs
+from niql import algos, scripts, envs
 from niql.algo import ALGORITHMS
 
 logger = logging.getLogger(__name__)
 
 os.environ["RAY_DISABLE_MEMORY_MONITOR"] = "1"
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
 
 
 def register_algorithms():
