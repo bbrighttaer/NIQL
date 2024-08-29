@@ -14,11 +14,11 @@ default_config = {
             "rollout_fragment_length": 1,
             "buffer_size": 50000,
             "enable_stochastic_eviction": True,
-            "target_network_update_freq": 1,
-            "tau": 0.05,  # target network soft update
+            "target_network_update_freq": 500,
+            "tau": 0.01,  # target network soft update
             "final_epsilon": 0.05,
             "epsilon_timesteps": 50000,
-            "optimizer": "adam",
+            "optimizer": "rmsprop",
             "reward_standardize": False,
             "gamma": 0.99,
             "lambda": 1.,

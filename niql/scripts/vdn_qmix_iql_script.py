@@ -56,7 +56,7 @@ def get_policy_class(algorithm, config_):
     }.get(algorithm)
 
 
-def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
+def run_joint_q(model: Any, exp: Dict, running_config: Dict, env: Dict,
                 stop: Dict, restore: Dict) -> ExperimentAnalysis:
     """ This script runs the IQL, VDN, and QMIX algorithm using Ray RLlib.
     Args:
@@ -96,16 +96,6 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
         "vdn": "vdn",
     }
 
-    config = {
-        "model": {
-            "max_seq_len": episode_limit,  # dynamic
-            "custom_model_config": back_up_config,
-            "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
-        }
-    }
-
-    config.update(run)
-
     JointQ_Config.update(
         {
             "rollout_fragment_length": 1,
@@ -139,13 +129,21 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
         get_policy_class=partial(get_policy_class, algorithm),
     )
 
-    # add evaluation config
-    config.update({
+    # config update
+    running_config.update({
+        "model": {
+            "max_seq_len": episode_limit,  # dynamic
+            "custom_model_config": back_up_config,
+            "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
+        },
         "evaluation_interval": 10,  # x timesteps_per_iteration (default is 1000)
-        # "evaluation_num_episodes": 10,
-        # "evaluation_num_workers": 1,
-        # "evaluation_parallel_to_training": True,
-        "seed": seed
+        "evaluation_num_episodes": 10,
+        "evaluation_config": {
+            "explore": False,
+        },
+        "seed": seed,
+        "num_workers": 0,
+        "batch_mode": "complete_episodes"
     })
 
     map_name = exp["env_args"]["map_name"]
@@ -159,7 +157,7 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
                        checkpoint_freq=exp['checkpoint_freq'],
                        restore=model_path,
                        stop=stop,
-                       config=config,
+                       config=running_config,
                        verbose=1,
                        progress_reporter=CLIReporter(),
                        local_dir=available_local_dir if exp["local_dir"] == "" else exp["local_dir"])

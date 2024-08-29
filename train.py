@@ -51,4 +51,7 @@ if __name__ == "__main__":
     gpu_count = torch.cuda.device_count()
 
     # start training
-    algo.fit(env, model, num_gpus=gpu_count, share_policy="all", checkpoint_freq=10000)
+    algo.fit(
+        env, model, num_gpus=gpu_count, share_policy="all",
+        checkpoint_freq=10000, stop=exp_config["stop_condition"]
+    )
