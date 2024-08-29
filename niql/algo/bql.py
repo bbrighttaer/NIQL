@@ -244,7 +244,7 @@ class BQLPolicy(LearningRateSchedule, Policy):
         # Setup optimizer
         self.params = list(self.models.parameters()) + list(self.aux_models.parameters())
         self.loss = JointQLoss(self.models, self.aux_models, self.aux_target_models, self.n_agents, self.n_actions,
-                               self.config["double_q"], self.config["gamma"], config["bql_lambda"])
+                               self.config["double_q"], self.config["gamma"], config["lambda"])
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop

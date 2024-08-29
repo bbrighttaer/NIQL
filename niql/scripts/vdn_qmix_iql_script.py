@@ -40,9 +40,9 @@ from niql.algo import JointQPolicy, IQLPolicy, HIQLPolicy, BQLPolicy
 from niql.algo.iqlps_vdn_qmix import JointQTrainer
 from niql.execution_plans import episode_execution_plan  # noqa
 
-random.seed(seed)
-np.random.seed(seed)
-set_torch_seed(seed)
+# random.seed(seed)
+# np.random.seed(seed)
+# set_torch_seed(seed)
 
 
 def get_policy_class(algorithm, config_):
@@ -121,9 +121,7 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
                 "epsilon_timesteps": epsilon_timesteps,
             },
             "tau": _param["tau"],
-            "hiql_alpha": _param.get("hiql_alpha", 0.),
-            "hiql_beta": _param.get("hiql_beta", 0.),
-            "bql_lambda": _param.get("bql_lambda", 0.5),
+            "lambda": _param.get("bql_lambda", 0.2),
             "mixer": mixer_dict.get(algorithm)
         })
 
@@ -144,9 +142,9 @@ def run_joint_q(model: Any, exp: Dict, run: Dict, env: Dict,
     # add evaluation config
     config.update({
         "evaluation_interval": 10,  # x timesteps_per_iteration (default is 1000)
-        "evaluation_num_episodes": 10,
-        "evaluation_num_workers": 1,
-        "evaluation_parallel_to_training": True,
+        # "evaluation_num_episodes": 10,
+        # "evaluation_num_workers": 1,
+        # "evaluation_parallel_to_training": True,
         "seed": seed
     })
 

@@ -1,4 +1,5 @@
 import copy
+import random
 
 import numpy as np
 import gym
@@ -38,7 +39,13 @@ class MAGymEnv(MultiAgentEnv):
         self.agents = [f'agent_{i}' for i in range(self.env.n_agents)]
         self.num_agents = self.env.n_agents
         env_config["map_name"] = map_name
+
+        # seeding
+        random.seed(seed)
+        np.random.seed(seed)
         self.env.seed(seed)
+        # for act_space in self.env.action_space:
+        #     act_space.seed(seed)
 
     def reset(self):
         raw_obs = self.env.reset()

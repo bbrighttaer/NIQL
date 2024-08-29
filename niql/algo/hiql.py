@@ -50,8 +50,7 @@ class JointQLoss(nn.Module):
                  n_actions,
                  double_q=True,
                  gamma=0.99,
-                 alpha=0.9,
-                 beta=0.4):
+                 lambda_=0.5):
         nn.Module.__init__(self)
         self.models = models
         self.target_models = target_models
@@ -59,8 +58,7 @@ class JointQLoss(nn.Module):
         self.n_actions = n_actions
         self.double_q = double_q
         self.gamma = gamma
-        self.alpha = alpha
-        self.beta = beta
+        self.lambda_ = lambda_
 
     def forward(self,
                 rewards,
@@ -148,7 +146,7 @@ class JointQLoss(nn.Module):
         td_error = targets.detach() - chosen_action_qvals
 
         # determine hysteretic weights
-        weights = torch.where(td_error > 0., self.alpha, self.beta)
+        weights = torch.where(td_error < 0., self.lambda_, 1.)
 
         mask = mask.expand_as(td_error)
 
@@ -232,7 +230,7 @@ class HIQLPolicy(LearningRateSchedule, Policy):
         # Setup optimizer
         self.params = list(self.models.parameters())
         self.loss = JointQLoss(self.models, self.target_models, self.n_agents, self.n_actions,
-                               self.config["double_q"], self.config["gamma"], config["hiql_alpha"], config["hiql_beta"])
+                               self.config["double_q"], self.config["gamma"], config["lambda"])
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
