@@ -36,7 +36,7 @@ from ray.tune.analysis import ExperimentAnalysis
 from ray.tune.utils import merge_dicts
 
 from niql import seed
-from niql.algo import JointQPolicy, IQLPolicy, HIQLPolicy, BQLPolicy
+from niql.algo import JointQPolicy, IQLPolicy, HIQLPolicy, BQLPolicy, WBQLPolicy
 from niql.algo.iqlps_vdn_qmix import JointQTrainer
 from niql.execution_plans import episode_execution_plan  # noqa
 
@@ -53,6 +53,7 @@ def get_policy_class(algorithm, config_):
         "iql": IQLPolicy,
         "hiql": HIQLPolicy,
         "bql": BQLPolicy,
+        "wbql": WBQLPolicy,
     }.get(algorithm)
 
 
@@ -112,7 +113,8 @@ def run_joint_q(model: Any, exp: Dict, running_config: Dict, env: Dict,
             },
             "tau": _param["tau"],
             "lambda": _param.get("lambda", 0.2),
-            "mixer": mixer_dict.get(algorithm)
+            "mixer": mixer_dict.get(algorithm),
+            "tdw_schedule": _param.get("tdw_schedule")
         })
 
     JointQ_Config[

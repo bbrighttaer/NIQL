@@ -18,16 +18,15 @@ from sklearn.neighbors import KernelDensity
 from niql.torch_kde import TorchKernelDensity
 
 
-# -----------------------------------------------------------------------------------------------
-# Adapted from Adapted from https://github.com/Morphlng/MARLlib/blob/main/examples/eval.py
-class dotdict(dict):
-    """dot.notation access to dictionary attributes"""
+class DotDic(dict):
+    """dot.notation for dictionary attributes"""
 
     __getattr__ = dict.get
     __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
 
-
-# ----------------------------------------------------------------------------------------------
+    def __deepcopy__(self, memo=None):
+        return DotDic(copy.deepcopy(dict(self), memo=memo))
 
 
 def notify_wrap(f, cb):
@@ -223,35 +222,35 @@ def estimate_density(data, bandwidth=1):
     return np.exp(kde.score_samples(data)).reshape(-1, 1)
 
 
-def target_distribution_weighting(policy, q_targets, p_targets):
-    q_targets_flat = q_targets.view(-1, 1)
-    p_targets_flat = p_targets.view(-1, 1)
-
-    # kde for q(x)
-    q_density = estimate_density(to_numpy(q_targets_flat))
-    q_x = convert_to_torch_tensor(q_density, q_targets.device)
-
-    # kde for approximating p(x)
-    p_density = estimate_density(to_numpy(p_targets_flat))
-    p_density = convert_to_torch_tensor(p_density, p_targets.device)
-    p_density = 1. / (p_density + 1e-7)
-    p_density = apply_scaling(p_density)
-    # p_weights = torch.sigmoid(standardize(p_targets_flat))
-    p_weights = shift_and_scale(p_density)
-    p_x = p_weights * p_density
-
-    # compute weights
-    weights = p_x / (q_x + 1e-7)
-    weights = apply_scaling(weights)
-
-    tb_add_scalars(policy, "tdw_stats", {
-        # "scaling": scaling,
-        "max_weight": weights.max(),
-        "min_weight": weights.min(),
-        "mean_weight": weights.mean(),
-    })
-
-    return weights
+# def target_distribution_weighting(policy, q_targets, p_targets):
+#     q_targets_flat = q_targets.view(-1, 1)
+#     p_targets_flat = p_targets.view(-1, 1)
+#
+#     # kde for q(x)
+#     q_density = estimate_density(to_numpy(q_targets_flat))
+#     q_x = convert_to_torch_tensor(q_density, q_targets.device)
+#
+#     # kde for approximating p(x)
+#     p_density = estimate_density(to_numpy(p_targets_flat))
+#     p_density = convert_to_torch_tensor(p_density, p_targets.device)
+#     p_density = 1. / (p_density + 1e-7)
+#     p_density = apply_scaling(p_density)
+#     # p_weights = torch.sigmoid(standardize(p_targets_flat))
+#     p_weights = shift_and_scale(p_density)
+#     p_x = p_weights * p_density
+#
+#     # compute weights
+#     weights = p_x / (q_x + 1e-7)
+#     weights = apply_scaling(weights)
+#
+#     tb_add_scalars(policy, "tdw_stats", {
+#         # "scaling": scaling,
+#         "max_weight": weights.max(),
+#         "min_weight": weights.min(),
+#         "mean_weight": weights.mean(),
+#     })
+#
+#     return weights
 
 
 def apply_scaling(vector):
@@ -279,25 +278,17 @@ def shift_and_scale(x):
     return x_scaled
 
 
-# def target_distribution_weighting(policy, targets, sim_threshold):
-#     targets_flat = targets.reshape(-1, 1)
-#     if random.random() < policy.tdw_schedule.value(policy.global_timestep):
-#         lds_weights = get_target_dist_weights_torch(
-#             targets_flat, sim_threshold
-#         )
-#         lds_weights = convert_to_torch_tensor(lds_weights, policy.device).reshape(*targets.shape)
-#         # min_w = max(1e-2, lds_weights.min())
-#         # lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2 * min_w)
-#
-#         tb_add_scalars(policy, "tdw_stats", {
-#             # "scaling": scaling,
-#             "max_weight": lds_weights.max(),
-#             "min_weight": lds_weights.min(),
-#             "mean_weight": lds_weights.mean(),
-#         })
-#     else:
-#         lds_weights = torch.ones_like(targets)
-#     return lds_weights
+def target_distribution_weighting(targets, device, seq_mask):
+    targets_flat = targets.reshape(-1, 1)
+    lds_weights = get_target_dist_weights_cl(
+        targets_flat, targets_flat, None, None
+    )
+    scaling = len(lds_weights) / (lds_weights.sum() + 1e-7)
+    lds_weights *= scaling
+    lds_weights = convert_to_torch_tensor(lds_weights, device).reshape(*targets.shape)
+    min_w = max(1e-2, lds_weights.min())
+    lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2 * min_w)
+    return lds_weights
 
 
 def normalize_zero_mean_unit_variance(X):
