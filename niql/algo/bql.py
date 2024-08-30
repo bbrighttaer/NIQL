@@ -165,7 +165,7 @@ class JointQLoss(nn.Module):
 
         # Normal L2 loss, take mean over actual data
         loss = (qe_masked_td_error ** 2).sum() / mask.sum()
-        loss += (weights * qi_masked_error ** 2).sum() / mask.sum()
+        loss += (weights * (qi_masked_error ** 2)).sum() / mask.sum()
         return loss, mask, qe_masked_td_error, qi_chosen_action_qvals, targets
 
 
