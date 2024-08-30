@@ -1,6 +1,5 @@
 import logging
 import os
-import random
 from argparse import ArgumentParser
 
 import numpy as np
@@ -9,16 +8,12 @@ import torch
 from marllib import marl
 
 import niql.trainer_loaders
-from niql import envs, scripts, seed
+from niql import envs, scripts
 from niql.config import MODEL_CHECKPOINT_FREQ
 from niql.models import *  # noqa
 
 os.environ['RAY_DISABLE_MEMORY_MONITOR'] = '1'
 # os.environ['RAY_PICKLE_VERBOSE_DEBUG'] = '1'
-
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +107,9 @@ if __name__ == '__main__':
             env,
             model,
             stop=exp_config['stop_condition'],
-            local_mode=gpu_count == 0,
+            local_mode=False,
             num_gpus=gpu_count,
-            num_workers=1,
+            num_workers=0,
             share_policy='individual',
             checkpoint_freq=10,
             info_sharing=not args.no_sharing,

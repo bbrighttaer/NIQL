@@ -14,10 +14,9 @@ from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from ray.tune import CLIReporter
 from ray.util.ml_utils.dict import merge_dicts
 
-from niql.algo import BQLTrainer, BQLPolicy, WBQLPolicy
-from niql.callbacks import ObservationCommWrapper
+from niql import seed
+from niql.algo import BQLTrainer, WBQLPolicy
 from niql.envs import DEBUG_ENVS
-from niql.utils import add_evaluation_config
 
 
 def before_learn_on_batch(batch: MultiAgentBatch, workers: WorkerSet, config: Dict, *args, **kwargs):
@@ -63,25 +62,6 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     back_up_config.pop("algo_args")  # clean for grid_search
 
     back_up_config["num_agents"] = 1  # one agent one model IQL
-    config = {
-        "model": {
-            "max_seq_len": episode_limit,  # dynamic
-            "custom_model_config": back_up_config,
-            "custom_model": model_name,
-            "fcnet_activation": back_up_config["model_arch_args"]["fcnet_activation"],
-            "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
-        },
-    }
-
-    config.update(run_config)
-
-    # set policy IDs
-    for policy_id, (_, obs_space, act_space, conf) in config["multiagent"]["policies"].items():
-        conf["policy_id"] = policy_id
-        config["multiagent"][policy_id] = (_, obs_space, act_space, conf)
-
-    # add observation function
-    config["multiagent"]["observation_fn"] = ObservationCommWrapper(config["multiagent"]["policy_mapping_fn"])
 
     BQL_Config.update(
         {
@@ -148,8 +128,31 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
     running_name = '_'.join([algorithm, arch, map_name] + comm_suffix + param_sharing_suffix)
     model_path = restore_model(restore, exp)
 
-    # Periodic evaluation of trained policy
-    config = add_evaluation_config(config)
+    # config update
+    # set policy IDs
+    for policy_id, (_, obs_space, act_space, conf) in run_config["multiagent"]["policies"].items():
+        conf["policy_id"] = policy_id
+        run_config["multiagent"][policy_id] = (_, obs_space, act_space, conf)
+
+    # add observation function
+    # config["multiagent"]["observation_fn"] = ObservationCommWrapper(config["multiagent"]["policy_mapping_fn"])
+    run_config.update({
+        "model": {
+            "max_seq_len": episode_limit,  # dynamic
+            "custom_model_config": back_up_config,
+            "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"],
+            "fcnet_activation": back_up_config["model_arch_args"]["fcnet_activation"],
+            "custom_model": model_name,
+        },
+        "evaluation_interval": 10,  # x timesteps_per_iteration (default is 1000)
+        "evaluation_num_episodes": 10,
+        "evaluation_config": {
+            "explore": False,
+        },
+        "seed": seed,
+        "num_workers": 0,
+        "batch_mode": "complete_episodes",
+    })
 
     results = tune.run(
         trainer,
@@ -158,7 +161,7 @@ def run_bql(model_class, exp, run_config, env, stop, restore):
         checkpoint_freq=exp['checkpoint_freq'],
         restore=model_path,
         stop=stop,
-        config=config,
+        config=run_config,
         verbose=1,
         progress_reporter=CLIReporter(),
         local_dir=available_local_dir if exp["local_dir"] == "" else exp["local_dir"],

@@ -57,7 +57,8 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
         replay_sequence_length=config.get("replay_sequence_length", 1),
         replay_burn_in=config.get("burn_in", 0),
         replay_zero_init_states=config.get("zero_init_states", True),
-        enable_stochastic_eviction=config.get("enable_stochastic_eviction", False)
+        enable_stochastic_eviction=config.get("enable_stochastic_eviction", False),
+        replay_mode="independent",
     )
 
     # Assign to Trainer, so we can store the LocalReplayBuffer's

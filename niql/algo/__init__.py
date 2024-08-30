@@ -1,4 +1,4 @@
-from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan as basic_execution_plan  # noqa
+from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan as default_execution_plan  # noqa
 from ray.rllib.agents.dqn import DEFAULT_CONFIG
 from ray.rllib.agents.trainer_template import build_trainer
 

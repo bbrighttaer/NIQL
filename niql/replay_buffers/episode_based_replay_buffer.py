@@ -6,7 +6,8 @@ import numpy as np
 from marllib.marl.algos.utils.episode_replay_buffer import EpisodeBasedReplayBuffer as EpBasedReplayBuffer
 from ray.rllib import SampleBatch
 from ray.rllib.execution import ReplayBuffer, PrioritizedReplayBuffer
-from ray.rllib.execution.replay_buffer import warn_replay_capacity
+from ray.rllib.execution.replay_buffer import warn_replay_capacity, _ALL_POLICIES
+from ray.rllib.policy.sample_batch import MultiAgentBatch, DEFAULT_POLICY_ID
 from ray.rllib.utils.deprecation import DEPRECATED_VALUE
 from ray.rllib.utils.typing import SampleBatchType
 import torch
@@ -53,6 +54,33 @@ class EpisodeBasedReplayBuffer(EpBasedReplayBuffer):
                 return PrioritizedReplayBufferWithStochasticEviction(self.capacity, alpha=prioritized_replay_alpha)
 
             self.replay_buffers = collections.defaultdict(new_buffer)
+
+    def add_batch(self, batch: SampleBatchType) -> None:
+        # Make a copy so the replay buffer doesn't pin plasma memory.
+        batch = batch.copy()
+        # Handle everything as if multiagent
+        if isinstance(batch, SampleBatch):
+            batch = MultiAgentBatch({DEFAULT_POLICY_ID: batch}, batch.count)
+
+        with self.add_batch_timer:
+            # Lockstep mode: Store under _ALL_POLICIES key (we will always
+            # only sample from all policies at the same time).
+            if self.replay_mode == "lockstep":
+                # Note that prioritization is not supported in this mode.
+                for s in batch.timeslices(self.replay_sequence_length):
+                    self.replay_buffers[_ALL_POLICIES].add(s, weight=None)
+            else:
+                for policy_id, sample_batch in batch.policy_batches.items():
+                    timeslices = [sample_batch]
+                    for time_slice in timeslices:
+                        if "weights" in time_slice and \
+                                len(time_slice["weights"]):
+                            weight = np.mean(time_slice["weights"])
+                        else:
+                            weight = None
+                        self.replay_buffers[policy_id].add(
+                            time_slice, weight=weight)
+        self.num_added += batch.count
 
     def plot_statistics(self, summary_writer, timestep):
         for policy_id, replay_buffer in self.replay_buffers.items():
@@ -156,11 +184,11 @@ class PrioritizedReplayBufferWithStochasticEviction(PrioritizedReplayBuffer):
         # weighted sampling
         self._next_idx = np.random.choice(np.arange(self.capacity), p=probs)
 
-    def sample(self, num_items: int, beta: float) -> SampleBatchType:
-        batch = super().sample(num_items, beta)
-        uniform_batch = self.uniform_sample(min(num_items * 3, len(self._storage)))
-        batch["uniform_batch"] = uniform_batch
-        return batch
+    # def sample(self, num_items: int, beta: float) -> SampleBatchType:
+    #     batch = super().sample(num_items, beta)
+    #     uniform_batch = self.uniform_sample(min(num_items * 3, len(self._storage)))
+    #     batch["uniform_batch"] = uniform_batch
+    #     return batch
 
     def uniform_sample(self, num_items: int) -> SampleBatchType:
         """Sample a batch of experiences.

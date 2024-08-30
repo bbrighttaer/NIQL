@@ -245,7 +245,7 @@ class NIQLBasePolicy(LearningRateSchedule, Policy, ABC):
             # store q values selected in this time step for callbacks
             q_values = to_numpy(masked_q_values.squeeze()).tolist()
 
-            results = (actions, hiddens, {'q-values': [q_values]})
+            results = (actions, hiddens, {})
 
         return results
 
