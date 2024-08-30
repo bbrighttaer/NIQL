@@ -111,7 +111,7 @@ def run_joint_q(model: Any, exp: Dict, running_config: Dict, env: Dict,
                 "epsilon_timesteps": epsilon_timesteps,
             },
             "tau": _param["tau"],
-            "lambda": _param.get("bql_lambda", 0.2),
+            "lambda": _param.get("lambda", 0.2),
             "mixer": mixer_dict.get(algorithm)
         })
 

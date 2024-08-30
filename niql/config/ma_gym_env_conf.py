@@ -21,7 +21,7 @@ default_config = {
             "optimizer": "rmsprop",
             "reward_standardize": False,
             "gamma": 0.99,
-            "lambda": 1.,
+            "lambda": 0.65,
             "callbacks": NIQLCallbacks,
             "sharing_batch_size": 10,
             "similarity_threshold": 0.999,
