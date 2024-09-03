@@ -261,13 +261,19 @@ class BQLPolicy(LearningRateSchedule, Policy):
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
 
+        # Auto-update model's inference view requirements, if recurrent.
+        self._update_model_view_requirements_from_init_state()
+
+        # Combine view_requirements for Model and Policy.
+        self.view_requirements.update(self.model.view_requirements)
+
     @property
     def _optimizers(self):
         return [self.optimiser]
 
     @property
     def model(self):
-        return self.models
+        return self.models["agent_0"]
 
     @override(Policy)
     def compute_actions(self,
