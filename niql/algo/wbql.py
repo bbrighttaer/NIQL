@@ -288,6 +288,10 @@ class WBQLPolicy(LearningRateSchedule, Policy):
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
 
     @property
+    def model(self):
+        return self.models
+
+    @property
     def _optimizers(self):
         return [self.optimiser]
 

@@ -251,6 +251,10 @@ class HIQLPolicy(LearningRateSchedule, Policy):
     def _optimizers(self):
         return [self.optimiser]
 
+    @property
+    def model(self):
+        return self.models
+
     @override(Policy)
     def compute_actions(self,
                         obs_batch,
