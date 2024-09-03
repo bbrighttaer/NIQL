@@ -38,7 +38,7 @@ from ray.rllib.utils import PiecewiseSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting
+from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting, compute_gae
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -153,6 +153,12 @@ class JointQLoss(nn.Module):
 
         # Td-error
         td_error = targets.detach() - chosen_action_qvals
+
+        advantages, lambda_returns = compute_gae(
+            rewards=rewards,
+            values=chosen_action_qvals.detach(),
+            dones=terminated
+        )
 
         # Get target distribution weights
         if random.random() < self.tdw_schedule.value(timestep):

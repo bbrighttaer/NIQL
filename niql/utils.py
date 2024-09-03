@@ -783,31 +783,36 @@ class DotDict(dict):
         return DotDict(copy.deepcopy(dict(self), memo=memo))
 
 
-def row_frequencies(tensor):
+def compute_gae(rewards, values, dones, gamma=0.99, lam=0.95):
     """
-    Compute the frequency of each unique row in the tensor.
+    Computes the Generalized Advantage Estimation (GAE) and lambda-returns.
 
     Args:
-        tensor (Tensor): A PyTorch tensor of binary row vectors, shape (M, D).
+    - rewards (torch.Tensor): Tensor of shape (N, T, num_agents) of rewards for T time steps of N samples.
+    - values (torch.Tensor): Tensor of shape (N, T, num_agents) representing the estimated values at each time step t.
+    - dones (torch.Tensor): Boolean tensor of shape (N, T, num_agents) indicating terminal status at each time step t.
+    - gamma (float): Discount factor.
+    - lam (float): GAE lambda parameter.
 
     Returns:
-        Tensor: A 1D tensor containing the frequency of each row, shape (M,).
+    - advantages (torch.Tensor): Tensor of shape (N, T, num_agents) with estimated advantages at each time step.
+    - lambda_returns (torch.Tensor): Tensor of shape (N, T, num_agents) with estimated lambda-returns at each time step.
     """
-    # Ensure tensor is of type int64 for accurate unique row handling
-    tensor = tensor.to(torch.int64)
+    N, T, num_agents = rewards.shape[:3]
+    dones = dones.bool()
 
-    # Convert rows to tuples so they can be used as dictionary keys
-    rows_as_tuples = [tuple(row.tolist()) for row in tensor]
+    # Initialize tensors for advantages and lambda-returns
+    advantages = torch.zeros_like(rewards)
 
-    # Count occurrences of each unique row
-    row_counts = {}
-    for row in rows_as_tuples:
-        if row in row_counts:
-            row_counts[row] += 1
-        else:
-            row_counts[row] = 1
+    # We compute GAE backwards to efficiently accumulate the sum
+    gae = torch.zeros(N, num_agents)
+    for t in reversed(range(T)):
+        next_values = values[:, t + 1] if t < T - 1 else 0.0  # Next value is zero for the last time step
+        delta = rewards[:, t] + gamma * next_values * (~dones[:, t]) - values[:, t]
+        gae = delta + gamma * lam * gae * (~dones[:, t])  # Only update gae if not done
+        advantages[:, t] = gae
 
-    # Create a tensor to hold the frequencies
-    frequencies = torch.tensor([row_counts[row] for row in rows_as_tuples], dtype=torch.int64)
+    # Lambda-returns
+    lambda_returns = advantages + values
 
-    return frequencies
+    return advantages, lambda_returns
