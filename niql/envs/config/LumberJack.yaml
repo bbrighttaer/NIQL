@@ -4,6 +4,7 @@ env_args:
   gym_id: "Lumberjacks-v0"
   map_name: "all_scenario"
   full_observable: False
+  n_agents: 4
 
 mask_flag: False
 global_state_flag: False

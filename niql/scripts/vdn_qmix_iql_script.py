@@ -107,6 +107,7 @@ def run_joint_q(model: Any, exp: Dict, running_config: Dict, env: Dict,
             },
             "tau": _param["tau"],
             "lambda": _param.get("lambda", 0.2),
+            "gamma": _param.get("gamma", 0.99),
             "mixer": mixer_dict.get(algorithm),
             "tdw_schedule": _param.get("tdw_schedule")
         })
