@@ -4,8 +4,8 @@ env_args:
   gym_id: "Combat-v0"
   map_name: "all_scenario"
   full_observable: False
-  n_agents: 3
-  n_opponents: 3
+  n_agents: 5
+  n_opponents: 10
 
 mask_flag: False
 global_state_flag: False

@@ -188,7 +188,8 @@ class JointQLoss(nn.Module):
         # Normal L2 loss, take mean over actual data
         loss = (tdw_weights * (qe_masked_td_error ** 2)).sum() / mask.sum()
         loss += (weights * (qi_masked_error ** 2)).sum() / mask.sum()
-        return loss, mask, qe_masked_td_error, qi_chosen_action_qvals, targets
+        tdw_stats = tdw_weights.view(-1, ).cpu().detach().numpy()
+        return loss, mask, qe_masked_td_error, qi_chosen_action_qvals, targets, tdw_stats
 
 
 class WBQLPolicy(LearningRateSchedule, Policy):
@@ -384,8 +385,8 @@ class WBQLPolicy(LearningRateSchedule, Policy):
                 dynamic_max=True)
         # These will be padded to shape [B * T, ...]
         if self.has_env_global_state:
-            (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
-             env_global_state, next_env_global_state, terminal_flags) = output_list
+            (rew, action_mask, next_action_mask, act, dones, obs, next_obs, terminal_flags,
+             env_global_state, next_env_global_state) = output_list
         else:
             (rew, action_mask, next_action_mask, act, dones, obs,
              next_obs, terminal_flags) = output_list
@@ -425,7 +426,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
             B, T, self.n_agents)
 
         # Compute loss
-        loss_out, mask, masked_td_error, chosen_action_qvals, targets = (
+        loss_out, mask, masked_td_error, chosen_action_qvals, targets, tdw_stats = (
             self.loss(self.global_timestep, rewards, actions, terminated, mask, obs, next_obs,
                       action_mask, next_action_mask, env_global_state,
                       next_env_global_state))
@@ -446,6 +447,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() /
                             mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
+            "tdw_stats": tdw_stats
         }
         return {LEARNER_STATS_KEY: stats}
 

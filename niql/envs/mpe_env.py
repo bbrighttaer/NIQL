@@ -22,9 +22,10 @@
 
 import time
 
+import numpy as np
 import supersuit as ss
 from gym.spaces import Dict as GymDict, Box
-from pettingzoo.mpe import simple_v2
+from pettingzoo.mpe import simple_v2, simple_spread_v2
 from ray.rllib.env import ParallelPettingZooEnv
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from niql.envs import mpe_simple_reference
@@ -39,15 +40,28 @@ policy_mapping_dict = {
         "all_agents_one_policy": True,
         "one_agent_one_policy": True,
     },
+    "simple_spread": {
+        "description": "one team cooperate",
+        "team_prefix": ("agent_",),
+        "all_agents_one_policy": True,
+        "one_agent_one_policy": True,
+    },
+    "simple_reference": {
+        "description": "one team cooperate",
+        "team_prefix": ("agent_",),
+        "all_agents_one_policy": True,
+        "one_agent_one_policy": True,
+    },
 }
 
 REGISTRY = {
     "simple": simple_v2.parallel_env,
+    "simple_spread": simple_spread_v2.parallel_env,
     "simple_reference": mpe_simple_reference.parallel_env,
 }
 
 
-class MPESimple(MultiAgentEnv):
+class MPEEnv(MultiAgentEnv):
 
     def __init__(self, env_config):
         map_name = env_config["map_name"]
@@ -62,11 +76,15 @@ class MPESimple(MultiAgentEnv):
 
         self.env = ParallelPettingZooEnv(env)
         self.action_space = self.env.action_space
-        self.observation_space = GymDict({"obs": Box(
-            low=-100.0,
-            high=100.0,
-            shape=(self.env.observation_space.shape[0],),
-            dtype=self.env.observation_space.dtype)})
+        self.observation_space = GymDict({
+            "obs": Box(
+                low=-100.0,
+                high=100.0,
+                shape=(self.env.observation_space.shape[0],),
+                dtype=self.env.observation_space.dtype),
+            "terminal": Box(low=0., high=1., shape=(1,))
+        })
+        self._dtype = self.env.observation_space.dtype
         self.agents = self.env.agents
         self.num_agents = len(self.agents)
         env_config["map_name"] = map_name
@@ -77,7 +95,10 @@ class MPESimple(MultiAgentEnv):
         original_obs = self.env.reset()
         obs = {}
         for i in self.agents:
-            obs[i] = {"obs": original_obs[i]}
+            obs[i] = {
+                "obs": original_obs[i],
+                "terminal": np.array([0.], dtype=self._dtype)
+            }
         return obs
 
     def step(self, action_dict):
@@ -87,7 +108,8 @@ class MPESimple(MultiAgentEnv):
         for key in action_dict.keys():
             rewards[key] = r[key]
             obs[key] = {
-                "obs": o[key]
+                "obs": o[key],
+                "terminal": np.array([d[key]], dtype=self._dtype)
             }
         dones = {"__all__": d["__all__"]}
         return obs, rewards, dones, info
@@ -97,7 +119,6 @@ class MPESimple(MultiAgentEnv):
 
     def render(self, mode=None):
         self.env.render()
-        time.sleep(0.05)
         return True
 
     def get_env_info(self):

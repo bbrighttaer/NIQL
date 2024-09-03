@@ -34,10 +34,11 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.torch_policy import LearningRateSchedule
+from ray.rllib.utils import PiecewiseSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac, soft_update
+from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -45,24 +46,29 @@ from niql.utils import _iql_unroll_mac, soft_update
 class JointQLoss(nn.Module):
     def __init__(self,
                  models,
-                 aux_models,
-                 aux_target_models,
+                 target_models,
                  n_agents,
                  n_actions,
+                 tdw_schedule,
+                 device,
                  double_q=True,
-                 gamma=0.99,
-                 lambda_=0.6):
+                 gamma=0.99):
         nn.Module.__init__(self)
         self.models = models
-        self.aux_models = aux_models
-        self.aux_target_models = aux_target_models
+        self.target_models = target_models
         self.n_agents = n_agents
         self.n_actions = n_actions
         self.double_q = double_q
+        self.device = device
+        self.tdw_schedule = PiecewiseSchedule(
+            framework="torch",
+            endpoints=tdw_schedule,
+            outside_value=tdw_schedule[-1][-1]  # use value of last schedule
+        )
         self.gamma = gamma
-        self.lambda_ = lambda_
 
     def forward(self,
+                timestep,
                 rewards,
                 actions,
                 terminated,
@@ -76,6 +82,7 @@ class JointQLoss(nn.Module):
         """Forward pass of the loss.
 
         Args:
+            timestep: int
             rewards: Tensor of shape [B, T, n_agents]
             actions: Tensor of shape [B, T, n_agents]
             terminated: Tensor of shape [B, T, n_agents]
@@ -90,37 +97,38 @@ class JointQLoss(nn.Module):
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
 
-        # Calculate estimated Q-Values for all models
-        def forward_prop(agent_models):
-            mac_out = [
-                _iql_unroll_mac(
-                    agent_models[f"agent_{i}"], whole_obs[:, :, i:i + 1]
-                ) for i in range(self.n_agents)
-            ]
-            mac_out = torch.cat(mac_out, dim=2)
-            return mac_out
+        # Calculate estimated Q-Values
+        mac_out = [
+            _iql_unroll_mac(
+                self.models[f"agent_{i}"], whole_obs[:, :, i:i + 1]
+            ) for i in range(self.n_agents)
+        ]
+        mac_out = torch.cat(mac_out, dim=2)
 
-        qi_mac_out = forward_prop(self.models)
-        qe_mac_out = forward_prop(self.aux_models)
-        qe_target_mac_out = forward_prop(self.aux_target_models)
+        # Pick the Q-Values for the actions taken -> [B * n_agents, T]
+        chosen_action_qvals = torch.gather(
+            mac_out[:, :-1], dim=3, index=actions.unsqueeze(3)).squeeze(3)
 
-        # -------- Qe objective ------- #
-        # Pick the q-values of chosen action estimated by Qe
-        qe_chosen_action_qvals = torch.gather(
-            qe_mac_out[:, :-1], dim=3, index=actions.unsqueeze(3)
-        ).squeeze(3)
-        # Compute targets using Qi
-        qi_mac_out_cloned = qi_mac_out.clone().detach()
-        qi_targets = qi_mac_out_cloned[:, 1:]
+        # Calculate the Q-Values necessary for the target
+        target_mac_out = [
+            _iql_unroll_mac(
+                self.target_models[f"agent_{i}"], whole_obs[:, :, i:i + 1]
+            ) for i in range(self.n_agents)
+        ]
+        target_mac_out = torch.cat(target_mac_out, dim=2)
+
+        # we only need target_mac_out for raw next_obs part
+        target_mac_out = target_mac_out[:, 1:]
+
         # Mask out unavailable actions for the t+1 step
         ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
-        qi_targets[ignore_action_tp1] = -np.inf
+        target_mac_out[ignore_action_tp1] = -np.inf
 
         # Max over target Q-Values
         if self.double_q:
             # large bugs here in original QMixloss, the gradient is calculated
             # we fix this follow pymarl
-            mac_out_tp1 = qi_mac_out.clone().detach()
+            mac_out_tp1 = mac_out.clone().detach()
             mac_out_tp1 = mac_out_tp1[:, 1:]
 
             # mask out unallowed actions
@@ -131,9 +139,10 @@ class JointQLoss(nn.Module):
 
             # use the target network to estimate the Q-values of policy
             # network's selected actions
-            target_max_qvals = torch.gather(qi_targets, 3, cur_max_actions).squeeze(3)
+            target_max_qvals = torch.gather(target_mac_out, 3,
+                                            cur_max_actions).squeeze(3)
         else:
-            target_max_qvals = qi_targets.max(dim=3)[0]
+            target_max_qvals = target_mac_out.max(dim=3)[0]
 
         assert target_max_qvals.min().item() != -np.inf, \
             "target_max_qvals contains a masked action; \
@@ -143,33 +152,30 @@ class JointQLoss(nn.Module):
         targets = rewards + self.gamma * (1 - terminated) * target_max_qvals
 
         # Td-error
-        td_error = targets.detach() - qe_chosen_action_qvals
+        td_error = targets.detach() - chosen_action_qvals
 
-        # --------- Qi objective --------- #
-        qi_chosen_action_qvals = torch.gather(
-            qi_mac_out[:, :-1], dim=3, index=actions.unsqueeze(3)
-        ).squeeze(3)
-        qe_target_chosen_action_qvals = torch.gather(
-            qe_target_mac_out[:, :-1], dim=3, index=actions.unsqueeze(3)
-        ).squeeze(3)
-        qi_error = qe_target_chosen_action_qvals.detach() - qi_chosen_action_qvals
-
-        # determine hysteretic weights
-        weights = torch.where(qi_error > 0, 1., self.lambda_)
+        # Get target distribution weights
+        if random.random() < self.tdw_schedule.value(timestep):
+            tdw_weights = [
+                target_distribution_weighting(
+                    targets[:, :, i:i + 1], self.device, mask[:, :, i:i + 1]
+                ) for i in range(self.n_agents)
+            ]
+            tdw_weights = torch.cat(tdw_weights, dim=2)
+        else:
+            tdw_weights = torch.ones_like(targets)
 
         mask = mask.expand_as(td_error)
 
         # 0-out the targets that came from padded data
-        qe_masked_td_error = td_error * mask
-        qi_masked_error = qi_error * mask
+        masked_td_error = td_error * mask
 
         # Normal L2 loss, take mean over actual data
-        loss = (qe_masked_td_error ** 2).sum() / mask.sum()
-        loss += (weights * (qi_masked_error ** 2)).sum() / mask.sum()
-        return loss, mask, qe_masked_td_error, qi_chosen_action_qvals, targets
+        loss = (tdw_weights * (masked_td_error ** 2)).sum() / mask.sum()
+        return loss, mask, masked_td_error, chosen_action_qvals, targets, tdw_weights.view(-1,).cpu().detach().numpy()
 
 
-class BQLPolicy(LearningRateSchedule, Policy):
+class WIQLPolicy(LearningRateSchedule, Policy):
 
     def __init__(self, obs_space, action_space, config):
         _validate(obs_space, action_space)
@@ -229,10 +235,7 @@ class BQLPolicy(LearningRateSchedule, Policy):
         self.models = nn.ModuleDict(
             {f"agent_{i}": create_model() for i in range(self.n_agents)}
         ).to(self.device)
-        self.aux_models = nn.ModuleDict(
-            {f"agent_{i}": create_model() for i in range(self.n_agents)}
-        ).to(self.device)
-        self.aux_target_models = nn.ModuleDict(
+        self.target_models = nn.ModuleDict(
             {f"agent_{i}": create_model() for i in range(self.n_agents)}
         ).to(self.device)
 
@@ -242,9 +245,9 @@ class BQLPolicy(LearningRateSchedule, Policy):
         self.update_target()  # initial sync
 
         # Setup optimizer
-        self.params = list(self.models.parameters()) + list(self.aux_models.parameters())
-        self.loss = JointQLoss(self.models, self.aux_models, self.aux_target_models, self.n_agents, self.n_actions,
-                               self.config["double_q"], self.config["gamma"], config["lambda"])
+        self.params = list(self.models.parameters())
+        self.loss = JointQLoss(self.models, self.target_models, self.n_agents, self.n_actions, config["tdw_schedule"],
+                               self.device, self.config["double_q"], self.config["gamma"])
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
@@ -359,8 +362,8 @@ class BQLPolicy(LearningRateSchedule, Policy):
                 dynamic_max=True)
         # These will be padded to shape [B * T, ...]
         if self.has_env_global_state:
-            (rew, action_mask, next_action_mask, act, dones, obs, next_obs, terminal_flags,
-             env_global_state, next_env_global_state) = output_list
+            (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
+             env_global_state, next_env_global_state, terminal_flags) = output_list
         else:
             (rew, action_mask, next_action_mask, act, dones, obs,
              next_obs, terminal_flags) = output_list
@@ -400,8 +403,8 @@ class BQLPolicy(LearningRateSchedule, Policy):
             B, T, self.n_agents)
 
         # Compute loss
-        loss_out, mask, masked_td_error, chosen_action_qvals, targets = (
-            self.loss(rewards, actions, terminated, mask, obs, next_obs,
+        loss_out, mask, masked_td_error, chosen_action_qvals, targets, tdw_stats = (
+            self.loss(self.global_timestep, rewards, actions, terminated, mask, obs, next_obs,
                       action_mask, next_action_mask, env_global_state,
                       next_env_global_state))
 
@@ -421,6 +424,7 @@ class BQLPolicy(LearningRateSchedule, Policy):
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() /
                             mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
+            "tdw_stats": tdw_stats
         }
         return {LEARNER_STATS_KEY: stats}
 
@@ -435,15 +439,13 @@ class BQLPolicy(LearningRateSchedule, Policy):
     def get_weights(self):
         return {
             "models": self._cpu_dict(self.models.state_dict()),
-            "aux_models": self._cpu_dict(self.aux_models.state_dict()),
-            "aux_target_models": self._cpu_dict(self.aux_target_models.state_dict()),
+            "target_models": self._cpu_dict(self.target_models.state_dict()),
         }
 
     @override(Policy)
     def set_weights(self, weights):
         self.models.load_state_dict(self._device_dict(weights["models"]))
-        self.aux_models.load_state_dict(self._device_dict(weights["aux_models"]))
-        self.aux_target_models.load_state_dict(self._device_dict(weights["aux_target_models"]))
+        self.target_models.load_state_dict(self._device_dict(weights["target_models"]))
 
     @override(Policy)
     def get_state(self):
@@ -457,8 +459,8 @@ class BQLPolicy(LearningRateSchedule, Policy):
         self.set_epsilon(state["cur_epsilon"])
 
     def update_target(self):
-        # self.aux_target_models.load_state_dict(self.aux_models.state_dict())
-        soft_update(self.aux_target_models, self.aux_models, self.config["tau"])
+        # self.target_models.load_state_dict(self.models.state_dict())
+        soft_update(self.target_models, self.models, self.config["tau"])
         logger.debug("Updated target networks")
 
     def set_epsilon(self, epsilon):

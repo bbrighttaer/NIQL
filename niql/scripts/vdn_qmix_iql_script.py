@@ -1,8 +1,24 @@
 # MIT License
-import random
 from functools import partial
-# Copyright (c) 2023 Replicable-MARL
+from typing import Any, Dict
 
+from marllib.marl.algos.scripts.coma import restore_model
+from marllib.marl.algos.utils.log_dir_util import available_local_dir
+from marllib.marl.algos.utils.setup_utils import AlgVar
+from ray import tune
+from ray.rllib.agents.qmix.qmix import DEFAULT_CONFIG as JointQ_Config
+from ray.rllib.models import ModelCatalog
+from ray.tune import CLIReporter
+from ray.tune.analysis import ExperimentAnalysis
+from ray.tune.utils import merge_dicts
+
+from niql import seed
+from niql.algo import JointQPolicy, IQLPolicy, HIQLPolicy, BQLPolicy, WBQLPolicy, WIQLPolicy
+from niql.algo.iqlps_vdn_qmix import JointQTrainer
+from niql.execution_plans import episode_execution_plan  # noqa
+
+
+# Copyright (c) 2023 Replicable-MARL
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
@@ -21,29 +37,6 @@ from functools import partial
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Any, Dict
-
-import numpy as np
-from marllib.marl.algos.scripts.coma import restore_model
-from marllib.marl.algos.utils.log_dir_util import available_local_dir
-from marllib.marl.algos.utils.setup_utils import AlgVar
-from ray import tune
-from ray.rllib.agents.qmix.qmix import DEFAULT_CONFIG as JointQ_Config
-from ray.rllib.models import ModelCatalog
-from ray.rllib.utils.torch_ops import set_torch_seed
-from ray.tune import CLIReporter
-from ray.tune.analysis import ExperimentAnalysis
-from ray.tune.utils import merge_dicts
-
-from niql import seed
-from niql.algo import JointQPolicy, IQLPolicy, HIQLPolicy, BQLPolicy, WBQLPolicy
-from niql.algo.iqlps_vdn_qmix import JointQTrainer
-from niql.execution_plans import episode_execution_plan  # noqa
-
-# random.seed(seed)
-# np.random.seed(seed)
-# set_torch_seed(seed)
-
 
 def get_policy_class(algorithm, config_):
     return {
@@ -54,6 +47,7 @@ def get_policy_class(algorithm, config_):
         "hiql": HIQLPolicy,
         "bql": BQLPolicy,
         "wbql": WBQLPolicy,
+        "wiql": WIQLPolicy,
     }.get(algorithm)
 
 
@@ -145,7 +139,8 @@ def run_joint_q(model: Any, exp: Dict, running_config: Dict, env: Dict,
         },
         "seed": seed,
         "num_workers": 0,
-        "batch_mode": "complete_episodes"
+        "batch_mode": "complete_episodes",
+        "callbacks": _param["callbacks"]
     })
 
     map_name = exp["env_args"]["map_name"]

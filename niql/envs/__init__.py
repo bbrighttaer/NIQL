@@ -4,9 +4,10 @@ from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 
 from .ma_gym_env import MAGymEnv
-from .mpe_simple import MPESimple
+from .mpe_env import MPEEnv
 from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
 from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
+from .smac import RLlibSMAC
 from .switch_riddle import SwitchRiddle
 from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
 from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
@@ -18,12 +19,15 @@ DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
 
 
 def get_active_env(**kwargs):
-    return make_predator_prey_env(**kwargs)
+    return make_smac_env(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
-    # choose environment + scenario
-    env = marl.make_env(
+    # register new env
+    ENV_REGISTRY["mpe"] = MPEEnv
+    COOP_ENV_REGISTRY["mpe"] = MPEEnv
+
+    env = make_local_env(
         environment_name="mpe",
         map_name="simple_spread",
         force_coop=True,
@@ -46,8 +50,8 @@ def make_mpe_simple_reference(**kwargs):
 
 def make_mpe_extended_simple_reference(**kwargs):
     # register new env
-    ENV_REGISTRY["mpe"] = MPESimple
-    COOP_ENV_REGISTRY["mpe"] = MPESimple
+    ENV_REGISTRY["mpe"] = MPEEnv
+    COOP_ENV_REGISTRY["mpe"] = MPEEnv
 
     env = make_local_env(
         environment_name="mpe",
@@ -107,19 +111,20 @@ def make_ma_gym_env(env_name, **kwargs):
 
 
 def make_smac_env(**kwargs):
-    env = marl.make_env(
+    # register new env
+    ENV_REGISTRY["smac"] = RLlibSMAC
+    COOP_ENV_REGISTRY["smac"] = RLlibSMAC
+    env = make_local_env(
         environment_name="smac",
-        map_name=kwargs.get("map_name", "2c_vs_64zg"),
-        difficulty=kwargs.get("difficulty", "7"),
-        reward_scale_rate=kwargs.get("reward_scale_rate", 20),
+        map_name=kwargs.get("map_name", "3s_vs_5z"),
     )
     return env, SMAC
 
 
 def make_mpe_simple_env(**kwargs):
     # register new env
-    ENV_REGISTRY["mpe"] = MPESimple
-    COOP_ENV_REGISTRY["mpe"] = MPESimple
+    ENV_REGISTRY["mpe"] = MPEEnv
+    COOP_ENV_REGISTRY["mpe"] = MPEEnv
 
     # choose environment + scenario
     env = marl.make_env(

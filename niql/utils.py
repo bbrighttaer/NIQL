@@ -280,14 +280,8 @@ def shift_and_scale(x):
 
 def target_distribution_weighting(targets, device, seq_mask):
     targets_flat = targets.reshape(-1, 1)
-    lds_weights = get_target_dist_weights_cl(
-        targets_flat, targets_flat, None, None
-    )
-    scaling = len(lds_weights) / (lds_weights.sum() + 1e-7)
-    lds_weights *= scaling
+    lds_weights = get_target_dist_weights_cl(targets_flat)
     lds_weights = convert_to_torch_tensor(lds_weights, device).reshape(*targets.shape)
-    min_w = max(1e-2, lds_weights.min())
-    lds_weights = torch.clamp(torch.log(lds_weights), min_w, max=2 * min_w)
     return lds_weights
 
 
@@ -363,19 +357,9 @@ def get_target_dist_weights_cl(targets, *args, **kwargs) -> np.array:
     return tdw_weights
 
 
-def cluster_labels(data, min_samples_in_cluster=2, eps=.1, n_clusters=100):
-    # data = standardize(data)
-    # data = data / np.max(data)
-    # n_clusters = min(n_clusters, len(np.unique(labels)))
-    # clustering = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto").fit(labels.reshape(-1, 1))
+def cluster_labels(data, min_samples_in_cluster=2, eps=0.05):
     clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(data)
     bin_index_per_label = clustering.labels_
-    # create bins
-    # num_bins = 1000
-    # bounds = (math.floor(np.min(targets)), math.ceil(np.max(targets)))
-    # hist, bins = np.histogram(a=np.array([], dtype=np.float32), bins=num_bins, range=bounds)
-    # bin_index_per_label = np.digitize(targets, bins, right=True)
-    # bin_index_per_label = np.array(bin_index_per_label)
     return bin_index_per_label
 
 

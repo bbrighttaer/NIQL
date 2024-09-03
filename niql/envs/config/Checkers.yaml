@@ -3,8 +3,6 @@ env: Checkers
 env_args:
   gym_id: "Checkers-v0"
   map_name: "all_scenario"
-  full_observable: False
-  step_cost: -0.01
 
 mask_flag: False
 global_state_flag: False
