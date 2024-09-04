@@ -357,7 +357,7 @@ def get_target_dist_weights_cl(targets, *args, **kwargs) -> np.array:
     return tdw_weights
 
 
-def cluster_labels(data, min_samples_in_cluster=2, eps=0.1):
+def cluster_labels(data, min_samples_in_cluster=2, eps=0.01):
     clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(data)
     bin_index_per_label = clustering.labels_
     return bin_index_per_label

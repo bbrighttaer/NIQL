@@ -5,7 +5,7 @@ env_args:
   map_name: "all_scenario"
   full_observable: False
   n_agents: 5
-  n_opponents: 10
+  n_opponents: 5
 
 mask_flag: False
 global_state_flag: False

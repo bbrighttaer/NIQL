@@ -37,7 +37,7 @@ from ray.rllib.policy.torch_policy import LearningRateSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac, soft_update
+from niql.utils import _iql_unroll_mac, soft_update, compute_gae
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -139,6 +139,12 @@ class JointQLoss(nn.Module):
 
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.gamma * (1 - terminated) * target_max_qvals
+
+        # advantages, lambda_returns = compute_gae(
+        #     rewards=rewards,
+        #     values=chosen_action_qvals.detach(),
+        #     dones=terminated
+        # )
 
         # Td-error
         td_error = targets.detach() - chosen_action_qvals

@@ -151,20 +151,21 @@ class JointQLoss(nn.Module):
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.gamma * (1 - terminated) * target_max_qvals
 
-        # Td-error
-        td_error = targets.detach() - chosen_action_qvals
-
+        # GAE for lamda-returns
         advantages, lambda_returns = compute_gae(
             rewards=rewards,
             values=chosen_action_qvals.detach(),
             dones=terminated
         )
 
+        # Td-error
+        td_error = targets.detach() - chosen_action_qvals
+
         # Get target distribution weights
         if random.random() < self.tdw_schedule.value(timestep):
             tdw_weights = [
                 target_distribution_weighting(
-                    targets[:, :, i:i + 1], self.device, mask[:, :, i:i + 1]
+                    lambda_returns[:, :, i:i + 1], self.device, mask[:, :, i:i + 1]
                 ) for i in range(self.n_agents)
             ]
             tdw_weights = torch.cat(tdw_weights, dim=2)
