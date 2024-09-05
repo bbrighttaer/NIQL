@@ -816,3 +816,23 @@ def compute_gae(rewards, values, dones, gamma=0.99, lam=0.95):
     lambda_returns = advantages + values
 
     return advantages, lambda_returns
+
+
+def shuffle_tensors_together(*tensors):
+    """
+    Shuffle tensors along the first dimension, maintaining the alignment of the data.
+
+    :param tensors: List of tensors to shuffle (all tensors must have the same first dimension size).
+    :return: Shuffled tensors.
+    """
+    # Ensure all tensors have the same first dimension
+    assert all(
+        t.shape[0] == tensors[0].shape[0] for t in tensors), "All tensors must have the same first dimension size"
+
+    # Generate a permutation of indices
+    perm = torch.randperm(tensors[0].shape[0])
+
+    # Apply the permutation to all tensors
+    shuffled_tensors = [t[perm] for t in tensors]
+
+    return shuffled_tensors

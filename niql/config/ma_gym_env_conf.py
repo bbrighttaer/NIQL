@@ -28,7 +28,7 @@ default_config = {
         }
     },
     "model_preference": {
-        "core_arch": "gru",  # mlp | gru
+        "core_arch": "mlp",  # mlp | gru
         "encode_layer": "64",  # for RNN model
         "hidden_state_size": 64,  # for RNN model
         "hidden_layer_dims": [128, 64],  # for mlp model
