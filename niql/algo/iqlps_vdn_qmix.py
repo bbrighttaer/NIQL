@@ -43,6 +43,8 @@ from niql.models import JointQRNN, JointQMLP
 from marllib.marl.models.zoo.mixer import QMixer, VDNMixer
 from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan
 
+from niql.utils import soft_update
+
 
 # original _unroll_mac for next observation is different from Pymarl.
 # thus we provide a new JointQLoss here
@@ -467,9 +469,11 @@ class JointQPolicy(LearningRateSchedule, Policy):
         self.set_epsilon(state["cur_epsilon"])
 
     def update_target(self):
-        self.target_model.load_state_dict(self.model.state_dict())
+        soft_update(self.target_model, self.model, self.config["tau"])
+        # self.target_model.load_state_dict(self.model.state_dict())
         if self.mixer is not None:
-            self.target_mixer.load_state_dict(self.mixer.state_dict())
+            soft_update(self.target_mixer, self.mixer, self.config["tau"])
+        #     self.target_mixer.load_state_dict(self.mixer.state_dict())
         logger.debug("Updated target networks")
 
     def set_epsilon(self, epsilon):

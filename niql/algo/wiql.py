@@ -51,6 +51,7 @@ class JointQLoss(nn.Module):
                  n_agents,
                  n_actions,
                  tdw_schedule,
+                 tdw_eps,
                  device,
                  double_q=True,
                  gamma=0.99):
@@ -67,6 +68,7 @@ class JointQLoss(nn.Module):
             outside_value=tdw_schedule[-1][-1]  # use value of last schedule
         )
         self.gamma = gamma
+        self.tdw_eps = tdw_eps
 
     def forward(self,
                 timestep,
@@ -165,15 +167,23 @@ class JointQLoss(nn.Module):
         td_error = targets.detach() - chosen_action_qvals
 
         # # Get target distribution weights
-        # if random.random() < self.tdw_schedule.value(timestep):
-        #     tdw_weights = [
-        #         target_distribution_weighting(
-        #             lambda_returns[:, :, i:i + 1], self.device, mask[:, :, i:i + 1]
-        #         ) for i in range(self.n_agents)
-        #     ]
-        #     tdw_weights = torch.cat(tdw_weights, dim=2)
-        # else:
-        #     tdw_weights = torch.ones_like(targets)
+        if random.random() < self.tdw_schedule.value(timestep):
+            tdw_weights = []
+            for i in range(self.n_agents):
+                agent_targets = targets[:, :, i:i + 1]
+                agent_seq_mask = mask[:, :, i:i + 1]
+                agent_td_error = td_error[:, :, i:i + 1]
+                tdw_weights.append(
+                    target_distribution_weighting(
+                        agent_targets,
+                        self.device,
+                        agent_seq_mask,
+                        self.tdw_eps,
+                    )
+                )
+            tdw_weights = torch.cat(tdw_weights, dim=2)
+        else:
+            tdw_weights = torch.ones_like(targets)
 
         mask = mask.expand_as(td_error)
 
@@ -181,8 +191,8 @@ class JointQLoss(nn.Module):
         masked_td_error = td_error * mask
 
         # Normal L2 loss, take mean over actual data
-        loss = (weights * (masked_td_error ** 2)).sum() / mask.sum()
-        return loss, mask, masked_td_error, chosen_action_qvals, targets, weights.view(-1, ).cpu().detach().numpy()
+        loss = (tdw_weights * (masked_td_error ** 2)).sum() / mask.sum()
+        return loss, mask, masked_td_error, chosen_action_qvals, targets, tdw_weights.view(-1, ).cpu().detach().numpy()
 
 
 class WIQLPolicy(LearningRateSchedule, Policy):
@@ -257,7 +267,7 @@ class WIQLPolicy(LearningRateSchedule, Policy):
         # Setup optimizer
         self.params = list(self.models.parameters())
         self.loss = JointQLoss(self.models, self.target_models, self.n_agents, self.n_actions, config["tdw_schedule"],
-                               self.device, self.config["double_q"], self.config["gamma"])
+                               config["tdw_eps"], self.device, self.config["double_q"], self.config["gamma"])
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
@@ -431,11 +441,11 @@ class WIQLPolicy(LearningRateSchedule, Policy):
             B, T, self.n_agents)
 
         # Construct weights policy input data
-        actions_enc = torch.eye(self.n_actions)[actions]
-        weights_data = torch.cat([
-            obs, actions_enc, next_obs, rewards.unsqueeze(-1)
-        ], dim=-1)
-        weights = self.weights_policy(weights_data)
+        # actions_enc = torch.eye(self.n_actions)[actions]
+        # weights_data = torch.cat([
+        #     obs, actions_enc, next_obs, rewards.unsqueeze(-1)
+        # ], dim=-1)
+        weights = torch.ones_like(rewards)  # self.weights_policy(weights_data)
 
         # Compute loss
         loss_out, mask, masked_td_error, chosen_action_qvals, targets, tdw_stats = self.loss(
@@ -451,22 +461,22 @@ class WIQLPolicy(LearningRateSchedule, Policy):
         self.optimiser.step()
 
         # Compute reward signal for weights policy
-        with torch.no_grad():
-            _, _, masked_td_error_new, chosen_action_qvals_new, _, _ = self.loss(
-                self.global_timestep, rewards, actions, terminated, mask, obs, next_obs,
-                action_mask, next_action_mask, weights, env_global_state, next_env_global_state
-            )
-            # wts_reward = torch.abs(chosen_action_qvals_new - chosen_action_qvals)
-            wts_reward = 10. * torch.abs(masked_td_error_new)
+        # with torch.no_grad():
+        #     _, _, masked_td_error_new, chosen_action_qvals_new, _, _ = self.loss(
+        #         self.global_timestep, rewards, actions, terminated, mask, obs, next_obs,
+        #         action_mask, next_action_mask, weights, env_global_state, next_env_global_state
+        #     )
+        #     # wts_reward = torch.abs(chosen_action_qvals_new - chosen_action_qvals)
+        #     wts_reward = 10. * torch.abs(masked_td_error_new)
 
         # Update weights policy
-        wts_stats = self.weights_policy.update(
-            inputs=weights_data,
-            weights=weights,
-            rewards=wts_reward,
-            dones=terminated,
-            seq_mask=mask,
-        )
+        # wts_stats = self.weights_policy.update(
+        #     inputs=weights_data,
+        #     weights=weights,
+        #     rewards=wts_reward,
+        #     dones=terminated,
+        #     seq_mask=mask,
+        # )
 
         mask_elems = mask.sum().item()
         stats = {
@@ -481,10 +491,10 @@ class WIQLPolicy(LearningRateSchedule, Policy):
             "weights_mean": tdw_stats.mean(),
             "weights_max": tdw_stats.max(),
             "weights_min": tdw_stats.min(),
-            "wts_policy_rewards_dist": wts_reward.view(-1, self.n_agents).cpu().numpy(),
-            "wts_policy_reward": wts_reward.sum().item(),
+            # "wts_policy_rewards_dist": wts_reward.view(-1, self.n_agents).cpu().numpy(),
+            # "wts_policy_reward": wts_reward.sum().item(),
         }
-        stats.update(wts_stats)
+        # stats.update(wts_stats)
         return {LEARNER_STATS_KEY: stats}
 
     @override(Policy)

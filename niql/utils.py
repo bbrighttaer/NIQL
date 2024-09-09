@@ -278,9 +278,9 @@ def shift_and_scale(x):
     return x_scaled
 
 
-def target_distribution_weighting(targets, device, seq_mask):
+def target_distribution_weighting(targets, device, seq_mask, eps):
     targets_flat = targets.reshape(-1, 1)
-    lds_weights = get_target_dist_weights_cl(targets_flat)
+    lds_weights = get_target_dist_weights_cl(targets_flat, eps)
     lds_weights = convert_to_torch_tensor(lds_weights, device).reshape(*targets.shape)
     return lds_weights
 
@@ -338,11 +338,11 @@ def get_target_dist_weights_l2(data, sim_threshold=0.01) -> np.array:
     return weights
 
 
-def get_target_dist_weights_cl(targets, *args, **kwargs) -> np.array:
+def get_target_dist_weights_cl(targets, eps) -> np.array:
     data = to_numpy(targets)
 
     # clustering
-    bin_index_per_label = cluster_labels(data)
+    bin_index_per_label = cluster_labels(data, eps)
     Nb = max(bin_index_per_label) + 1
     num_samples_of_bins = dict(collections.Counter(bin_index_per_label))
     emp_label_dist = [num_samples_of_bins.get(i, 0) for i in range(Nb)]
@@ -357,7 +357,7 @@ def get_target_dist_weights_cl(targets, *args, **kwargs) -> np.array:
     return tdw_weights
 
 
-def cluster_labels(data, min_samples_in_cluster=2, eps=0.01):
+def cluster_labels(data, eps, min_samples_in_cluster=2):
     clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(data)
     bin_index_per_label = clustering.labels_
     return bin_index_per_label

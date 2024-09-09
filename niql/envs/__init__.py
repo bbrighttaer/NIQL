@@ -19,7 +19,7 @@ DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
 
 
 def get_active_env(**kwargs):
-    return make_predator_prey_env(**kwargs)
+    return make_smac_env(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
@@ -116,7 +116,7 @@ def make_smac_env(**kwargs):
     COOP_ENV_REGISTRY["smac"] = RLlibSMAC
     env = make_local_env(
         environment_name="smac",
-        map_name=kwargs.get("map_name", "3s_vs_5z"),
+        map_name=kwargs.get("map_name", "3m"),
     )
     return env, SMAC
 

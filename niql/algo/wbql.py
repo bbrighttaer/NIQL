@@ -51,6 +51,7 @@ class JointQLoss(nn.Module):
                  n_agents,
                  n_actions,
                  tdw_schedule,
+                 tdw_eps,
                  device,
                  double_q=True,
                  gamma=0.99,
@@ -70,6 +71,7 @@ class JointQLoss(nn.Module):
             endpoints=tdw_schedule,
             outside_value=tdw_schedule[-1][-1]  # use value of last schedule
         )
+        self.tdw_eps = tdw_eps
 
     def forward(self,
                 timestep,
@@ -172,7 +174,7 @@ class JointQLoss(nn.Module):
         if random.random() < self.tdw_schedule.value(timestep):
             tdw_weights = [
                 target_distribution_weighting(
-                    targets[:, :, i:i + 1], self.device, mask[:, :, i:i + 1]
+                    targets[:, :, i:i + 1], self.device, mask[:, :, i:i + 1],  self.tdw_eps,
                 ) for i in range(self.n_agents)
             ]
             tdw_weights = torch.cat(tdw_weights, dim=2)
@@ -268,7 +270,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         self.params = list(self.models.parameters()) + list(self.aux_models.parameters())
         self.loss = JointQLoss(
             self.models, self.aux_models, self.aux_target_models, self.n_agents,
-            self.n_actions, config["tdw_schedule"], self.device,
+            self.n_actions, config["tdw_schedule"], config["tdw_eps"], self.device,
             self.config["double_q"], self.config["gamma"], config["lambda"]
         )
 

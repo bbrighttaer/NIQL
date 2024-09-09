@@ -10,7 +10,7 @@ default_config = {
                 [50000, 1.0],
                 [60000, 0.1],
             ],
-            "tdw_bandwidth": 5.,
+            "tdw_eps": 0.1,
             "rollout_fragment_length": 1,
             "buffer_size": 5000,
             "enable_stochastic_eviction": True,
@@ -21,22 +21,22 @@ default_config = {
             "optimizer": "rmsprop",
             "reward_standardize": False,
             "gamma": 0.99,
-            "lambda": 0.8,
+            "lambda": 0.6,
             "callbacks": NIQLCallbacks,
             "sharing_batch_size": 10,
             "similarity_threshold": 0.999,
         }
     },
     "model_preference": {
-        "core_arch": "mlp",  # mlp | gru
-        "encode_layer": "64",  # for RNN model
-        "hidden_state_size": 64,  # for RNN model
+        "core_arch": "gru",  # mlp | gru
+        "encode_layer": "128",  # for RNN model
+        "hidden_state_size": 128,  # for RNN model
         "hidden_layer_dims": [128, 64],  # for mlp model
         "add_action_dim": False,
     },
     "stop_condition": {
         "episode_reward_mean": 2000,
-        "timesteps_total": 1000000,
+        "timesteps_total": 2000000,
     }
 }
 
