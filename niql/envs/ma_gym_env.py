@@ -63,13 +63,14 @@ class MAGymEnv(MultiAgentEnv):
         rew = {}
         done = {"__all__": all(raw_done)}
         info = {}
+        avg_reward = np.mean(raw_rew)
 
         for agent, r_obs, r_rew, r_done in zip(self.agents, raw_obs, raw_rew, raw_done):
             obs[agent] = {
                 "obs": np.array(r_obs, dtype=self._dtype),
                 "terminal": np.array([r_done], dtype=self._dtype)
             }
-            rew[agent] = r_rew
+            rew[agent] = avg_reward
             done[agent] = r_done
             info[agent] = dict(raw_info)
 

@@ -39,7 +39,8 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.algo.ppo import PPOWeightAgents
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting, compute_gae, get_weights
+from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting, compute_gae, get_weights, \
+    batch_assign_sample_weights, save_weights
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -168,18 +169,23 @@ class JointQLoss(nn.Module):
         td_error = targets.detach() - chosen_action_qvals
 
         # Get target distribution weights
-        tdw_weights = get_weights(
-            self.tdw_schedule,
-            mask,
-            targets,
-            rewards,
-            td_error,
-            timestep,
-            self.device,
-            self.tdw_eps,
-            self.n_agents,
-            self.training_iter,
-        )
+        # weights = get_weights(
+        #     self.tdw_schedule,
+        #     mask,
+        #     targets,
+        #     rewards,
+        #     td_error,
+        #     timestep,
+        #     self.device,
+        #     self.tdw_eps,
+        #     self.n_agents,
+        #     self.training_iter,
+        # )
+        if random.random() < self.tdw_schedule.value(timestep):
+            weights = batch_assign_sample_weights(targets)
+            save_weights(targets, rewards, td_error, weights, timestep, self.n_agents, self.training_iter)
+        else:
+            weights = torch.ones_like(targets)
 
         mask = mask.expand_as(td_error)
 
@@ -187,9 +193,9 @@ class JointQLoss(nn.Module):
         masked_td_error = td_error * mask
 
         # Normal L2 loss, take mean over actual data
-        loss = (tdw_weights * (masked_td_error ** 2)).sum() / mask.sum()
+        loss = (weights * (masked_td_error ** 2)).sum() / mask.sum()
         self.training_iter += 1
-        return loss, mask, masked_td_error, chosen_action_qvals, targets, tdw_weights.view(-1, ).cpu().detach().numpy()
+        return loss, mask, masked_td_error, chosen_action_qvals, targets, weights.view(-1, ).cpu().detach().numpy()
 
 
 class WIQLPolicy(LearningRateSchedule, Policy):

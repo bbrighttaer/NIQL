@@ -316,6 +316,44 @@ def save_weights(targets, rewards, td_error, weights, timestep, n_agents, traini
         df.to_csv(f"tdw_data_{training_iter}_{timestep}.csv", index=True)
 
 
+def batch_assign_sample_weights(M, alpha=1., beta=0.2, k_percentile=98):
+    """
+    Assign weights to each sample in M agent-wise, with alpha for the top-k percentile
+    and beta for the remaining samples.
+
+    Args:
+        M (torch.Tensor): Input tensor of shape (num_samples, timesteps, num_agents).
+        alpha (float): The weight to assign to the top-k percentile samples.
+        beta (float): The weight to assign to the remaining samples.
+        k_percentile (float): The percentile threshold (0 to 100) to assign weight alpha.
+
+    Returns:
+        torch.Tensor: A tensor of weights with the same shape as M.
+    """
+    # Get the shape of the input tensor
+    num_samples, timesteps, num_agents = M.shape
+
+    # Initialize a tensor for weights with the same shape as M, filled with beta
+    weights = torch.full_like(M, beta)  # Start by assigning beta to all elements
+
+    # Flatten the tensor M along the sample and timestep dimensions for each agent
+    M_flat = M.view(num_samples * timesteps, num_agents)  # Shape: (num_samples * timesteps, num_agents)
+
+    # Compute the top-k percentile threshold for each agent
+    thresholds = torch.quantile(M_flat, k_percentile / 100.0, dim=0)  # Shape: (num_agents,)
+
+    # Create a mask for all agents where the values are in the top-k percentile
+    top_k_mask = M_flat >= thresholds  # Shape: (num_samples * timesteps, num_agents)
+
+    # Reshape the mask to match the original shape of M (num_samples, timesteps, num_agents, 1)
+    top_k_mask = top_k_mask.view(num_samples, timesteps, num_agents)
+
+    # Assign alpha to the top-k percentile values
+    weights[top_k_mask] = alpha
+
+    return weights
+
+
 def get_weights(tdw_schedule, mask, targets, rewards, td_error, timestep, device, tdw_eps, n_agents, training_iter):
     if random.random() < tdw_schedule.value(timestep):
         can_save_weights_data = training_iter % 100 == 0
