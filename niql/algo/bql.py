@@ -37,7 +37,7 @@ from ray.rllib.policy.torch_policy import LearningRateSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac, soft_update
+from niql.utils import _iql_unroll_mac, soft_update, save_weights
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -61,6 +61,7 @@ class JointQLoss(nn.Module):
         self.double_q = double_q
         self.gamma = gamma
         self.lambda_ = lambda_
+        self.training_iter = 0
 
     def forward(self,
                 rewards,
@@ -71,6 +72,7 @@ class JointQLoss(nn.Module):
                 next_obs,
                 action_mask,
                 next_action_mask,
+                timestep,
                 state=None,
                 next_state=None):
         """Forward pass of the loss.
@@ -156,6 +158,7 @@ class JointQLoss(nn.Module):
 
         # determine hysteretic weights
         weights = torch.where(qi_error > 0, 1., self.lambda_)
+        save_weights(targets, rewards, td_error, weights, timestep, self.n_agents, self.training_iter)
 
         mask = mask.expand_as(td_error)
 
@@ -166,6 +169,7 @@ class JointQLoss(nn.Module):
         # Normal L2 loss, take mean over actual data
         loss = (qe_masked_td_error ** 2).sum() / mask.sum()
         loss += (weights * (qi_masked_error ** 2)).sum() / mask.sum()
+        self.training_iter += 1
         return loss, mask, qe_masked_td_error, qi_chosen_action_qvals, targets
 
 
@@ -412,8 +416,8 @@ class BQLPolicy(LearningRateSchedule, Policy):
         # Compute loss
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = (
             self.loss(rewards, actions, terminated, mask, obs, next_obs,
-                      action_mask, next_action_mask, env_global_state,
-                      next_env_global_state))
+                      action_mask, next_action_mask, self.global_timestep,
+                      env_global_state, next_env_global_state))
 
         # Optimise
         self.optimiser.zero_grad()

@@ -39,7 +39,7 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.algo.ppo import PPOWeightAgents
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting, compute_gae
+from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting, compute_gae, get_weights
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -69,6 +69,7 @@ class JointQLoss(nn.Module):
         )
         self.gamma = gamma
         self.tdw_eps = tdw_eps
+        self.training_iter = 0
 
     def forward(self,
                 timestep,
@@ -166,24 +167,19 @@ class JointQLoss(nn.Module):
         # Td-error
         td_error = targets.detach() - chosen_action_qvals
 
-        # # Get target distribution weights
-        if random.random() < self.tdw_schedule.value(timestep):
-            tdw_weights = []
-            for i in range(self.n_agents):
-                agent_targets = targets[:, :, i:i + 1]
-                agent_seq_mask = mask[:, :, i:i + 1]
-                agent_td_error = td_error[:, :, i:i + 1]
-                tdw_weights.append(
-                    target_distribution_weighting(
-                        agent_targets,
-                        self.device,
-                        agent_seq_mask,
-                        self.tdw_eps,
-                    )
-                )
-            tdw_weights = torch.cat(tdw_weights, dim=2)
-        else:
-            tdw_weights = torch.ones_like(targets)
+        # Get target distribution weights
+        tdw_weights = get_weights(
+            self.tdw_schedule,
+            mask,
+            targets,
+            rewards,
+            td_error,
+            timestep,
+            self.device,
+            self.tdw_eps,
+            self.n_agents,
+            self.training_iter,
+        )
 
         mask = mask.expand_as(td_error)
 
@@ -192,6 +188,7 @@ class JointQLoss(nn.Module):
 
         # Normal L2 loss, take mean over actual data
         loss = (tdw_weights * (masked_td_error ** 2)).sum() / mask.sum()
+        self.training_iter += 1
         return loss, mask, masked_td_error, chosen_action_qvals, targets, tdw_weights.view(-1, ).cpu().detach().numpy()
 
 

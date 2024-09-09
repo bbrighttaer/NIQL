@@ -30,7 +30,8 @@ class OneStepMultiAgentCoopMatrixGame(MultiAgentEnv):
                 high=1,
                 shape=(1,),
                 dtype=np.int32,
-            )
+            ),
+            "terminal": spaces.Box(low=0., high=1., shape=(1,))
         })
         self.agents = ["agent_0", "agent_1"]
         self.num_agents = len(self.agents)
@@ -49,7 +50,8 @@ class OneStepMultiAgentCoopMatrixGame(MultiAgentEnv):
         obs = {}
         for i in self.agents:
             obs[i] = {
-                "obs": np.array([0], dtype=np.int32)  # Initial observation for each agent
+                "obs": np.array([0], dtype=np.int32),  # Initial observation for each agent
+                "terminal": np.array([0.], dtype=np.float32)
             }
         return obs
 
@@ -71,7 +73,8 @@ class OneStepMultiAgentCoopMatrixGame(MultiAgentEnv):
         obs = {}
         for i in self.agents:
             obs[i] = {
-                "obs": np.array([1], dtype=np.int32)
+                "obs": np.array([1], dtype=np.int32),
+                "terminal": np.array([1.], dtype=np.float32)
             }
 
         # Return observations, global payoff, done flag (always False for this game), and info dictionary

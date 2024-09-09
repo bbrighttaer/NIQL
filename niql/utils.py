@@ -12,7 +12,7 @@ from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.torch_ops import convert_to_torch_tensor
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN, HDBSCAN
 from sklearn.neighbors import KernelDensity
 
 from niql.torch_kde import TorchKernelDensity
@@ -278,6 +278,91 @@ def shift_and_scale(x):
     return x_scaled
 
 
+def save_weights(targets, rewards, td_error, weights, timestep, n_agents, training_iter):
+    can_save_weights_data = training_iter % 100 == 0
+    _indexes = []
+    _targets = []
+    _rewards = []
+    _weights = []
+    _td_errors = []
+
+    for i in range(n_agents):
+        agent_targets = targets[:, :, i:i + 1]
+        agent_td_error = td_error[:, :, i:i + 1]
+        agent_rewards = rewards[:, :, i:i + 1]
+        agent_weights = weights[:, :, i:i + 1]
+
+        # cache weights and metadata
+        flatten_weights = agent_weights.view(-1, )
+        flatten_targets = agent_targets.view(-1, )
+        flatten_rewards = agent_rewards.view(-1, )
+        flatten_td_error = agent_td_error.view(-1, )
+        if can_save_weights_data:
+            _indexes.extend([i] * len(flatten_rewards))
+            _targets.extend(to_numpy(flatten_targets).tolist())
+            _rewards.extend(to_numpy(flatten_rewards).tolist())
+            _weights.extend(to_numpy(flatten_weights).tolist())
+            _td_errors.extend(to_numpy(flatten_td_error).tolist())
+
+    # save weights and metadata
+    if can_save_weights_data:
+        df = pd.DataFrame({
+            "agent": _indexes,
+            "rewards": _rewards,
+            "targets": _targets,
+            "weights": _weights,
+            "td_errors": _td_errors,
+        })
+        df.to_csv(f"tdw_data_{training_iter}_{timestep}.csv", index=True)
+
+
+def get_weights(tdw_schedule, mask, targets, rewards, td_error, timestep, device, tdw_eps, n_agents, training_iter):
+    if random.random() < tdw_schedule.value(timestep):
+        can_save_weights_data = training_iter % 100 == 0
+        tdw_weights = []
+        _indexes = []
+        _targets = []
+        _rewards = []
+        _weights = []
+        _td_errors = []
+
+        for i in range(n_agents):
+            agent_targets = targets[:, :, i:i + 1]
+            agent_seq_mask = mask[:, :, i:i + 1]
+            agent_td_error = td_error[:, :, i:i + 1]
+            agent_rewards = rewards[:, :, i:i + 1]
+            weights = target_distribution_weighting(agent_targets, device, agent_seq_mask, tdw_eps)
+            tdw_weights.append(weights)
+
+            # cache weights and metadata
+            flatten_weights = weights.view(-1, )
+            flatten_targets = agent_targets.view(-1, )
+            flatten_rewards = agent_rewards.view(-1, )
+            flatten_td_error = agent_td_error.view(-1, )
+            if can_save_weights_data:
+                _indexes.extend([i] * len(flatten_rewards))
+                _targets.extend(to_numpy(flatten_targets).tolist())
+                _rewards.extend(to_numpy(flatten_rewards).tolist())
+                _weights.extend(to_numpy(flatten_weights).tolist())
+                _td_errors.extend(to_numpy(flatten_td_error).tolist())
+
+        # save weights and metadata
+        if can_save_weights_data:
+            df = pd.DataFrame({
+                "agent": _indexes,
+                "rewards": _rewards,
+                "targets": _targets,
+                "weights": _weights,
+                "td_errors": _td_errors,
+            })
+            df.to_csv(f"tdw_data_{training_iter}_{timestep}.csv", index=True)
+
+        tdw_weights = torch.cat(tdw_weights, dim=2)
+    else:
+        tdw_weights = torch.ones_like(targets)
+    return tdw_weights
+
+
 def target_distribution_weighting(targets, device, seq_mask, eps):
     targets_flat = targets.reshape(-1, 1)
     lds_weights = get_target_dist_weights_cl(targets_flat, eps)
@@ -359,6 +444,10 @@ def get_target_dist_weights_cl(targets, eps) -> np.array:
 
 def cluster_labels(data, eps, min_samples_in_cluster=2):
     clustering = DBSCAN(min_samples=min_samples_in_cluster, eps=eps).fit(data)
+    # clustering = HDBSCAN(
+    #     min_samples=min_samples_in_cluster,
+    #     cluster_selection_epsilon=eps,
+    # ).fit(data)
     bin_index_per_label = clustering.labels_
     return bin_index_per_label
 

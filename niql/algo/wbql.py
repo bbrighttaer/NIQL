@@ -38,7 +38,7 @@ from ray.rllib.utils import PiecewiseSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting
+from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting, get_weights
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -72,6 +72,7 @@ class JointQLoss(nn.Module):
             outside_value=tdw_schedule[-1][-1]  # use value of last schedule
         )
         self.tdw_eps = tdw_eps
+        self.training_iter = 0
 
     def forward(self,
                 timestep,
@@ -171,15 +172,18 @@ class JointQLoss(nn.Module):
         weights = torch.where(qi_error > 0, 1., self.lambda_)
 
         # Get target distribution weights
-        if random.random() < self.tdw_schedule.value(timestep):
-            tdw_weights = [
-                target_distribution_weighting(
-                    targets[:, :, i:i + 1], self.device, mask[:, :, i:i + 1],  self.tdw_eps,
-                ) for i in range(self.n_agents)
-            ]
-            tdw_weights = torch.cat(tdw_weights, dim=2)
-        else:
-            tdw_weights = torch.ones_like(targets)
+        tdw_weights = get_weights(
+            self.tdw_schedule,
+            mask,
+            targets,
+            rewards,
+            td_error,
+            timestep,
+            self.device,
+            self.tdw_eps,
+            self.n_agents,
+            self.training_iter
+        )
 
         mask = mask.expand_as(td_error)
 
@@ -191,6 +195,7 @@ class JointQLoss(nn.Module):
         loss = (tdw_weights * (qe_masked_td_error ** 2)).sum() / mask.sum()
         loss += (weights * (qi_masked_error ** 2)).sum() / mask.sum()
         tdw_stats = tdw_weights.view(-1, ).cpu().detach().numpy()
+        self.training_iter += 1
         return loss, mask, qe_masked_td_error, qi_chosen_action_qvals, targets, tdw_stats
 
 
