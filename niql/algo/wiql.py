@@ -181,11 +181,11 @@ class JointQLoss(nn.Module):
         #     self.n_agents,
         #     self.training_iter,
         # )
-        if random.random() < self.tdw_schedule.value(timestep):
-            weights = batch_assign_sample_weights(targets)
-            save_weights(targets, rewards, td_error, weights, timestep, self.n_agents, self.training_iter)
-        else:
-            weights = torch.ones_like(targets)
+        # if random.random() < self.tdw_schedule.value(timestep):
+        weights = batch_assign_sample_weights(targets)
+        save_weights(targets, rewards, td_error, weights, timestep, self.n_agents, self.training_iter)
+        # else:
+        #     weights = torch.ones_like(targets)
 
         mask = mask.expand_as(td_error)
 
@@ -403,8 +403,8 @@ class WIQLPolicy(LearningRateSchedule, Policy):
                 dynamic_max=True)
         # These will be padded to shape [B * T, ...]
         if self.has_env_global_state:
-            (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
-             env_global_state, next_env_global_state, terminal_flags) = output_list
+            (rew, action_mask, next_action_mask, act, dones, obs, next_obs, terminal_flags,
+             env_global_state, next_env_global_state) = output_list
         else:
             (rew, action_mask, next_action_mask, act, dones, obs,
              next_obs, terminal_flags) = output_list

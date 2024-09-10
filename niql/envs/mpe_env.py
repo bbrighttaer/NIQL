@@ -21,10 +21,12 @@
 # SOFTWARE.
 
 import time
+import warnings
 
 import numpy as np
 import supersuit as ss
 from gym.spaces import Dict as GymDict, Box
+from gym.utils import colorize
 from pettingzoo.mpe import simple_v2, simple_spread_v2
 from ray.rllib.env import ParallelPettingZooEnv
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
@@ -105,6 +107,14 @@ class MPEEnv(MultiAgentEnv):
         o, r, d, info = self.env.step(action_dict)
         rewards = {}
         obs = {}
+
+        # Check for cooperation env reward
+        raw_rew = list(r.values())
+        if np.mean(raw_rew) != raw_rew[0]:
+            warnings.warn(
+                colorize("%s: %s" % ("WARN", "Agent rewards are not the same: " + str(raw_rew)), "yellow")
+            )
+
         for key in action_dict.keys():
             rewards[key] = r[key]
             obs[key] = {

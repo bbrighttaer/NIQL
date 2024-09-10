@@ -1,10 +1,12 @@
 import copy
 import random
+import warnings
 
 import numpy as np
 import gym
 import ma_gym  # noqa
 from gym.spaces import Dict as GymDict, Box
+from gym.utils import colorize
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 from niql import seed
@@ -63,14 +65,19 @@ class MAGymEnv(MultiAgentEnv):
         rew = {}
         done = {"__all__": all(raw_done)}
         info = {}
-        avg_reward = np.mean(raw_rew)
+
+        # Check for cooperation env reward
+        if np.mean(raw_rew) != raw_rew[0]:
+            warnings.warn(
+                colorize("%s: %s" % ("WARN", "Agent rewards are not the same: " + str(raw_rew)), "yellow")
+            )
 
         for agent, r_obs, r_rew, r_done in zip(self.agents, raw_obs, raw_rew, raw_done):
             obs[agent] = {
                 "obs": np.array(r_obs, dtype=self._dtype),
                 "terminal": np.array([r_done], dtype=self._dtype)
             }
-            rew[agent] = avg_reward
+            rew[agent] = r_rew
             done[agent] = r_done
             info[agent] = dict(raw_info)
 

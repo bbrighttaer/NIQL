@@ -363,8 +363,8 @@ class JointQPolicy(LearningRateSchedule, Policy):
                 dynamic_max=True)
         # These will be padded to shape [B * T, ...]
         if self.has_env_global_state:
-            (rew, action_mask, next_action_mask, act, dones, obs, next_obs,
-             env_global_state, next_env_global_state, terminal_flags) = output_list
+            (rew, action_mask, next_action_mask, act, dones, obs, next_obs, terminal_flags,
+             env_global_state, next_env_global_state) = output_list
         else:
             (rew, action_mask, next_action_mask, act, dones, obs,
              next_obs, terminal_flags) = output_list

@@ -38,7 +38,8 @@ from ray.rllib.utils import PiecewiseSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting, get_weights
+from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting, get_weights, \
+    batch_assign_sample_weights, save_weights
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -172,18 +173,23 @@ class JointQLoss(nn.Module):
         weights = torch.where(qi_error > 0, 1., self.lambda_)
 
         # Get target distribution weights
-        tdw_weights = get_weights(
-            self.tdw_schedule,
-            mask,
-            targets,
-            rewards,
-            td_error,
-            timestep,
-            self.device,
-            self.tdw_eps,
-            self.n_agents,
-            self.training_iter
-        )
+        # tdw_weights = get_weights(
+        #     self.tdw_schedule,
+        #     mask,
+        #     targets,
+        #     rewards,
+        #     td_error,
+        #     timestep,
+        #     self.device,
+        #     self.tdw_eps,
+        #     self.n_agents,
+        #     self.training_iter
+        # )
+        # if random.random() < self.tdw_schedule.value(timestep):
+        tdw_weights = batch_assign_sample_weights(targets)
+        save_weights(targets, rewards, td_error, tdw_weights, timestep, self.n_agents, self.training_iter)
+        # else:
+        #     weights = torch.ones_like(targets)
 
         mask = mask.expand_as(td_error)
 

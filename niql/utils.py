@@ -316,7 +316,7 @@ def save_weights(targets, rewards, td_error, weights, timestep, n_agents, traini
         df.to_csv(f"tdw_data_{training_iter}_{timestep}.csv", index=True)
 
 
-def batch_assign_sample_weights(M, alpha=1., beta=0.2, k_percentile=98):
+def batch_assign_sample_weights(M, alpha=1., beta=0.01, k_percentile=99):
     """
     Assign weights to each sample in M agent-wise, with alpha for the top-k percentile
     and beta for the remaining samples.
@@ -334,6 +334,7 @@ def batch_assign_sample_weights(M, alpha=1., beta=0.2, k_percentile=98):
     num_samples, timesteps, num_agents = M.shape
 
     # Initialize a tensor for weights with the same shape as M, filled with beta
+    beta = 1. / num_samples
     weights = torch.full_like(M, beta)  # Start by assigning beta to all elements
 
     # Flatten the tensor M along the sample and timestep dimensions for each agent
