@@ -8,7 +8,6 @@ from ray.rllib.evaluation import RolloutWorker
 from ray.rllib.policy import Policy
 from ray.rllib.utils.typing import PolicyID
 
-from niql.envs import RLlibSMAC
 
 if TYPE_CHECKING:
     from ray.rllib.evaluation import RolloutWorker
@@ -66,7 +65,7 @@ class NIQLCallbacks(DefaultCallbacks):
             env = env.env
 
         # SMAC metrics (from https://github.com/Replicable-MARL/MARLlib/blob/mq_dev/SMAC/metric/smac_callback.py)
-        if isinstance(env, RLlibSMAC):
+        if hasattr(env, "death_tracker_ally") and hasattr(env, "death_tracker_enemy"):
             ally_state = env.death_tracker_ally
             enemy_state = env.death_tracker_enemy
 
