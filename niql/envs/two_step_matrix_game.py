@@ -47,7 +47,8 @@ class TwoStepMultiAgentCoopMatrixGame(MultiAgentEnv):
                 low=np.array([0, 0, 0], dtype=np.int32),
                 high=np.array([1, 1, 1], dtype=np.int32),
                 dtype=np.int32,
-            )
+            ),
+            "terminal": spaces.Box(low=0., high=1., shape=(1,))
         })
         self.agents = ["agent_0", "agent_1"]
         self.num_agents = len(self.agents)
@@ -76,7 +77,8 @@ class TwoStepMultiAgentCoopMatrixGame(MultiAgentEnv):
         obs = {}
         for i in self.agents:
             obs[i] = {
-                "obs": np.array([0, 0, 0], dtype=np.int32)  # Initial observation for each agent
+                "obs": np.array([0, 0, 0], dtype=np.int32),  # Initial observation for each agent
+                "terminal": np.array([0.], dtype=np.float32)
             }
         return obs
 
@@ -97,7 +99,8 @@ class TwoStepMultiAgentCoopMatrixGame(MultiAgentEnv):
             for i in self.agents:
                 obs[i] = {
                     "obs": np.array([0, 1, 0], dtype=np.int32)
-                    if self.current_game == 0 else np.array([0, 0, 1], dtype=np.int32)
+                    if self.current_game == 0 else np.array([0, 0, 1], dtype=np.int32),
+                    "terminal": np.array([0.], dtype=np.float32)
                 }
 
             # No reward in the first step
@@ -120,7 +123,8 @@ class TwoStepMultiAgentCoopMatrixGame(MultiAgentEnv):
             obs = {}
             for i in self.agents:
                 obs[i] = {
-                    "obs": np.array([1, 1, 1], dtype=np.int32)
+                    "obs": np.array([1, 1, 1], dtype=np.int32),
+                    "terminal": np.array([1.], dtype=np.float32)
                 }
 
             # Return observations, global payoff, done flag (always False for this game), and info dictionary

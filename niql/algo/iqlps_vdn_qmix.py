@@ -343,9 +343,9 @@ class JointQPolicy(LearningRateSchedule, Policy):
 
     @override(Policy)
     def learn_on_batch(self, samples):
-        obs_batch, action_mask, env_global_state, terminal_flags = self._unpack_observation(
+        obs_batch, action_mask, env_global_state, _ = self._unpack_observation(
             samples[SampleBatch.CUR_OBS])
-        (next_obs_batch, next_action_mask, next_env_global_state, _) = self._unpack_observation(
+        (next_obs_batch, next_action_mask, next_env_global_state, terminal_flags) = self._unpack_observation(
             samples[SampleBatch.NEXT_OBS])
         group_rewards = self._get_group_rewards(samples[SampleBatch.INFOS])
 

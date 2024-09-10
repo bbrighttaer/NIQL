@@ -34,10 +34,12 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.rnn_sequencing import chop_into_sequences
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.torch_policy import LearningRateSchedule
+from ray.rllib.utils import PiecewiseSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac, soft_update, save_weights
+from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting, get_weights, \
+    batch_assign_sample_weights, save_weights
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -49,6 +51,7 @@ class JointQLoss(nn.Module):
                  aux_target_models,
                  n_agents,
                  n_actions,
+                 device,
                  double_q=True,
                  gamma=0.99,
                  lambda_=0.6):
@@ -61,9 +64,11 @@ class JointQLoss(nn.Module):
         self.double_q = double_q
         self.gamma = gamma
         self.lambda_ = lambda_
+        self.device = device
         self.training_iter = 0
 
     def forward(self,
+                timestep,
                 rewards,
                 actions,
                 terminated,
@@ -72,12 +77,12 @@ class JointQLoss(nn.Module):
                 next_obs,
                 action_mask,
                 next_action_mask,
-                timestep,
                 state=None,
                 next_state=None):
         """Forward pass of the loss.
 
         Args:
+            timestep: current timestep
             rewards: Tensor of shape [B, T, n_agents]
             actions: Tensor of shape [B, T, n_agents]
             terminated: Tensor of shape [B, T, n_agents]
@@ -158,7 +163,6 @@ class JointQLoss(nn.Module):
 
         # determine hysteretic weights
         weights = torch.where(qi_error > 0, 1., self.lambda_)
-        save_weights(targets, rewards, td_error, weights, timestep, self.n_agents, self.training_iter)
 
         mask = mask.expand_as(td_error)
 
@@ -170,7 +174,7 @@ class JointQLoss(nn.Module):
         loss = (qe_masked_td_error ** 2).sum() / mask.sum()
         loss += (weights * (qi_masked_error ** 2)).sum() / mask.sum()
         self.training_iter += 1
-        return loss, mask, qe_masked_td_error, qi_chosen_action_qvals, targets
+        return loss, mask, qe_masked_td_error, qi_chosen_action_qvals, targets, weights
 
 
 class BQLPolicy(LearningRateSchedule, Policy):
@@ -252,8 +256,10 @@ class BQLPolicy(LearningRateSchedule, Policy):
 
         # Setup optimizer
         self.params = list(self.models.parameters()) + list(self.aux_models.parameters())
-        self.loss = JointQLoss(self.models, self.aux_models, self.aux_target_models, self.n_agents, self.n_actions,
-                               self.config["double_q"], self.config["gamma"], config["lambda"])
+        self.loss = JointQLoss(
+            self.models, self.aux_models, self.aux_target_models, self.n_agents,
+            self.n_actions, self.device, self.config["double_q"], self.config["gamma"], config["lambda"]
+        )
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
@@ -353,9 +359,9 @@ class BQLPolicy(LearningRateSchedule, Policy):
 
     @override(Policy)
     def learn_on_batch(self, samples):
-        obs_batch, action_mask, env_global_state, terminal_flags = self._unpack_observation(
+        obs_batch, action_mask, env_global_state, _ = self._unpack_observation(
             samples[SampleBatch.CUR_OBS])
-        (next_obs_batch, next_action_mask, next_env_global_state, _) = self._unpack_observation(
+        (next_obs_batch, next_action_mask, next_env_global_state, terminal_flags) = self._unpack_observation(
             samples[SampleBatch.NEXT_OBS])
         group_rewards = self._get_group_rewards(samples[SampleBatch.INFOS])
 
@@ -392,9 +398,9 @@ class BQLPolicy(LearningRateSchedule, Policy):
 
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
-        rewards = to_batches(rew, torch.float) / self.n_agents
-        if self.reward_standardize:
-            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+        rewards = to_batches(rew, torch.float)  # / self.n_agents
+        # if self.reward_standardize:
+        #     rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         actions = to_batches(act, torch.long)
         obs = to_batches(obs, torch.float).reshape(
@@ -419,10 +425,10 @@ class BQLPolicy(LearningRateSchedule, Policy):
             B, T, self.n_agents)
 
         # Compute loss
-        loss_out, mask, masked_td_error, chosen_action_qvals, targets = (
-            self.loss(rewards, actions, terminated, mask, obs, next_obs,
-                      action_mask, next_action_mask, self.global_timestep,
-                      env_global_state, next_env_global_state))
+        loss_out, mask, masked_td_error, chosen_action_qvals, targets, weight_stats = (
+            self.loss(self.global_timestep, rewards, actions, terminated, mask, obs, next_obs,
+                      action_mask, next_action_mask, env_global_state,
+                      next_env_global_state))
 
         # Optimise
         self.optimiser.zero_grad()
@@ -440,6 +446,7 @@ class BQLPolicy(LearningRateSchedule, Policy):
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() /
                             mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
+            "weight_stats": weight_stats
         }
         return {LEARNER_STATS_KEY: stats}
 

@@ -189,7 +189,7 @@ class JointQLoss(nn.Module):
             tdw_weights = batch_assign_sample_weights(targets)
             save_weights(targets, rewards, td_error, tdw_weights, timestep, self.n_agents, self.training_iter)
         else:
-            weights = torch.ones_like(targets)
+            tdw_weights = torch.ones_like(targets)
 
         mask = mask.expand_as(td_error)
 
@@ -388,9 +388,9 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
     @override(Policy)
     def learn_on_batch(self, samples):
-        obs_batch, action_mask, env_global_state, terminal_flags = self._unpack_observation(
+        obs_batch, action_mask, env_global_state, _ = self._unpack_observation(
             samples[SampleBatch.CUR_OBS])
-        (next_obs_batch, next_action_mask, next_env_global_state, _) = self._unpack_observation(
+        (next_obs_batch, next_action_mask, next_env_global_state, terminal_flags) = self._unpack_observation(
             samples[SampleBatch.NEXT_OBS])
         group_rewards = self._get_group_rewards(samples[SampleBatch.INFOS])
 
@@ -427,9 +427,9 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
-        rewards = to_batches(rew, torch.float) / self.n_agents
-        if self.reward_standardize:
-            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+        rewards = to_batches(rew, torch.float)  # / self.n_agents
+        # if self.reward_standardize:
+        #     rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         actions = to_batches(act, torch.long)
         obs = to_batches(obs, torch.float).reshape(

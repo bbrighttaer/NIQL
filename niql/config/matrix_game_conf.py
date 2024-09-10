@@ -3,7 +3,7 @@ from niql.callbacks import NIQLCallbacks
 MATRIX_GAME = {
     "algo_parameters": {
         "algo_args": {
-            "batch_episode": 256,
+            "batch_episode": 32,
             "lr": 0.0005,
             "tdw_schedule": [
                 [0, 1.0],
@@ -15,11 +15,11 @@ MATRIX_GAME = {
             "buffer_size": 5000,
             "target_network_update_freq": 1,
             "tau": 0.01,  # target network soft update
-            "final_epsilon": 0.1,
-            "epsilon_timesteps": 30000,
+            "final_epsilon": 0.05,
+            "epsilon_timesteps": 20000,
             "optimizer": "rmsprop",
             "reward_standardize": False,
-            "gamma": 1.,
+            "gamma": 1.0,
             "lambda": 0.2,
             "callbacks": NIQLCallbacks,
             "sharing_batch_size": 10,
