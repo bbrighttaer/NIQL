@@ -53,6 +53,6 @@ if __name__ == "__main__":
 
     # start training
     algo.fit(
-        env, model, num_gpus=gpu_count, share_policy="all", local_mode=gpu_count > 0,
+        env, model, num_gpus=gpu_count, share_policy="all", local_mode=gpu_count == 0,
         checkpoint_freq=10000, stop=exp_config["stop_condition"]
     )
