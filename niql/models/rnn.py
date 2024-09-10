@@ -36,7 +36,7 @@ class JointQRNN(TorchModelV2, nn.Module):
         nn.Module.__init__(self)
         self.custom_config = model_config["custom_model_config"]
         self.full_obs_space = getattr(obs_space, "original_space", obs_space)
-        self.n_agents = self.custom_config["num_agents"]
+        self.n_agents = model_config["n_agents"]
 
         # only support gru cell
         if self.custom_config["model_arch_args"]["core_arch"] != "gru":

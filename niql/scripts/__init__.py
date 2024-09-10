@@ -1,1 +1,0 @@
-from .vdn_qmix_iql_script import run_joint_q  # noqa

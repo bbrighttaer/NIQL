@@ -51,8 +51,8 @@ def get_policy_class(algorithm, config_):
     }.get(algorithm)
 
 
-def run_joint_q(model: Any, exp: Dict, running_config: Dict, env: Dict,
-                stop: Dict, restore: Dict) -> ExperimentAnalysis:
+def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
+                   stop: Dict, restore: Dict) -> ExperimentAnalysis:
     """ This script runs the IQL, VDN, and QMIX algorithm using Ray RLlib.
     Args:
         :params model (str): The name of the model class to register.
@@ -74,6 +74,7 @@ def run_joint_q(model: Any, exp: Dict, running_config: Dict, env: Dict,
     _param = AlgVar(exp)
 
     algorithm = exp["algorithm"]
+    algo_type = exp["algo_type"]
     episode_limit = env["episode_limit"]
     train_batch_episode = _param["batch_episode"]
     lr = _param["lr"]
@@ -93,6 +94,7 @@ def run_joint_q(model: Any, exp: Dict, running_config: Dict, env: Dict,
 
     JointQ_Config.update(
         {
+            "algo_type": algo_type,
             "rollout_fragment_length": 1,
             "buffer_size": buffer_size,  # buffer_size * episode_limit,  # in timesteps
             "train_batch_size": train_batch_episode,  # in sequence
@@ -147,7 +149,7 @@ def run_joint_q(model: Any, exp: Dict, running_config: Dict, env: Dict,
 
     map_name = exp["env_args"]["map_name"]
     arch = exp["model_arch_args"]["core_arch"]
-    RUNNING_NAME = '_'.join([algorithm, arch, map_name])
+    RUNNING_NAME = '_'.join([algorithm, arch, map_name, "joint" if algo_type.lower() == "vd" else algo_type.lower()])
     model_path = restore_model(restore, exp)
 
     results = tune.run(JQTrainer,

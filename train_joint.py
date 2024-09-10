@@ -5,8 +5,9 @@ from argparse import ArgumentParser
 import torch
 from marllib.marl import build_model
 
-from niql import algos, scripts, envs
+from niql import algos, envs
 from niql.algo import ALGORITHMS
+from niql.running_script import run_experiment
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ def register_algorithms():
         algos.register_algo(
             algo_name=a,
             style="vd",
-            script=scripts.run_joint_q,
+            script=run_experiment,
         )
 
 
@@ -30,7 +31,7 @@ if __name__ == "__main__":
         type=str,
         default="vdn",
         choices=ALGORITHMS,
-        help="Select which CTDE algorithm to run.",
+        help="Select an algorithm to run.",
     )
 
     args = parser.parse_args()

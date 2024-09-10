@@ -23,7 +23,7 @@
 import tree  # pip install dm_tree
 import torch
 import torch.nn as nn
-from gym.spaces import Dict as Gym_Dict
+from gym.spaces import Dict as GymDict, Tuple as GymTuple, Box
 from ray.rllib.policy.torch_policy import TorchPolicy, LearningRateSchedule
 from ray.rllib.policy.policy import Policy
 from ray.rllib.models.modelv2 import _unpack_obs
@@ -172,6 +172,11 @@ class JointQLoss(nn.Module):
 class JointQPolicy(LearningRateSchedule, Policy):
 
     def __init__(self, obs_space, action_space, config):
+        if config["algo_type"].lower() == "il":
+            action_space = GymTuple([action_space])
+            original_space = GymTuple([obs_space.original_space])
+            obs_space = Box(low=obs_space.low, high=obs_space.high, shape=obs_space.shape)
+            setattr(obs_space, "original_space", original_space)
         _validate(obs_space, action_space)
         config = dict(ray.rllib.agents.qmix.qmix.DEFAULT_CONFIG, **config)
         self.framework = "torch"
@@ -188,7 +193,7 @@ class JointQPolicy(LearningRateSchedule, Policy):
         self.reward_standardize = config["reward_standardize"]
 
         agent_obs_space = obs_space.original_space.spaces[0]
-        if isinstance(agent_obs_space, Gym_Dict):
+        if isinstance(agent_obs_space, GymDict):
             space_keys = set(agent_obs_space.spaces.keys())
             if "obs" not in space_keys:
                 raise ValueError(
