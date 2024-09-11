@@ -8,7 +8,7 @@ default_config = {
             "tdw_schedule": [
                 [0, 1.0],
                 [50000, 1.0],
-                [60000, 0.1],
+                [60000, 0.05],
             ],
             "tdw_eps": 0.1,
             "rollout_fragment_length": 1,
@@ -35,7 +35,7 @@ default_config = {
     },
     "stop_condition": {
         "episode_reward_mean": 2000,
-        "timesteps_total": 2000000,
+        "timesteps_total": 1000000,
     }
 }
 

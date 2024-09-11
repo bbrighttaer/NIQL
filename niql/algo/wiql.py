@@ -162,23 +162,23 @@ class JointQLoss(nn.Module):
         td_error = targets.detach() - chosen_action_qvals
 
         # Get target distribution weights
-        # weights = get_weights(
-        #     self.tdw_schedule,
-        #     mask,
-        #     targets,
-        #     rewards,
-        #     td_error,
-        #     timestep,
-        #     self.device,
-        #     self.tdw_eps,
-        #     self.n_agents,
-        #     self.training_iter,
-        # )
-        if random.random() < self.tdw_schedule.value(timestep):
-            weights = batch_assign_sample_weights(targets)
-            save_weights(targets, rewards, td_error, weights, timestep, self.n_agents, self.training_iter)
-        else:
-            weights = torch.ones_like(targets)
+        weights = get_weights(
+            self.tdw_schedule,
+            mask,
+            targets,
+            rewards,
+            td_error,
+            timestep,
+            self.device,
+            self.tdw_eps,
+            self.n_agents,
+            self.training_iter,
+        )
+        # if random.random() < self.tdw_schedule.value(timestep):
+        #     weights = batch_assign_sample_weights(targets)
+        #     save_weights(targets, rewards, td_error, weights, timestep, self.n_agents, self.training_iter)
+        # else:
+        #     weights = torch.ones_like(targets)
 
         mask = mask.expand_as(td_error)
 
