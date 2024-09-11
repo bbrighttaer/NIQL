@@ -8,7 +8,7 @@ default_config = {
             "tdw_schedule": [
                 [0, 1.0],
                 [50000, 1.0],
-                [60000, 0.05],
+                [60000, 0.1],
             ],
             "tdw_eps": 0.1,
             "rollout_fragment_length": 1,
@@ -20,7 +20,7 @@ default_config = {
             "optimizer": "rmsprop",
             "reward_standardize": False,
             "gamma": 0.99,
-            "lambda": 0.6,
+            "lambda": 0.65,
             "callbacks": NIQLCallbacks,
             "sharing_batch_size": 10,
             "similarity_threshold": 0.999,
