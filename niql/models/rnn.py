@@ -53,7 +53,7 @@ class JointQRNN(TorchModelV2, nn.Module):
         # Place hidden states on same device as model.
         hidden_state = [
             self.q_value.weight.new(self.n_agents,
-                                    self.hidden_state_size).zero_().squeeze(0)
+                                    self.hidden_state_size).zero_()
         ]
         return hidden_state
 

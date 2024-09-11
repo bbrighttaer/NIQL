@@ -15,6 +15,7 @@ from ray.tune.utils import merge_dicts
 from niql import seed
 from niql.algo import JointQPolicy, IQLPolicy, HIQLPolicy, BQLPolicy, WBQLPolicy, WIQLPolicy
 from niql.algo.iqlps_vdn_qmix import JointQTrainer
+from niql.callbacks import EvaluationCSVLoggerCallback
 from niql.execution_plans import episode_execution_plan  # noqa
 
 
@@ -160,6 +161,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
                        stop=stop,
                        config=running_config,
                        verbose=1,
+                       callbacks=[EvaluationCSVLoggerCallback()],
                        progress_reporter=CLIReporter(),
                        local_dir=available_local_dir if exp["local_dir"] == "" else exp["local_dir"])
 

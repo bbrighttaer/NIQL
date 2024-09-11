@@ -183,6 +183,7 @@ class JointQPolicy(LearningRateSchedule, Policy):
         Policy.__init__(self, obs_space, action_space, config)
         LearningRateSchedule.__init__(self, config["lr"], config.get("lr_schedule"))
         self.n_agents = len(obs_space.original_space.spaces)
+        self.env_num_agents = config["model"]["custom_model_config"]["num_agents"]
         config["model"]["n_agents"] = self.n_agents
         self.n_actions = action_space.spaces[0].n
         self.h_size = config["model"]["lstm_cell_size"]
@@ -382,9 +383,9 @@ class JointQPolicy(LearningRateSchedule, Policy):
 
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
-        rewards = to_batches(rew, torch.float) / self.n_agents
-        if self.reward_standardize:
-            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+        rewards = to_batches(rew, torch.float) / self.env_num_agents
+        # if self.reward_standardize:
+        #     rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         actions = to_batches(act, torch.long)
         obs = to_batches(obs, torch.float).reshape(

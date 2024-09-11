@@ -173,23 +173,23 @@ class JointQLoss(nn.Module):
         weights = torch.where(qi_error > 0, 1., self.lambda_)
 
         # Get target distribution weights
-        # tdw_weights = get_weights(
-        #     self.tdw_schedule,
-        #     mask,
-        #     targets,
-        #     rewards,
-        #     td_error,
-        #     timestep,
-        #     self.device,
-        #     self.tdw_eps,
-        #     self.n_agents,
-        #     self.training_iter
-        # )
-        if random.random() < self.tdw_schedule.value(timestep):
-            tdw_weights = batch_assign_sample_weights(targets)
-            save_weights(targets, rewards, td_error, tdw_weights, timestep, self.n_agents, self.training_iter)
-        else:
-            tdw_weights = torch.ones_like(targets)
+        tdw_weights = get_weights(
+            self.tdw_schedule,
+            mask,
+            targets,
+            rewards,
+            td_error,
+            timestep,
+            self.device,
+            self.tdw_eps,
+            self.n_agents,
+            self.training_iter
+        )
+        # if random.random() < self.tdw_schedule.value(timestep):
+        #     tdw_weights = batch_assign_sample_weights(targets)
+        #     save_weights(targets, rewards, td_error, tdw_weights, timestep, self.n_agents, self.training_iter)
+        # else:
+        #     tdw_weights = torch.ones_like(targets)
 
         mask = mask.expand_as(td_error)
 
@@ -219,6 +219,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         Policy.__init__(self, obs_space, action_space, config)
         LearningRateSchedule.__init__(self, config["lr"], config.get("lr_schedule"))
         self.n_agents = len(obs_space.original_space.spaces)
+        self.env_num_agents = config["model"]["custom_model_config"]["num_agents"]
         config["model"]["n_agents"] = self.n_agents
         self.n_actions = action_space.spaces[0].n
         self.h_size = config["model"]["lstm_cell_size"]
@@ -427,7 +428,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
-        rewards = to_batches(rew, torch.float)  # / self.n_agents
+        rewards = to_batches(rew, torch.float) / self.env_num_agents
         # if self.reward_standardize:
         #     rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 

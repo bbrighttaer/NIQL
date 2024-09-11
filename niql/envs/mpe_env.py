@@ -32,6 +32,7 @@ from ray.rllib.env import ParallelPettingZooEnv
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from niql.envs import mpe_simple_reference
 from niql import seed
+from niql.utils import unwrap_multi_agent_actions, apply_coop_reward
 
 # from pettingzoo 1.12.0
 
@@ -104,16 +105,17 @@ class MPEEnv(MultiAgentEnv):
         return obs
 
     def step(self, action_dict):
+        action_dict = unwrap_multi_agent_actions(action_dict)
         o, r, d, info = self.env.step(action_dict)
         rewards = {}
         obs = {}
 
         # Check for cooperation env reward
         raw_rew = list(r.values())
-        if np.mean(raw_rew) != raw_rew[0]:
-            warnings.warn(
-                colorize("%s: %s" % ("WARN", "Agent rewards are not the same: " + str(raw_rew)), "yellow")
-            )
+        # if np.mean(raw_rew) != raw_rew[0]:
+        #     warnings.warn(
+        #         colorize("%s: %s" % ("WARN", "Agent rewards are not the same: " + str(raw_rew)), "yellow")
+        #     )
 
         for key in action_dict.keys():
             rewards[key] = r[key]
@@ -122,6 +124,7 @@ class MPEEnv(MultiAgentEnv):
                 "terminal": np.array([d[key]], dtype=self._dtype)
             }
         dones = {"__all__": d["__all__"]}
+        rewards = apply_coop_reward(rewards)
         return obs, rewards, dones, info
 
     def close(self):

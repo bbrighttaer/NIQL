@@ -7,7 +7,7 @@ from gym import spaces
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.typing import MultiAgentDict
 
-from niql.utils import DotDict
+from niql.utils import DotDict, unwrap_multi_agent_actions, apply_coop_reward
 
 policy_mapping_dict = {
     "all_scenario": {
@@ -88,6 +88,7 @@ class SwitchRiddle(MultiAgentEnv):
             }
 
     def step(self, action_dict: MultiAgentDict):
+        action_dict = unwrap_multi_agent_actions(action_dict)
         terminal = False
         reward = 0
         active_agent_idx = self.active_agent[self.step_count]
@@ -114,7 +115,7 @@ class SwitchRiddle(MultiAgentEnv):
             info[agent] = {"god_reward": self.god_strategy_reward()}
 
         self.step_count += 1
-
+        rew = apply_coop_reward(rew)
         return obs, rew, done, info
 
     def get_state(self):

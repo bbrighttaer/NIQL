@@ -10,6 +10,7 @@ from gym.utils import colorize
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 from niql import seed
+from niql.utils import unwrap_multi_agent_actions, apply_coop_reward
 
 policy_mapping_dict = {
     "all_scenario": {
@@ -60,6 +61,7 @@ class MAGymEnv(MultiAgentEnv):
         return obs
 
     def step(self, action_dict):
+        action_dict = unwrap_multi_agent_actions(action_dict)
         raw_obs, raw_rew, raw_done, raw_info = self.env.step(action_dict.values())
         obs = {}
         rew = {}
@@ -67,10 +69,10 @@ class MAGymEnv(MultiAgentEnv):
         info = {}
 
         # Check for cooperation env reward
-        if np.mean(raw_rew) != raw_rew[0]:
-            warnings.warn(
-                colorize("%s: %s" % ("WARN", "Agent rewards are not the same: " + str(raw_rew)), "yellow")
-            )
+        # if np.mean(raw_rew) != raw_rew[0]:
+        #     warnings.warn(
+        #         colorize("%s: %s" % ("WARN", "Agent rewards are not the same: " + str(raw_rew)), "yellow")
+        #     )
 
         for agent, r_obs, r_rew, r_done in zip(self.agents, raw_obs, raw_rew, raw_done):
             obs[agent] = {
@@ -80,7 +82,7 @@ class MAGymEnv(MultiAgentEnv):
             rew[agent] = r_rew
             done[agent] = r_done
             info[agent] = dict(raw_info)
-
+        rew = apply_coop_reward(rew)
         return obs, rew, done, info
 
     def render(self, mode="human"):

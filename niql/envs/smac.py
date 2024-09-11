@@ -25,6 +25,8 @@ from smac.env.starcraft2.starcraft2 import StarCraft2Env
 import numpy as np
 from gym.spaces import Dict as GymDict, Discrete, Box
 
+from niql.utils import unwrap_multi_agent_actions, apply_coop_reward
+
 policy_mapping_dict = {
     "all_scenario": {
         "description": "smac all scenarios",
@@ -84,9 +86,9 @@ class RLlibSMAC(MultiAgentEnv):
 
         return obs_dict
 
-    def step(self, actions):
-
-        actions_ls = [int(actions[agent_id]) for agent_id in actions.keys()]
+    def step(self, action_dict):
+        action_dict = unwrap_multi_agent_actions(action_dict)
+        actions_ls = [int(action_dict[agent_id]) for agent_id in action_dict.keys()]
 
         reward, terminated, info = self.env.step(actions_ls)
 
@@ -109,7 +111,7 @@ class RLlibSMAC(MultiAgentEnv):
             reward_dict[agent_index] = reward
 
         dones = {"__all__": terminated}
-
+        reward_dict = apply_coop_reward(reward_dict)
         return obs_dict, reward_dict, dones, {}
 
     def get_env_info(self):

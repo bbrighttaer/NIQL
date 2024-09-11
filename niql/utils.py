@@ -1,6 +1,7 @@
 import copy
 from typing import Callable
 
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
@@ -963,3 +964,17 @@ def shuffle_tensors_together(*tensors):
     shuffled_tensors = [t[perm] for t in tensors]
 
     return shuffled_tensors
+
+
+def unwrap_multi_agent_actions(actions: Dict) -> Dict:
+    agent_actions = {}
+    for k, v in actions.items():
+        if isinstance(v, tuple):
+            v = v[0]
+        agent_actions[k] = v
+    return agent_actions
+
+
+def apply_coop_reward(agent_rewards: Dict) -> Dict:
+    mean_reward = np.mean(list(agent_rewards.values()))
+    return {k: mean_reward for k in agent_rewards}

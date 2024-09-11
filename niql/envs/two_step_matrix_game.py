@@ -5,6 +5,7 @@ from gym import spaces
 from ray.rllib import MultiAgentEnv
 
 from niql import seed
+from niql.utils import unwrap_multi_agent_actions, apply_coop_reward
 
 policy_mapping_dict = {
     "all_scenario": {
@@ -83,6 +84,7 @@ class TwoStepMultiAgentCoopMatrixGame(MultiAgentEnv):
         return obs
 
     def step(self, actions):
+        actions = unwrap_multi_agent_actions(actions)
         self.step_count += 1
         if self.step_count > self.max_steps:
             raise ValueError("All steps already taken")
@@ -129,6 +131,7 @@ class TwoStepMultiAgentCoopMatrixGame(MultiAgentEnv):
 
             # Return observations, global payoff, done flag (always False for this game), and info dictionary
             rewards = {agent: reward for agent, reward in zip(self.agents, payoffs)}
+            rewards = apply_coop_reward(rewards)
             info = {agent: {} for agent in self.agents}
             return obs, rewards, {"__all__": True}, info
 

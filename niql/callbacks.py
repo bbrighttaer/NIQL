@@ -1,5 +1,7 @@
+import csv
+import os
 from queue import Queue
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import Dict, Optional, TYPE_CHECKING, TextIO
 
 from ray.rllib.agents.callbacks import DefaultCallbacks
 from ray.rllib.env import BaseEnv, GroupAgentsWrapper
@@ -7,7 +9,9 @@ from ray.rllib.evaluation import MultiAgentEpisode
 from ray.rllib.evaluation import RolloutWorker
 from ray.rllib.policy import Policy
 from ray.rllib.utils.typing import PolicyID
-
+from ray.tune.logger import LoggerCallback
+from ray.tune.result import EXPR_PROGRESS_FILE
+from ray.util.ml_utils.dict import flatten_dict
 
 if TYPE_CHECKING:
     from ray.rllib.evaluation import RolloutWorker
@@ -98,3 +102,67 @@ class NIQLCallbacks(DefaultCallbacks):
 
             episode.custom_metrics["enemy_kill_rate"] = sum(
                 self.enemy_killing_queue.queue) / self.enemy_killing_queue.qsize()
+
+
+class EvaluationCSVLoggerCallback(LoggerCallback):
+    """Logs results to progress_eval.csv under the trial directory.
+
+    Automatically flattens nested dicts in the result dict before writing
+    to csv:
+
+        {"a": {"b": 1, "c": 2}} -> {"a/b": 1, "a/c": 2}
+
+    """
+
+    def __init__(self):
+        self._trial_continue: Dict["Trial", bool] = {}
+        self._trial_files: Dict["Trial", TextIO] = {}
+        self._trial_csv: Dict["Trial", csv.DictWriter] = {}
+
+    def log_trial_start(self, trial: "Trial"):
+        if trial in self._trial_files:
+            self._trial_files[trial].close()
+
+        # Make sure logdir exists
+        trial.init_logdir()
+        _parts = EXPR_PROGRESS_FILE.split(".")
+        local_file = os.path.join(trial.logdir, f"{_parts[0]}_eval.{_parts[1]}")
+        self._trial_continue[trial] = os.path.exists(local_file)
+        self._trial_files[trial] = open(local_file, "at")
+        self._trial_csv[trial] = None
+
+    def log_trial_result(self, iteration: int, trial: "Trial", result: Dict):
+        # Log only evaluation results
+        if not ("evaluation" in result):
+            return
+
+        if trial not in self._trial_files:
+            self.log_trial_start(trial)
+
+        tmp = result.copy()
+        tmp.pop("config", None)
+        result = flatten_dict(tmp, delimiter="/")
+
+        if not self._trial_csv[trial]:
+            self._trial_csv[trial] = csv.DictWriter(self._trial_files[trial],
+                                                    result.keys())
+            if not self._trial_continue[trial]:
+                self._trial_csv[trial].writeheader()
+
+        if "evaluation/episode_reward_mean" in self._trial_csv[trial].fieldnames:
+            x = 0
+
+        self._trial_csv[trial].writerow({
+            k: v
+            for k, v in result.items()
+            if k in self._trial_csv[trial].fieldnames
+        })
+        self._trial_files[trial].flush()
+
+    def log_trial_end(self, trial: "Trial", failed: bool = False):
+        if trial not in self._trial_files:
+            return
+
+        del self._trial_csv[trial]
+        self._trial_files[trial].close()
+        del self._trial_files[trial]
