@@ -2,8 +2,8 @@ env: PenaltyMatrixGame
 
 env_args:
   map_name: "penalty"
-  ep_length: 7500
-  penalty: -100
+  ep_length: 100
+  penalty: -10
 
 mask_flag: False
 global_state_flag: False

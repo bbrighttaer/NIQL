@@ -107,9 +107,15 @@ class JointQLoss(nn.Module):
             mac_out = torch.cat(mac_out, dim=2)
             return mac_out
 
-        qi_mac_out = forward_prop(self.models)
-        qe_mac_out = forward_prop(self.aux_models)
-        qe_target_mac_out = forward_prop(self.aux_target_models)
+        # Models for objective function
+        Qe = self.aux_models
+        Qe_bar = self.aux_target_models
+        Qi = self.models
+
+        # Get model outputs
+        qi_mac_out = forward_prop(Qi)
+        qe_mac_out = forward_prop(Qe)
+        qe_bar_mac_out = forward_prop(Qe_bar)
 
         # -------- Qe objective ------- #
         # Pick the q-values of chosen action estimated by Qe
@@ -157,7 +163,7 @@ class JointQLoss(nn.Module):
             qi_mac_out[:, :-1], dim=3, index=actions.unsqueeze(3)
         ).squeeze(3)
         qe_target_chosen_action_qvals = torch.gather(
-            qe_target_mac_out[:, :-1], dim=3, index=actions.unsqueeze(3)
+            qe_bar_mac_out[:, :-1], dim=3, index=actions.unsqueeze(3)
         ).squeeze(3)
         qi_error = qe_target_chosen_action_qvals.detach() - qi_chosen_action_qvals
 
