@@ -9,6 +9,7 @@ SMAC = {
                 [0, 1.0],
                 [50000, 1.0],
                 [60000, 0.1],
+                [1000000, 0.]
             ],
             "tdw_eps": 0.1,
             "rollout_fragment_length": 1,
@@ -35,7 +36,7 @@ SMAC = {
     },
     "stop_condition": {
         "episode_reward_mean": 2000,
-        "timesteps_total": 2000000,
+        "timesteps_total": 4000000,
     }
 }
 
