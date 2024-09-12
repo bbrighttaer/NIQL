@@ -12,11 +12,11 @@ MATRIX_GAME = {
             ],
             "tdw_eps": 0.1,
             "rollout_fragment_length": 1,
-            "buffer_size": 5000,
+            "buffer_size": 10000,
             "target_network_update_freq": 1,
             "tau": 0.01,  # target network soft update
             "final_epsilon": 0.01,
-            "epsilon_timesteps": 2000,
+            "epsilon_timesteps": 10000,
             "optimizer": "rmsprop",
             "reward_standardize": False,
             "gamma": 0.99,
@@ -35,6 +35,6 @@ MATRIX_GAME = {
     },
     "stop_condition": {
         "episode_reward_mean": 2000,
-        "timesteps_total": 10000,
+        "timesteps_total": 100000,
     }
 }

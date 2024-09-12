@@ -5,13 +5,10 @@ from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 
 from .ma_gym_env import MAGymEnv
 from .mpe_env import MPEEnv
-from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
-from .one_step_matrix_game import OneStepMultiAgentCoopMatrixGame
+from .matrix_games import MultiAgentMatrixGameEnv
 from .smac import RLlibSMAC
 from .switch_riddle import SwitchRiddle
-from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
-from .two_step_matrix_game import TwoStepMultiAgentCoopMatrixGame
-from .utils import make_local_env
+from .env_utils import make_local_env
 from ..config import SMAC, MPE, MATRIX_GAME, ma_gym_env_conf
 from ..config.switch_game_conf import SWITCH_RIDDLE
 
@@ -19,7 +16,7 @@ DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
 
 
 def get_active_env(**kwargs):
-    return make_one_step_matrix_game_env(**kwargs)
+    return make_one_step_matrix_game(**kwargs)
 
 
 def make_mpe_simple_spread_env(**kwargs):
@@ -110,6 +107,36 @@ def make_ma_gym_env(env_name, **kwargs):
     return env, config
 
 
+def make_one_step_matrix_game(*args, **kwargs):
+    return make_matrix_game_env("OneStepMatrixGame")
+
+
+def make_two_step_matrix_game(*args, **kwargs):
+    return make_matrix_game_env("TwoStepMatrixGame")
+
+
+def make_climbing_matrix_game(*args, **kwargs):
+    return make_matrix_game_env("ClimbingMatrixGame")
+
+
+def make_penalty_matrix_game(*args, **kwargs):
+    return make_matrix_game_env("PenaltyMatrixGame")
+
+
+def make_matrix_game_env(env_name, **kwargs):
+    # register new env
+    COOP_ENV_REGISTRY[env_name] = MultiAgentMatrixGameEnv
+    ENV_REGISTRY[env_name] = MultiAgentMatrixGameEnv
+
+    # choose environment + scenario
+    env = make_local_env(
+        environment_name=env_name,
+        force_coop=True,
+        **kwargs,
+    )
+    return env, MATRIX_GAME
+
+
 def make_smac_env(**kwargs):
     # register new env
     ENV_REGISTRY["smac"] = RLlibSMAC
@@ -135,46 +162,6 @@ def make_mpe_simple_env(**kwargs):
         **kwargs,
     )
     return env, MPE
-
-
-def make_two_step_matrix_game_env(**kwargs):
-    # register new env
-    ENV_REGISTRY["TwoStepsCoopMatrixGame"] = TwoStepMultiAgentCoopMatrixGame
-    COOP_ENV_REGISTRY["TwoStepsCoopMatrixGame"] = TwoStepMultiAgentCoopMatrixGame
-
-    # choose environment + scenario
-    env = make_local_env(
-        environment_name="TwoStepsCoopMatrixGame",
-        map_name="all_scenario",
-        **kwargs,
-    )
-    return env, MATRIX_GAME
-
-
-def make_one_step_matrix_game_env(**kwargs):
-    # register new env
-    ENV_REGISTRY["OneStepCoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
-    COOP_ENV_REGISTRY["OneStepCoopMatrixGame"] = OneStepMultiAgentCoopMatrixGame
-
-    # choose environment + scenario
-    env = make_local_env(
-        environment_name="OneStepCoopMatrixGame",
-        map_name="all_scenario",
-        **kwargs,
-    )
-    return env, MATRIX_GAME
-
-
-def pad_obs_space(obs_space):
-    for prop in ['bounded_above', 'bounded_below', 'high', 'low']:
-        if hasattr(obs_space, prop):
-            val = obs_space.bounded_above[0]
-            setattr(obs_space, prop, np.pad(getattr(obs_space, prop), (0, 2), 'constant', constant_values=(val,)))
-    if hasattr(obs_space, 'original_space'):
-        pad_obs_space(obs_space.original_space.spaces['obs'])
-    if hasattr(obs_space, '_shape'):
-        obs_space._shape = obs_space.bounded_above.shape
-    return obs_space
 
 
 def make_switch_riddle_env(**kwargs):

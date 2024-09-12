@@ -12,7 +12,7 @@ from tabulate import tabulate
 
 def make_local_env(
         environment_name: str,
-        map_name: str,
+        map_name: str = None,
         force_coop: bool = False,
         abs_path: str = "",
         **env_params
@@ -52,7 +52,8 @@ def make_local_env(
 
     # update commandline config
     env_config_dict["env_args"] = dict_update(env_config_dict["env_args"], user_env_args, True)
-    env_config_dict["env_args"]["map_name"] = map_name
+    if map_name:
+        env_config_dict["env_args"]["map_name"] = map_name
     env_config_dict["force_coop"] = force_coop
 
     # combine with exp running config

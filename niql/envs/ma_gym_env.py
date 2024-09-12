@@ -62,7 +62,7 @@ class MAGymEnv(MultiAgentEnv):
 
     def step(self, action_dict):
         action_dict = unwrap_multi_agent_actions(action_dict)
-        raw_obs, raw_rew, raw_done, raw_info = self.env.step(action_dict.values())
+        raw_obs, raw_rew, raw_done, raw_info = self.env.step(list(action_dict.values()))
         obs = {}
         rew = {}
         done = {"__all__": all(raw_done)}

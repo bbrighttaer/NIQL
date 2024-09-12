@@ -1,8 +1,7 @@
-env: TwoStepsCoopMatrixGame
+env: TwoStepMatrixGame
 
 env_args:
-  map_name: "all_scenario"
-  continuous_actions: False,
+  map_name: "two_step"
   monotonic_payoff: False
   linear_payoff: False
 
