@@ -27,8 +27,8 @@ def create_penalty_game(ep_length, penalty):
 def create_climbing_game(ep_length):
     payoff = np.array([
         [11, -30, 0],
-        [-30, 7, 0],
-        [0, 6, 5],
+        [-30, 7, 6],
+        [0, 0, 5],
     ])
     game = MatrixGame(payoff, ep_length)
     return game

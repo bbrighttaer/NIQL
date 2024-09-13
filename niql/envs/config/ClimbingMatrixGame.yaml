@@ -3,7 +3,6 @@ env: ClimbingMatrixGame
 env_args:
   map_name: "climbing"
   ep_length: 100
-  penalty: -10
 
 mask_flag: False
 global_state_flag: False
