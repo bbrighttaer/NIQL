@@ -8,12 +8,11 @@ MPE = {
             "tdw_schedule": [
                 [0, 1.0],
                 [50000, 1.0],
-                [60000, 0.0],
+                [60000, 0.1],
             ],
-            "tdw_bandwidth": 5.,
+            "tdw_eps": 0.1,
             "rollout_fragment_length": 1,
             "buffer_size": 5000,
-            "enable_stochastic_eviction": True,
             "target_network_update_freq": 1,
             "tau": 0.01,  # target network soft update
             "final_epsilon": 0.05,
@@ -28,9 +27,9 @@ MPE = {
         }
     },
     "model_preference": {
-        "core_arch": "gru",  # mlp | gru
-        "encode_layer": "64",  # for RNN model
-        "hidden_state_size": 64,  # for RNN model
+        "core_arch": "mlp",  # mlp | gru
+        "encode_layer": "128",  # for RNN model
+        "hidden_state_size": 128,  # for RNN model
         "hidden_layer_dims": [128, 64],  # for mlp model
         "add_action_dim": False,
     },
