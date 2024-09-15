@@ -317,7 +317,7 @@ def save_weights(targets, rewards, td_error, weights, timestep, n_agents, traini
         df.to_csv(f"tdw_data_{training_iter}_{timestep}.csv", index=True)
 
 
-def batch_assign_sample_weights(M, alpha=1., beta=0.01, k_percentile=99):
+def batch_assign_sample_weights(M, alpha=1., beta=0.2, k_percentile=90):
     """
     Assign weights to each sample in M agent-wise, with alpha for the top-k percentile
     and beta for the remaining samples.

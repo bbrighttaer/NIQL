@@ -8,7 +8,7 @@ MATRIX_GAME = {
             "tdw_schedule": [
                 [0, 1.0],
                 [50000, 1.0],
-                [60000, 0.1],
+                [60000, 0.0],
             ],
             "tdw_eps": 0.1,
             "rollout_fragment_length": 1,

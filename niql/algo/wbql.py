@@ -179,23 +179,23 @@ class JointQLoss(nn.Module):
         weights = torch.where(qi_error > 0, 1., self.lambda_)
 
         # Get target distribution weights
-        tdw_weights = get_weights(
-            self.tdw_schedule,
-            mask,
-            targets,
-            rewards,
-            td_error,
-            timestep,
-            self.device,
-            self.tdw_eps,
-            self.n_agents,
-            self.training_iter
-        )
-        # if random.random() < self.tdw_schedule.value(timestep):
-        #     tdw_weights = batch_assign_sample_weights(targets)
-        #     save_weights(targets, rewards, td_error, tdw_weights, timestep, self.n_agents, self.training_iter)
-        # else:
-        #     tdw_weights = torch.ones_like(targets)
+        # tdw_weights = get_weights(
+        #     self.tdw_schedule,
+        #     mask,
+        #     targets,
+        #     rewards,
+        #     td_error,
+        #     timestep,
+        #     self.device,
+        #     self.tdw_eps,
+        #     self.n_agents,
+        #     self.training_iter
+        # )
+        if random.random() < self.tdw_schedule.value(timestep):
+            tdw_weights = batch_assign_sample_weights(targets)
+            save_weights(targets, rewards, td_error, tdw_weights, timestep, self.n_agents, self.training_iter)
+        else:
+            tdw_weights = torch.ones_like(targets)
 
         mask = mask.expand_as(td_error)
 
