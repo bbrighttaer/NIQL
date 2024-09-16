@@ -9,7 +9,6 @@ SMAC = {
                 [0, 1.0],
                 [50000, 1.0],
                 [60000, 0.1],
-                [1000000, 0.]
             ],
             "tdw_eps": 0.1,
             "rollout_fragment_length": 1,
@@ -28,10 +27,10 @@ SMAC = {
         }
     },
     "model_preference": {
-        "core_arch": "gru",  # mlp | gru
+        "core_arch": "mlp",  # mlp | gru
         "encode_layer": "128",  # for RNN model
         "hidden_state_size": 128,  # for RNN model
-        "hidden_layer_dims": [128, 64],  # for mlp model
+        "hidden_layer_dims": [512, 128, 64],  # for mlp model
         "add_action_dim": False,
     },
     "stop_condition": {
