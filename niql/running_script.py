@@ -135,7 +135,8 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
         "model": {
             "max_seq_len": episode_limit,  # dynamic
             "custom_model_config": back_up_config,
-            "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"]
+            "fcnet_hiddens": back_up_config["model_arch_args"]["hidden_layer_dims"],
+            "fcnet_activation": "relu"
         },
         "evaluation_interval": 10,  # x timesteps_per_iteration (default is 1000)
         "evaluation_num_episodes": 10,
