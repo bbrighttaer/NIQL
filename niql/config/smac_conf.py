@@ -27,15 +27,15 @@ SMAC = {
         }
     },
     "model_preference": {
-        "core_arch": "mlp",  # mlp | gru
+        "core_arch": "gru",  # mlp | gru
         "encode_layer": "128",  # for RNN model
-        "hidden_state_size": 128,  # for RNN model
-        "hidden_layer_dims": [512, 128, 64],  # for mlp model
+        "hidden_state_size": 64,  # for RNN model
+        "hidden_layer_dims": [128, 64],  # for mlp model
         "add_action_dim": False,
     },
     "stop_condition": {
         "episode_reward_mean": 2000,
-        "timesteps_total": 4000000,
+        "timesteps_total": 2050000,
     }
 }
 

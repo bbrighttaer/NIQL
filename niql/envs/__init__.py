@@ -143,7 +143,7 @@ def make_smac_env(**kwargs):
     COOP_ENV_REGISTRY["smac"] = RLlibSMAC
     env = make_local_env(
         environment_name="smac",
-        map_name=kwargs.get("map_name", "3s_vs_5z"),
+        map_name=kwargs.get("map_name", "2s3z"),
     )
     return env, SMAC
 
