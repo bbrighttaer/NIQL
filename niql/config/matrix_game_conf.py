@@ -22,8 +22,7 @@ MATRIX_GAME = {
             "gamma": 0.99,
             "lambda": 0.2,
             "callbacks": NIQLCallbacks,
-            "sharing_batch_size": 10,
-            "similarity_threshold": 0.999,
+            "add_action_dim": False,
         }
     },
     "model_preference": {
@@ -31,7 +30,6 @@ MATRIX_GAME = {
         "encode_layer": "64",  # for RNN model
         "hidden_state_size": 64,  # for RNN model
         "hidden_layer_dims": [64],  # for mlp model
-        "add_action_dim": False,
     },
     "stop_condition": {
         "episode_reward_mean": 2000,

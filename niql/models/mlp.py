@@ -46,6 +46,8 @@ class JointQMLP(TorchModelV2, nn.Module):
 
         # layers
         input_dim = self.full_obs_space.shape[0]
+        if model_config["add_action_dim"]:
+            input_dim += num_outputs
         hidden_layer_dims = self.custom_config["model_arch_args"]["hidden_layer_dims"]
         layers = []
         for hdim in hidden_layer_dims:

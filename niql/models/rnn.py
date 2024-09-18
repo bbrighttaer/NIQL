@@ -20,14 +20,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import torch.nn as nn
 from ray.rllib.models.modelv2 import ModelV2
-from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.models.torch.misc import SlimFC, normc_initializer
+from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.utils.annotations import override
-from ray.rllib.utils.framework import try_import_torch
-from marllib.marl.models.zoo.encoder.base_encoder import BaseEncoder
-
-torch, nn = try_import_torch()
 
 
 class JointQRNN(TorchModelV2, nn.Module):
@@ -48,16 +45,15 @@ class JointQRNN(TorchModelV2, nn.Module):
                 "core arch should be gru, got {}".format(self.custom_config["model_arch_args"]["core_arch"]))
 
         self.activation = model_config.get("fcnet_activation")
+        self.hidden_state_size = self.custom_config["model_arch_args"]["hidden_state_size"]
+        input_dim = self.full_obs_space.shape[0]
+        if model_config["add_action_dim"]:
+            input_dim += num_outputs
 
         # encoder
-        self.encoder = BaseEncoder(model_config, {'obs': self.full_obs_space})
-        self.hidden_state_size = self.custom_config["model_arch_args"]["hidden_state_size"]
-        self.rnn = nn.GRUCell(self.encoder.output_dim, self.hidden_state_size)
-        self.q_value = SlimFC(
-            in_size=self.hidden_state_size,
-            out_size=num_outputs,
-            initializer=normc_initializer(0.01),
-            activation_fn=None)
+        self.encoder = nn.Linear(input_dim, self.hidden_state_size)
+        self.rnn = nn.GRUCell(self.hidden_state_size, self.hidden_state_size)
+        self.q_value = nn.Linear(self.hidden_state_size, num_outputs)
 
         # record the custom config
         if self.custom_config["global_state_flag"]:
@@ -70,8 +66,7 @@ class JointQRNN(TorchModelV2, nn.Module):
     def get_initial_state(self):
         # Place hidden states on same device as model.
         hidden_state = [
-            self.q_value._model._modules["0"].weight.new(self.n_agents,
-                                                         self.hidden_state_size).zero_()
+            self.q_value.weight.new(self.n_agents, self.hidden_state_size).zero_()
         ]
         return hidden_state
 

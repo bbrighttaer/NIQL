@@ -114,6 +114,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
             "mixer": mixer_dict.get(algorithm),
             "tdw_eps": _param.get("tdw_eps", 0.1),
             "tdw_schedule": _param.get("tdw_schedule"),
+            "add_action_dim": _param.get("add_action_dim", False)
         })
 
     JointQ_Config[
