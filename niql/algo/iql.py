@@ -48,6 +48,7 @@ class JointQLoss(nn.Module):
                  target_models,
                  n_agents,
                  n_actions,
+                 add_action_dim,
                  double_q=True,
                  gamma=0.99):
         nn.Module.__init__(self)
@@ -57,10 +58,12 @@ class JointQLoss(nn.Module):
         self.n_actions = n_actions
         self.double_q = double_q
         self.gamma = gamma
+        self.add_action_dim = add_action_dim
 
     def forward(self,
                 rewards,
                 actions,
+                prev_actions,
                 terminated,
                 mask,
                 obs,
@@ -74,6 +77,7 @@ class JointQLoss(nn.Module):
         Args:
             rewards: Tensor of shape [B, T, n_agents]
             actions: Tensor of shape [B, T, n_agents]
+            prev_actions: Tensor of shape [B, T, n_agents]
             terminated: Tensor of shape [B, T, n_agents]
             mask: Tensor of shape [B, T, n_agents]
             obs: Tensor of shape [B, T, n_agents, obs_size]
@@ -85,6 +89,12 @@ class JointQLoss(nn.Module):
         """
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
+
+        # construct prev actions for whole_obs
+        if self.add_action_dim:
+            whole_prev_actions = torch.cat([prev_actions[:, 0:1], actions], dim=1)
+            actions_one_hot_enc = torch.eye(self.n_actions)[whole_prev_actions]
+            whole_obs = torch.cat([whole_obs, actions_one_hot_enc], dim=-1)
 
         # Calculate estimated Q-Values
         mac_out = [
@@ -175,6 +185,8 @@ class IQLPolicy(LearningRateSchedule, Policy):
         self.n_agents = len(obs_space.original_space.spaces)  # num of agents controlled in this policy instance
         self.env_num_agents = config["model"]["custom_model_config"]["num_agents"]  # num of agents in the env/neighbors
         config["model"]["n_agents"] = self.n_agents
+        self.add_action_dim = config["add_action_dim"]
+        config["model"]["add_action_dim"] = self.add_action_dim
         self.n_actions = action_space.spaces[0].n
         self.h_size = config["model"]["lstm_cell_size"]
         self.has_env_global_state = False
@@ -237,7 +249,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
         # Setup optimizer
         self.params = list(self.models.parameters())
         self.loss = JointQLoss(self.models, self.target_models, self.n_agents, self.n_actions,
-                               self.config["double_q"], self.config["gamma"])
+                               self.add_action_dim, self.config["double_q"], self.config["gamma"])
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
@@ -283,6 +295,10 @@ class IQLPolicy(LearningRateSchedule, Policy):
         obs_batch, action_mask, _, _ = self._unpack_observation(obs_batch)
         # We need to ensure we do not use the env global state
         # to compute actions
+
+        if self.add_action_dim:
+            actions_one_hot_enc = np.eye(self.n_actions)[prev_action_batch]
+            obs_batch = np.concatenate([obs_batch, actions_one_hot_enc], axis=2)
 
         # Compute actions for each agent
         with torch.no_grad():
@@ -345,7 +361,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
 
         input_list = [
             group_rewards, action_mask, next_action_mask,
-            samples[SampleBatch.ACTIONS], samples[SampleBatch.DONES],
+            samples[SampleBatch.ACTIONS], samples[SampleBatch.PREV_ACTIONS], samples[SampleBatch.DONES],
             obs_batch, next_obs_batch, terminal_flags
         ]
         if self.has_env_global_state:
@@ -362,10 +378,10 @@ class IQLPolicy(LearningRateSchedule, Policy):
                 dynamic_max=True)
         # These will be padded to shape [B * T, ...]
         if self.has_env_global_state:
-            (rew, action_mask, next_action_mask, act, dones, obs, next_obs, terminal_flags,
+            (rew, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs, terminal_flags,
              env_global_state, next_env_global_state) = output_list
         else:
-            (rew, action_mask, next_action_mask, act, dones, obs,
+            (rew, action_mask, next_action_mask, act, prev_act, dones, obs,
              next_obs, terminal_flags) = output_list
         B, T = len(seq_lens), max(seq_lens)
 
@@ -381,6 +397,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
         #     rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         actions = to_batches(act, torch.long)
+        prev_actions = to_batches(prev_act, torch.long)
         obs = to_batches(obs, torch.float).reshape(
             [B, T, self.n_agents, self.obs_size])
         action_mask = to_batches(action_mask, torch.float)
@@ -404,7 +421,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
 
         # Compute loss
         loss_out, mask, masked_td_error, chosen_action_qvals, targets = (
-            self.loss(rewards, actions, terminated, mask, obs, next_obs,
+            self.loss(rewards, actions, prev_actions, terminated, mask, obs, next_obs,
                       action_mask, next_action_mask, env_global_state,
                       next_env_global_state))
 
