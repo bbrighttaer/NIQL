@@ -1,5 +1,5 @@
 # MIT License
-
+import torch
 # Copyright (c) 2023 Replicable-MARL
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -44,7 +44,7 @@ class JointQRNN(TorchModelV2, nn.Module):
             raise ValueError(
                 "core arch should be gru, got {}".format(self.custom_config["model_arch_args"]["core_arch"]))
 
-        self.activation = model_config.get("fcnet_activation")
+        # self.activation = model_config.get("fcnet_activation")
         self.hidden_state_size = self.custom_config["model_arch_args"]["hidden_state_size"]
         input_dim = self.full_obs_space.shape[0]
         if model_config["add_action_dim"]:
@@ -75,7 +75,7 @@ class JointQRNN(TorchModelV2, nn.Module):
         inputs = input_dict["obs_flat"].float()
         if len(self.full_obs_space.shape) == 3:  # 3D
             inputs = inputs.reshape((-1,) + self.full_obs_space.shape)
-        x = self.encoder(inputs)
+        x = torch.relu(self.encoder(inputs))
         h_in = hidden_state[0].reshape(-1, self.hidden_state_size)
         h = self.rnn(x, h_in)
         q = self.q_value(h)
