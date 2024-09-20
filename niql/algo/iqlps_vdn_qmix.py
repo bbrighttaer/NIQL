@@ -492,11 +492,14 @@ class JointQPolicy(LearningRateSchedule, Policy):
         self.set_epsilon(state["cur_epsilon"])
 
     def update_target(self):
-        soft_update(self.target_model, self.model, self.config["tau"])
-        # self.target_model.load_state_dict(self.model.state_dict())
-        if self.mixer is not None:
-            soft_update(self.target_mixer, self.mixer, self.config["tau"])
-        #     self.target_mixer.load_state_dict(self.mixer.state_dict())
+        if self.config["soft_target_update"]:
+            soft_update(self.target_model, self.model, self.config["tau"])
+            if self.mixer is not None:
+                soft_update(self.target_mixer, self.mixer, self.config["tau"])
+        else:
+            self.target_model.load_state_dict(self.model.state_dict())
+            if self.mixer is not None:
+                self.target_mixer.load_state_dict(self.mixer.state_dict())
         logger.debug("Updated target networks")
 
     def set_epsilon(self, epsilon):

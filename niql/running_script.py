@@ -16,7 +16,7 @@ from niql import seed
 from niql.algo import JointQPolicy, IQLPolicy, HIQLPolicy, BQLPolicy, WBQLPolicy, WIQLPolicy
 from niql.algo.iqlps_vdn_qmix import JointQTrainer
 from niql.callbacks import EvaluationCSVLoggerCallback
-from niql.execution_plans import episode_execution_plan  # noqa
+from niql.execution_plans import episode_execution_plan
 
 
 # Copyright (c) 2023 Replicable-MARL
@@ -114,7 +114,8 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
             "mixer": mixer_dict.get(algorithm),
             "tdw_eps": _param.get("tdw_eps", 0.1),
             "tdw_schedule": _param.get("tdw_schedule"),
-            "add_action_dim": _param.get("add_action_dim", False)
+            "add_action_dim": _param.get("add_action_dim", False),
+            "soft_target_update": _param.get("soft_target_update", True)
         })
 
     JointQ_Config[
@@ -129,6 +130,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
         default_config=JointQ_Config,
         default_policy=None,
         get_policy_class=partial(get_policy_class, algorithm),
+        execution_plan=episode_execution_plan
     )
 
     # config update

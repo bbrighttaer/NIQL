@@ -58,6 +58,7 @@ class RLlibSMAC(MultiAgentEnv):
             "terminal": Box(low=0., high=1., shape=(1,))
         })
         self.action_space = Discrete(n_actions)
+        self._last_info = None
 
     @property
     def death_tracker_ally(self):
@@ -67,8 +68,13 @@ class RLlibSMAC(MultiAgentEnv):
     def death_tracker_enemy(self):
         return self.env.death_tracker_enemy
 
+    @property
+    def info(self):
+        return self._last_info
+
     def reset(self):
         self.env.reset()
+        self._last_info = None
         obs_smac = self.env.get_obs()
         state_smac = self.env.get_state()
         obs_dict = {}
@@ -91,6 +97,7 @@ class RLlibSMAC(MultiAgentEnv):
         actions_ls = [int(action_dict[agent_id]) for agent_id in action_dict.keys()]
 
         reward, terminated, info = self.env.step(actions_ls)
+        self._last_info = info
 
         obs_smac = self.env.get_obs()
         state_smac = self.env.get_state()

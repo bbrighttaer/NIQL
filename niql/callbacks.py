@@ -103,6 +103,11 @@ class NIQLCallbacks(DefaultCallbacks):
             episode.custom_metrics["enemy_kill_rate"] = sum(
                 self.enemy_killing_queue.queue) / self.enemy_killing_queue.qsize()
 
+            # record env info metrics
+            if env.info:
+                for k, v in env.info.items():
+                    episode.custom_metrics[k] = int(v)
+
 
 class EvaluationCSVLoggerCallback(LoggerCallback):
     """Logs results to progress_eval.csv under the trial directory.

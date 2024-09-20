@@ -475,8 +475,10 @@ class IQLPolicy(LearningRateSchedule, Policy):
         self.set_epsilon(state["cur_epsilon"])
 
     def update_target(self):
-        # self.target_models.load_state_dict(self.models.state_dict())
-        soft_update(self.target_models, self.models, self.config["tau"])
+        if self.config["soft_target_update"]:
+            soft_update(self.target_models, self.models, self.config["tau"])
+        else:
+            self.target_models.load_state_dict(self.models.state_dict())
         logger.debug("Updated target networks")
 
     def set_epsilon(self, epsilon):

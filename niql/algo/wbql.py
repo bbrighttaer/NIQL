@@ -519,8 +519,10 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         self.set_epsilon(state["cur_epsilon"])
 
     def update_target(self):
-        # self.aux_target_models.load_state_dict(self.aux_models.state_dict())
-        soft_update(self.aux_target_models, self.aux_models, self.config["tau"])
+        if self.config["soft_target_update"]:
+            soft_update(self.aux_target_models, self.aux_models, self.config["tau"])
+        else:
+            self.aux_target_models.load_state_dict(self.aux_models.state_dict())
         logger.debug("Updated target networks")
 
     def set_epsilon(self, epsilon):

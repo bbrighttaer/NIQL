@@ -1,1 +1,2 @@
+from .cert_episode_execution_plan import cert_episode_execution_plan
 from .episode_execution_plan import episode_execution_plan
