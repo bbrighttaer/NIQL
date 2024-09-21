@@ -244,7 +244,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
         self.exploration = self._create_exploration()
 
         self.cur_epsilon = 1.0
-        self.update_target()  # initial sync
+        self.update_target(init_sync=True)  # initial sync
 
         # Setup optimizer
         self.params = list(self.models.parameters())
@@ -392,7 +392,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
 
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
-        rewards = to_batches(rew, torch.float) / self.env_num_agents
+        rewards = to_batches(rew, torch.float)  # / self.env_num_agents
         # if self.reward_standardize:
         #     rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
@@ -409,7 +409,9 @@ class IQLPolicy(LearningRateSchedule, Policy):
             next_env_global_state = to_batches(next_env_global_state,
                                                torch.float)
 
-        terminated = to_batches(terminal_flags, torch.float)
+        # terminated = to_batches(terminal_flags, torch.float)
+        terminated = to_batches(dones, torch.float).unsqueeze(2).expand(
+            B, T, self.n_agents)
 
         # Create mask for where index is < unpadded sequence length
         filled = np.reshape(
@@ -474,8 +476,8 @@ class IQLPolicy(LearningRateSchedule, Policy):
         self.set_weights(state)
         self.set_epsilon(state["cur_epsilon"])
 
-    def update_target(self):
-        if self.config["soft_target_update"]:
+    def update_target(self, init_sync=False):
+        if not init_sync and self.config["soft_target_update"]:
             soft_update(self.target_models, self.models, self.config["tau"])
         else:
             self.target_models.load_state_dict(self.models.state_dict())
