@@ -56,7 +56,8 @@ class RLlibSMAC(MultiAgentEnv):
             "obs": Box(-2.0, 2.0, shape=(obs_shape,)),
             "state": Box(-2.0, 2.0, shape=(state_shape,)),
             "action_mask": Box(-2.0, 2.0, shape=(n_actions,)),
-            "terminal": Box(low=0., high=1., shape=(1,))
+            "terminal": Box(low=0., high=1., shape=(1,)),
+            "reward": Box(low=-np.inf, high=np.inf, shape=(1,))
         })
         self.action_space = Discrete(n_actions)
         self._last_info = None
@@ -88,7 +89,8 @@ class RLlibSMAC(MultiAgentEnv):
                 "obs": obs_one_agent,
                 "state": state_one_agent,
                 "action_mask": action_mask_one_agent,
-                "terminal": np.array([0.], dtype=np.float32)
+                "terminal": np.array([0.], dtype=np.float32),
+                "reward": np.array([-np.inf], dtype=np.float32)
             }
 
         return obs_dict
@@ -114,7 +116,8 @@ class RLlibSMAC(MultiAgentEnv):
                 "obs": obs_one_agent,
                 "state": state_one_agent,
                 "action_mask": action_mask_one_agent,
-                "terminal": np.array([terminated], dtype=np.float32)
+                "terminal": np.array([terminated], dtype=np.float32),
+                "reward": np.array([reward], np.float32)
             }
             reward_dict[agent_index] = reward
 

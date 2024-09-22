@@ -292,7 +292,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
                         timestep=None,
                         **kwargs):
         explore = explore if explore is not None else self.config["explore"]
-        obs_batch, action_mask, _, _ = self._unpack_observation(obs_batch)
+        obs_batch, action_mask, _, _, _ = self._unpack_observation(obs_batch)
         # We need to ensure we do not use the env global state
         # to compute actions
 
@@ -353,14 +353,15 @@ class IQLPolicy(LearningRateSchedule, Policy):
 
     @override(Policy)
     def learn_on_batch(self, samples):
-        obs_batch, action_mask, env_global_state, _ = self._unpack_observation(
+        obs_batch, action_mask, env_global_state, _, _ = self._unpack_observation(
             samples[SampleBatch.CUR_OBS])
-        (next_obs_batch, next_action_mask, next_env_global_state, terminal_flags) = self._unpack_observation(
-            samples[SampleBatch.NEXT_OBS])
-        group_rewards = self._get_group_rewards(samples[SampleBatch.INFOS])
+        (next_obs_batch, next_action_mask, next_env_global_state, terminal_flags, env_rewards) = (
+            self._unpack_observation(samples[SampleBatch.NEXT_OBS])
+        )
+        # group_rewards = self._get_group_rewards(samples[SampleBatch.INFOS])
 
         input_list = [
-            group_rewards, action_mask, next_action_mask,
+            env_rewards, action_mask, next_action_mask,
             samples[SampleBatch.ACTIONS], samples[SampleBatch.PREV_ACTIONS], samples[SampleBatch.DONES],
             obs_batch, next_obs_batch, terminal_flags
         ]
@@ -520,6 +521,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
             tensorlib=np)
 
         unpacked_terminal_flag = None
+        unpacked_reward = None
         if isinstance(unpacked[0], dict):
             assert "obs" in unpacked[0] and "terminal" in unpacked[0]
             unpacked_obs = [
@@ -527,6 +529,9 @@ class IQLPolicy(LearningRateSchedule, Policy):
             ]
             unpacked_terminal_flag = [
                 np.concatenate(tree.flatten(u["terminal"]), 1) for u in unpacked
+            ]
+            unpacked_reward = [
+                np.concatenate(tree.flatten(u["reward"]), 1) for u in unpacked
             ]
         else:
             unpacked_obs = unpacked
@@ -541,6 +546,13 @@ class IQLPolicy(LearningRateSchedule, Policy):
         else:
             terminal_flag = None
 
+        if unpacked_reward:
+            unpacked_reward = np.concatenate(
+                unpacked_reward, axis=1
+            ).reshape([len(obs_batch), self.n_agents])
+        else:
+            unpacked_reward = None
+
         if self.has_action_mask:
             action_mask = np.concatenate(
                 [o["action_mask"] for o in unpacked], axis=1).reshape(
@@ -554,4 +566,4 @@ class IQLPolicy(LearningRateSchedule, Policy):
             state = np.concatenate(tree.flatten(unpacked[0]["state"]), 1)
         else:
             state = None
-        return obs, action_mask, state, terminal_flag
+        return obs, action_mask, state, terminal_flag, unpacked_reward

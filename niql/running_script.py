@@ -118,8 +118,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
             "soft_target_update": _param.get("soft_target_update", True)
         })
 
-    JointQ_Config[
-        "reward_standardize"] = False  # reward_standardize  # this may affect the final performance if you turn it on
+    JointQ_Config["reward_standardize"] = reward_standardize  # this may affect the final performance if you turn it on
     JointQ_Config["optimizer"] = optimizer
     JointQ_Config["training_intensity"] = None
     # JointQ_Config["rollout_fragment_length"] = _param["rollout_fragment_length"]
@@ -142,7 +141,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
             "fcnet_activation": "relu"
         },
         "evaluation_interval": 10,  # x timesteps_per_iteration (default is 1000)
-        "evaluation_num_episodes": 10,
+        "evaluation_num_episodes": 20,
         "evaluation_config": {
             "explore": False,
         },

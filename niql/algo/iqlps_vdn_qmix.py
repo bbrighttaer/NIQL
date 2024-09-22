@@ -360,14 +360,14 @@ class JointQPolicy(LearningRateSchedule, Policy):
 
     @override(Policy)
     def learn_on_batch(self, samples):
-        obs_batch, action_mask, env_global_state, _ = self._unpack_observation(
-            samples[SampleBatch.CUR_OBS])
-        (next_obs_batch, next_action_mask, next_env_global_state, terminal_flags) = self._unpack_observation(
-            samples[SampleBatch.NEXT_OBS])
-        group_rewards = self._get_group_rewards(samples[SampleBatch.INFOS])
+        obs_batch, action_mask, env_global_state, _, _ = self._unpack_observation(samples[SampleBatch.CUR_OBS])
+        (next_obs_batch, next_action_mask, next_env_global_state, terminal_flags, env_rewards) = (
+            self._unpack_observation(samples[SampleBatch.NEXT_OBS])
+        )
+        # group_rewards = self._get_group_rewards(samples[SampleBatch.INFOS])
 
         input_list = [
-            group_rewards, action_mask, next_action_mask,
+            env_rewards, action_mask, next_action_mask,
             samples[SampleBatch.ACTIONS], samples[SampleBatch.PREV_ACTIONS], samples[SampleBatch.DONES],
             obs_batch, next_obs_batch, terminal_flags
         ]
@@ -400,8 +400,8 @@ class JointQPolicy(LearningRateSchedule, Policy):
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
         rewards = to_batches(rew, torch.float) / self.env_num_agents
-        # if self.reward_standardize:
-        #     rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+        if self.reward_standardize:
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         actions = to_batches(act, torch.long)
         prev_actions = to_batches(prev_act, torch.long)
@@ -416,7 +416,9 @@ class JointQPolicy(LearningRateSchedule, Policy):
             next_env_global_state = to_batches(next_env_global_state,
                                                torch.float)
 
-        terminated = to_batches(terminal_flags, torch.float)
+        # terminated = to_batches(terminal_flags, torch.float)
+        terminated = to_batches(dones, torch.float).unsqueeze(2).expand(
+            B, T, self.n_agents)
 
 
         # Create mask for where index is < unpadded sequence length

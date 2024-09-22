@@ -106,7 +106,7 @@ class NIQLCallbacks(DefaultCallbacks):
             # record env info metrics
             if env.info:
                 for k, v in env.info.items():
-                    episode.custom_metrics[k] = int(v)
+                    episode.custom_metrics[k] = float(v)
 
 
 class EvaluationCSVLoggerCallback(LoggerCallback):
@@ -153,9 +153,6 @@ class EvaluationCSVLoggerCallback(LoggerCallback):
                                                     result.keys())
             if not self._trial_continue[trial]:
                 self._trial_csv[trial].writeheader()
-
-        if "evaluation/episode_reward_mean" in self._trial_csv[trial].fieldnames:
-            x = 0
 
         self._trial_csv[trial].writerow({
             k: v
