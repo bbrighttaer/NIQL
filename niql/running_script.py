@@ -97,6 +97,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
         {
             "algo_type": algo_type,
             "rollout_fragment_length": 1,
+            "normalize_actions": False,
             "buffer_size": buffer_size,  # buffer_size * episode_limit,  # in timesteps
             "train_batch_size": train_batch_episode,  # in sequence
             "target_network_update_freq": target_network_update_frequency,  # in timesteps
@@ -115,15 +116,13 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
             "tdw_eps": _param.get("tdw_eps", 0.1),
             "tdw_schedule": _param.get("tdw_schedule"),
             "add_action_dim": _param.get("add_action_dim", False),
-            "soft_target_update": _param.get("soft_target_update", True)
+            "soft_target_update": _param.get("soft_target_update", True),
+            # this may affect the final performance if you turn it on
+            "reward_standardize": reward_standardize,
+            "optimizer": optimizer,
+            "training_intensity": None,
+            "batch_mode": "complete_episodes"
         })
-
-    JointQ_Config[
-        "reward_standardize"] = False  # reward_standardize  # this may affect the final performance if you turn it on
-    JointQ_Config["optimizer"] = optimizer
-    JointQ_Config["training_intensity"] = None
-    # JointQ_Config["rollout_fragment_length"] = _param["rollout_fragment_length"]
-    # JointQ_Config["batch_mode"] = "truncate_episodes"
 
     JQTrainer = JointQTrainer.with_updates(
         name=algorithm.upper(),

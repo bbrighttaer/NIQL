@@ -1,15 +1,16 @@
-import numpy as np
 from marllib import marl
 from marllib.envs.base_env import ENV_REGISTRY
 from marllib.envs.global_reward_env import COOP_ENV_REGISTRY
 
-from .ma_gym_env import MAGymEnv
-from .mpe_env import MPEEnv
-from .matrix_games import MultiAgentMatrixGameEnv
-from .smac import RLlibSMAC
-from .switch_riddle import SwitchRiddle
 from .env_utils import make_local_env
+from .ma_gym_env import MAGymEnv
+from .matrix_games import MultiAgentMatrixGameEnv
+from .mpe_env import MPEEnv
+from .smac import RLlibSMAC
+from .stochastic_game import CooperativeStochasticGame
+from .switch_riddle import SwitchRiddle
 from ..config import SMAC, MPE, MATRIX_GAME, ma_gym_env_conf
+from ..config.stochastic_game_conf import STOCHASTIC_GAME
 from ..config.switch_game_conf import SWITCH_RIDDLE
 
 DEBUG_ENVS = ["TwoStepsCoopMatrixGame", "OneStepCoopMatrixGame"]
@@ -105,6 +106,21 @@ def make_ma_gym_env(env_name, **kwargs):
     )
     config = ma_gym_env_conf.REGISTRY.get(env_name.lower(), ma_gym_env_conf.default_config)
     return env, config
+
+
+def make_stochastic_game(**kwargs):
+    # register new env
+    COOP_ENV_REGISTRY["CooperativeStochasticGame"] = CooperativeStochasticGame
+    ENV_REGISTRY["CooperativeStochasticGame"] = CooperativeStochasticGame
+
+    # choose environment + scenario
+    env = make_local_env(
+        environment_name="CooperativeStochasticGame",
+        map_name="all_scenario",
+        force_coop=True,
+        **kwargs,
+    )
+    return env, STOCHASTIC_GAME
 
 
 def make_one_step_matrix_game(*args, **kwargs):

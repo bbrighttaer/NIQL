@@ -1,6 +1,6 @@
 from niql.callbacks import NIQLCallbacks
 
-SMAC = {
+STOCHASTIC_GAME = {
     "algo_parameters": {
         "algo_args": {
             "batch_episode": 32,
@@ -28,13 +28,13 @@ SMAC = {
     },
     "model_preference": {
         "core_arch": "gru",  # mlp | gru
-        "encode_layer": "128",  # for RNN model
-        "hidden_state_size": 128,  # for RNN model
+        "encode_layer": "64",  # for RNN model
+        "hidden_state_size": 64,  # for RNN model
         "hidden_layer_dims": [128, 64],  # for mlp model
     },
     "stop_condition": {
         "episode_reward_mean": 2000,
-        "timesteps_total": 3050000,
+        "timesteps_total": 1050000,
     }
 }
 

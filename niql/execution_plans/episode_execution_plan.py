@@ -29,7 +29,8 @@ from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.execution.concurrency_ops import Concurrently
 from ray.rllib.execution.metric_ops import StandardMetricsReporting
 from ray.rllib.utils.typing import TrainerConfigDict
-from marllib.marl.algos.utils.episode_replay_buffer import EpisodeBasedReplayBuffer
+
+from niql.replay_buffers.basic_episode_based_replay_buffer import BasicEpisodeBasedReplayBuffer
 
 
 def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
@@ -38,7 +39,7 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     # Modified to be compatible with joint Q learning.
     # here we use EpisodeBasedReplayBuffer inherited from LocalReplayBuffer instead of SimpleReplayBuffer
 
-    local_replay_buffer = EpisodeBasedReplayBuffer(
+    local_replay_buffer = BasicEpisodeBasedReplayBuffer(
         learning_starts=config["learning_starts"],
         capacity=config["buffer_size"],
         replay_batch_size=config["train_batch_size"],
