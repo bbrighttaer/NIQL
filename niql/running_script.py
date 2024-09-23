@@ -101,7 +101,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
             "buffer_size": buffer_size,  # buffer_size * episode_limit,  # in timesteps
             "train_batch_size": train_batch_episode,  # in sequence
             "target_network_update_freq": target_network_update_frequency,  # in timesteps
-            "learning_starts": episode_limit * train_batch_episode,
+            "learning_starts": _param.get("learning_starts", episode_limit * train_batch_episode),  # samples in buffer
             "lr": lr if restore is None else 1e-10,
             "exploration_config": {
                 "type": "EpsilonGreedy",
@@ -117,8 +117,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
             "tdw_schedule": _param.get("tdw_schedule"),
             "add_action_dim": _param.get("add_action_dim", False),
             "soft_target_update": _param.get("soft_target_update", True),
-            # this may affect the final performance if you turn it on
-            "reward_standardize": reward_standardize,
+            "reward_standardize": reward_standardize,  # this may affect the final performance if you turn it on
             "optimizer": optimizer,
             "training_intensity": None,
             "batch_mode": "complete_episodes"

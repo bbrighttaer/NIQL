@@ -13,6 +13,7 @@ SMAC = {
             "tdw_eps": 0.1,
             "rollout_fragment_length": 1,
             "buffer_size": 5000,
+            "learning_starts": 1,  # number of samples in buffer
             "soft_target_update": True,
             "target_network_update_freq": 1,
             "tau": 0.01,  # target network soft update
