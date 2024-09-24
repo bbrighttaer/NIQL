@@ -21,7 +21,7 @@ STOCHASTIC_GAME = {
             "optimizer": "rmsprop",
             "reward_standardize": False,
             "gamma": 0.99,
-            "lambda": 0.8,
+            "lambda": 0.5,
             "callbacks": NIQLCallbacks,
             "add_action_dim": True,
         }

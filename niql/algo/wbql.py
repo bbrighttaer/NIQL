@@ -37,6 +37,7 @@ from ray.rllib.policy.torch_policy import LearningRateSchedule
 from ray.rllib.utils import PiecewiseSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
+from niql.exploration.epsilon_greedy import EpsilonGreedy
 from niql.models import JointQRNN, JointQMLP
 from niql.utils import _iql_unroll_mac, soft_update, target_distribution_weighting, get_weights, \
     batch_assign_sample_weights, save_weights
@@ -51,6 +52,7 @@ class JointQLoss(nn.Module):
                  aux_target_models,
                  n_agents,
                  n_actions,
+                 add_action_dim,
                  tdw_schedule,
                  tdw_eps,
                  device,
@@ -74,11 +76,13 @@ class JointQLoss(nn.Module):
         )
         self.tdw_eps = tdw_eps
         self.training_iter = 0
+        self.add_action_dim = add_action_dim
 
     def forward(self,
                 timestep,
                 rewards,
                 actions,
+                prev_actions,
                 terminated,
                 mask,
                 obs,
@@ -93,6 +97,7 @@ class JointQLoss(nn.Module):
             timestep: current timestep
             rewards: Tensor of shape [B, T, n_agents]
             actions: Tensor of shape [B, T, n_agents]
+            prev_actions: Tensor of shape [B, T, n_agents]
             terminated: Tensor of shape [B, T, n_agents]
             mask: Tensor of shape [B, T, n_agents]
             obs: Tensor of shape [B, T, n_agents, obs_size]
@@ -104,6 +109,12 @@ class JointQLoss(nn.Module):
         """
         # append the first element of obs + next_obs to get new one
         whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
+
+        # construct prev actions for whole_obs
+        if self.add_action_dim:
+            whole_prev_actions = torch.cat([prev_actions[:, 0:1], actions], dim=1)
+            actions_one_hot_enc = torch.eye(self.n_actions)[whole_prev_actions]
+            whole_obs = torch.cat([whole_obs, actions_one_hot_enc], dim=-1)
 
         # Calculate estimated Q-Values for all models
         def forward_prop(agent_models):
@@ -227,6 +238,8 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         self.n_agents = len(obs_space.original_space.spaces)
         self.env_num_agents = config["model"]["custom_model_config"]["num_agents"]
         config["model"]["n_agents"] = self.n_agents
+        self.add_action_dim = config["add_action_dim"]
+        config["model"]["add_action_dim"] = self.add_action_dim
         self.n_actions = action_space.spaces[0].n
         self.h_size = config["model"]["lstm_cell_size"]
         self.has_env_global_state = False
@@ -284,7 +297,14 @@ class WBQLPolicy(LearningRateSchedule, Policy):
             {f"agent_{i}": create_model() for i in range(self.n_agents)}
         ).to(self.device)
 
-        self.exploration = self._create_exploration()
+        self.exploration = EpsilonGreedy(
+            action_space=self.action_space,
+            device=self.device,
+            epsilon=config["exploration_config"]["initial_epsilon"],
+            min_epsilon=config["exploration_config"]["final_epsilon"],
+            epsilon_decay_steps=config["exploration_config"]["epsilon_timesteps"],
+            decay_type=EpsilonGreedy.ANNEAL
+        )
 
         self.cur_epsilon = 1.0
         self.update_target()  # initial sync
@@ -293,7 +313,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         self.params = list(self.models.parameters()) + list(self.aux_models.parameters())
         self.loss = JointQLoss(
             self.models, self.aux_models, self.aux_target_models, self.n_agents,
-            self.n_actions, config["tdw_schedule"], config["tdw_eps"], self.device,
+            self.n_actions, self.add_action_dim, config["tdw_schedule"], config["tdw_eps"], self.device,
             self.config["double_q"], self.config["gamma"], config["lambda"]
         )
 
@@ -341,6 +361,10 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         obs_batch, action_mask, _, _ = self._unpack_observation(obs_batch)
         # We need to ensure we do not use the env global state
         # to compute actions
+
+        if self.add_action_dim:
+            actions_one_hot_enc = np.eye(self.n_actions)[prev_action_batch]
+            obs_batch = np.concatenate([obs_batch, actions_one_hot_enc], axis=2)
 
         # Compute actions for each agent
         with torch.no_grad():
@@ -403,7 +427,7 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
         input_list = [
             group_rewards, action_mask, next_action_mask,
-            samples[SampleBatch.ACTIONS], samples[SampleBatch.DONES],
+            samples[SampleBatch.ACTIONS], samples[SampleBatch.PREV_ACTIONS], samples[SampleBatch.DONES],
             obs_batch, next_obs_batch, terminal_flags
         ]
         if self.has_env_global_state:
@@ -420,10 +444,10 @@ class WBQLPolicy(LearningRateSchedule, Policy):
                 dynamic_max=True)
         # These will be padded to shape [B * T, ...]
         if self.has_env_global_state:
-            (rew, action_mask, next_action_mask, act, dones, obs, next_obs, terminal_flags,
+            (rew, action_mask, next_action_mask, act, prev_act, dones, obs, next_obs, terminal_flags,
              env_global_state, next_env_global_state) = output_list
         else:
-            (rew, action_mask, next_action_mask, act, dones, obs,
+            (rew, action_mask, next_action_mask, act, prev_act, dones, obs,
              next_obs, terminal_flags) = output_list
         B, T = len(seq_lens), max(seq_lens)
 
@@ -435,10 +459,11 @@ class WBQLPolicy(LearningRateSchedule, Policy):
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
         rewards = to_batches(rew, torch.float) / self.env_num_agents
-        # if self.reward_standardize:
-        #     rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+        if self.reward_standardize:
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         actions = to_batches(act, torch.long)
+        prev_actions = to_batches(prev_act, torch.long)
         obs = to_batches(obs, torch.float).reshape(
             [B, T, self.n_agents, self.obs_size])
         action_mask = to_batches(action_mask, torch.float)
@@ -462,9 +487,8 @@ class WBQLPolicy(LearningRateSchedule, Policy):
 
         # Compute loss
         loss_out, mask, masked_td_error, chosen_action_qvals, targets, tdw_stats = (
-            self.loss(self.global_timestep, rewards, actions, terminated, mask, obs, next_obs,
-                      action_mask, next_action_mask, env_global_state,
-                      next_env_global_state))
+            self.loss(self.global_timestep, rewards, actions, prev_actions, terminated, mask, obs, next_obs,
+                      action_mask, next_action_mask, env_global_state, next_env_global_state))
 
         # Optimise
         self.optimiser.zero_grad()
@@ -482,7 +506,8 @@ class WBQLPolicy(LearningRateSchedule, Policy):
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() /
                             mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
-            "tdw_stats": tdw_stats
+            "tdw_stats": tdw_stats,
+            "exploration": self.exploration.get_state()["cur_epsilon"]
         }
         return {LEARNER_STATS_KEY: stats}
 
