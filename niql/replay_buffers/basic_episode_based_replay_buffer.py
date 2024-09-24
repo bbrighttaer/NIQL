@@ -55,11 +55,12 @@ class SimpleReplayBuffer(ReplayBuffer):
         """
         # Get all_indexes
         pop_size = len(self._storage)
-        all_indexes = list(range(pop_size))
+        sample_size = min(pop_size, num_items)
+        idxes = [
+            random.randint(0, len(self._storage) - 1) for _ in range(sample_size)
+        ]
 
         # Sample without replacement
-        sample_size = min(pop_size, num_items)
-        idxes = random.sample(all_indexes, sample_size)
         self._num_sampled += num_items
         batch = self._encode_sample(idxes)
 

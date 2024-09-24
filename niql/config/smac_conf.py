@@ -17,7 +17,7 @@ SMAC = {
             "soft_target_update": True,
             "target_network_update_freq": 1,
             "tau": 0.01,  # target network soft update
-            "final_epsilon": 0.05,
+            "final_epsilon": 0.01,
             "epsilon_timesteps": 50000,
             "optimizer": "rmsprop",
             "reward_standardize": False,
