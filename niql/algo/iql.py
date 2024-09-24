@@ -36,6 +36,7 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.torch_policy import LearningRateSchedule
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
+from niql.exploration.epsilon_greedy import EpsilonGreedy
 from niql.models import JointQRNN, JointQMLP
 from niql.utils import _iql_unroll_mac, soft_update, compute_gae
 
@@ -150,12 +151,6 @@ class JointQLoss(nn.Module):
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.gamma * (1 - terminated) * target_max_qvals
 
-        # advantages, lambda_returns = compute_gae(
-        #     rewards=rewards,
-        #     values=chosen_action_qvals.detach(),
-        #     dones=terminated
-        # )
-
         # Td-error
         td_error = targets.detach() - chosen_action_qvals
 
@@ -241,7 +236,14 @@ class IQLPolicy(LearningRateSchedule, Policy):
             {f"agent_{i}": create_model() for i in range(self.n_agents)}
         ).to(self.device)
 
-        self.exploration = self._create_exploration()
+        self.exploration = EpsilonGreedy(
+            action_space=self.action_space,
+            device=self.device,
+            epsilon=config["exploration_config"]["initial_epsilon"],
+            min_epsilon=config["exploration_config"]["final_epsilon"],
+            epsilon_decay_steps=config["exploration_config"]["epsilon_timesteps"],
+            decay_type=EpsilonGreedy.ANNEAL
+        )
 
         self.cur_epsilon = 1.0
         self.update_target()  # initial sync
