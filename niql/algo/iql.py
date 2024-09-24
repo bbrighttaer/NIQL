@@ -443,6 +443,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() /
                             mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
+            "exploration": self.exploration.get_state()["cur_epsilon"]
         }
         return {LEARNER_STATS_KEY: stats}
 

@@ -66,6 +66,11 @@ class EpsilonGreedy:
         if explore:
             # Get the current epsilon.
             epsilon = self.epsilon_schedule(self.last_timestep)
+
+            # update epsilon
+            if isinstance(self.epsilon_schedule, AnnealSchedule):
+                self.epsilon_schedule.update()
+
             if isinstance(action_distribution, TorchMultiActionDistribution):
                 exploit_action = tree.flatten(exploit_action)
                 for i in range(batch_size):
@@ -131,8 +136,7 @@ class EpsilonGreedy:
             episode (int): The number of the episode that is starting.
             tf_sess (Optional[tf.Session]): In case of tf, the session object.
         """
-        if isinstance(self.epsilon_schedule, AnnealSchedule):
-            self.epsilon_schedule.update()
+        pass
 
     def postprocess_trajectory(self, policy, sample_batch, tf_sess=None):
         """Handles post-processing of done episode trajectories.

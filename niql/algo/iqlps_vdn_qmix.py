@@ -20,29 +20,28 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import tree  # pip install dm_tree
 import torch
 import torch.nn as nn
+import tree  # pip install dm_tree
 from gym.spaces import Dict as GymDict, Tuple as GymTuple, Box
-from ray.rllib.policy.torch_policy import TorchPolicy, LearningRateSchedule
-from ray.rllib.policy.policy import Policy
-from ray.rllib.models.modelv2 import _unpack_obs
-from ray.rllib.agents.qmix.model import RNNModel, _get_size
-from ray.rllib.execution.replay_buffer import *
-from ray.rllib.models.torch.torch_action_dist import TorchCategorical
-from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
-from ray.rllib.models.catalog import ModelCatalog
-from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.agents.qmix.qmix_policy import _mac, _validate, _unroll_mac
-from ray.rllib.agents.dqn.dqn import GenericOffPolicyTrainer
-from ray.rllib.agents.qmix.qmix import DEFAULT_CONFIG
-from ray.rllib.policy.rnn_sequencing import chop_into_sequences
-
-from niql.models import JointQRNN, JointQMLP
-
-from marllib.marl.models.zoo.mixer import QMixer, VDNMixer
 from marllib.marl.algos.utils.episode_execution_plan import episode_execution_plan
+from marllib.marl.models.zoo.mixer import QMixer, VDNMixer
+from ray.rllib.agents.dqn.dqn import GenericOffPolicyTrainer
+from ray.rllib.agents.qmix.model import RNNModel, _get_size
+from ray.rllib.agents.qmix.qmix import DEFAULT_CONFIG
+from ray.rllib.agents.qmix.qmix_policy import _mac, _validate, _unroll_mac
+from ray.rllib.execution.replay_buffer import *
+from ray.rllib.models.catalog import ModelCatalog
+from ray.rllib.models.modelv2 import _unpack_obs
+from ray.rllib.models.torch.torch_action_dist import TorchCategorical
+from ray.rllib.policy.policy import Policy
+from ray.rllib.policy.rnn_sequencing import chop_into_sequences
+from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.policy.torch_policy import TorchPolicy, LearningRateSchedule
+from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
+from niql.exploration.epsilon_greedy import EpsilonGreedy
+from niql.models import JointQRNN, JointQMLP
 from niql.utils import soft_update
 
 
@@ -251,7 +250,14 @@ class JointQPolicy(LearningRateSchedule, Policy):
             name="target_model",
             default_model=JointQMLP if core_arch == "mlp" else JointQRNN).to(self.device)
 
-        self.exploration = self._create_exploration()
+        self.exploration = EpsilonGreedy(
+            action_space=self.action_space,
+            device=self.device,
+            epsilon=config["exploration_config"]["initial_epsilon"],
+            min_epsilon=config["exploration_config"]["final_epsilon"],
+            epsilon_decay_steps=config["exploration_config"]["epsilon_timesteps"],
+            decay_type=EpsilonGreedy.ANNEAL
+        )
 
         # Setup the mixer network.
         custom_config = config["model"]["custom_model_config"]
@@ -400,8 +406,8 @@ class JointQPolicy(LearningRateSchedule, Policy):
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
         rewards = to_batches(rew, torch.float) / self.env_num_agents
-        # if self.reward_standardize:
-        #     rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+        if self.reward_standardize:
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         actions = to_batches(act, torch.long)
         prev_actions = to_batches(prev_act, torch.long)
@@ -417,7 +423,6 @@ class JointQPolicy(LearningRateSchedule, Policy):
                                                torch.float)
 
         terminated = to_batches(terminal_flags, torch.float)
-
 
         # Create mask for where index is < unpadded sequence length
         filled = np.reshape(
@@ -449,6 +454,7 @@ class JointQPolicy(LearningRateSchedule, Policy):
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() /
                             mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
+            "exploration": self.exploration.get_state()["cur_epsilon"]
         }
         return {LEARNER_STATS_KEY: stats}
 
