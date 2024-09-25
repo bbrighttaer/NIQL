@@ -6,31 +6,24 @@ Modifications:
 """
 
 import logging
-import numpy as np
-import math
-from typing import List, Tuple, Any
+from typing import List, Any
 
 import ray
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.execution.common import \
-    AGENT_STEPS_TRAINED_COUNTER, APPLY_GRADS_TIMER, COMPUTE_GRADS_TIMER, \
-    LAST_TARGET_UPDATE_TS, LEARN_ON_BATCH_TIMER, \
-    LOAD_BATCH_TIMER, NUM_TARGET_UPDATES, STEPS_SAMPLED_COUNTER, \
+    AGENT_STEPS_TRAINED_COUNTER, LAST_TARGET_UPDATE_TS, LEARN_ON_BATCH_TIMER, \
+    NUM_TARGET_UPDATES, STEPS_SAMPLED_COUNTER, \
     STEPS_TRAINED_COUNTER, WORKER_UPDATE_TIMER, _check_sample_batch_type, \
     _get_global_vars, _get_shared_metrics
-from ray.rllib.policy.sample_batch import SampleBatch, DEFAULT_POLICY_ID, \
-    MultiAgentBatch
+from ray.rllib.policy.sample_batch import MultiAgentBatch
 from ray.rllib.utils.framework import try_import_tf
-from ray.rllib.utils.metrics.learner_info import LearnerInfoBuilder, \
-    LEARNER_INFO
+from ray.rllib.utils.metrics.learner_info import LEARNER_INFO
 from ray.rllib.utils.sgd import do_minibatch_sgd
-from ray.rllib.utils.typing import PolicyID, SampleBatchType, ModelGradients
+from ray.rllib.utils.typing import PolicyID, SampleBatchType
 
 tf1, tf, tfv = try_import_tf()
 
 logger = logging.getLogger(__name__)
-
-
 
 
 class TrainOneStep:
@@ -74,7 +67,7 @@ class TrainOneStep:
                     batch, {
                         pid: lw.get_policy(pid)
                         for pid in self.policies
-                        or self.local_worker.policies_to_train
+                                   or self.local_worker.policies_to_train
                     }, lw, self.num_sgd_iter, self.sgd_minibatch_size, [])
             # Single update step using train batch.
             else:
