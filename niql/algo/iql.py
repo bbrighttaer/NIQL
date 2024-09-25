@@ -38,7 +38,7 @@ from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 
 from niql.exploration.epsilon_greedy import EpsilonGreedy
 from niql.models import JointQRNN, JointQMLP
-from niql.utils import _iql_unroll_mac, soft_update, compute_gae
+from niql.utils import _iql_unroll_mac, soft_update
 
 
 # original _unroll_mac for next observation is different from Pymarl.
@@ -93,8 +93,9 @@ class JointQLoss(nn.Module):
 
         # construct prev actions for whole_obs
         if self.add_action_dim:
-            whole_prev_actions = torch.cat([prev_actions[:, 0:1], actions], dim=1)
-            actions_one_hot_enc = torch.eye(self.n_actions)[whole_prev_actions]
+            t0_actions_enc = torch.zeros((obs.shape[0], 1, self.n_agents, self.n_actions))
+            actions_one_hot_enc = torch.eye(self.n_actions)[actions]
+            actions_one_hot_enc = torch.cat([t0_actions_enc, actions_one_hot_enc], dim=1)
             whole_obs = torch.cat([whole_obs, actions_one_hot_enc], dim=-1)
 
         # Calculate estimated Q-Values
@@ -219,6 +220,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
 
         core_arch = config["model"]["custom_model_config"]["model_arch_args"]["core_arch"]
 
+        # Create models
         def create_model():
             return ModelCatalog.get_model_v2(
                 agent_obs_space,
@@ -228,13 +230,14 @@ class IQLPolicy(LearningRateSchedule, Policy):
                 framework="torch",
                 name="model",
                 default_model=JointQMLP if core_arch == "mlp" else JointQRNN)
-
-        self.models = nn.ModuleDict(
-            {f"agent_{i}": create_model() for i in range(self.n_agents)}
-        ).to(self.device)
-        self.target_models = nn.ModuleDict(
-            {f"agent_{i}": create_model() for i in range(self.n_agents)}
-        ).to(self.device)
+        self.models = nn.ModuleDict()
+        self.target_models = nn.ModuleDict()
+        for i in range(self.n_agents):
+            agent_id = f"agent_{i}"
+            self.models[agent_id] = create_model()
+            self.target_models[agent_id] = create_model()
+        self.models.to(self.device)
+        self.target_models.to(self.device)
 
         self.exploration = EpsilonGreedy(
             action_space=self.action_space,
@@ -299,7 +302,12 @@ class IQLPolicy(LearningRateSchedule, Policy):
         # to compute actions
 
         if self.add_action_dim:
-            actions_one_hot_enc = np.eye(self.n_actions)[prev_action_batch]
+            episode = episodes[0]
+            ep_length = episode.length
+            if ep_length > 0:
+                actions_one_hot_enc = np.eye(self.n_actions)[prev_action_batch]
+            else:
+                actions_one_hot_enc = np.zeros((len(obs_batch), self.n_agents, self.n_actions))
             obs_batch = np.concatenate([obs_batch, actions_one_hot_enc], axis=2)
 
         # Compute actions for each agent
