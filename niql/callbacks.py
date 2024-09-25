@@ -13,6 +13,8 @@ from ray.tune.logger import LoggerCallback
 from ray.tune.result import EXPR_PROGRESS_FILE
 from ray.util.ml_utils.dict import flatten_dict
 
+from niql.envs import CooperativeStochasticGame
+
 if TYPE_CHECKING:
     from ray.rllib.evaluation import RolloutWorker
 
@@ -107,6 +109,10 @@ class NIQLCallbacks(DefaultCallbacks):
             if env.info:
                 for k, v in env.info.items():
                     episode.custom_metrics[k] = int(v)
+
+        elif isinstance(env, CooperativeStochasticGame):
+            normalised_episode_reward = env.normalised_episode_reward
+            episode.custom_metrics["normalised_episode_reward"] = normalised_episode_reward
 
 
 class EvaluationCSVLoggerCallback(LoggerCallback):

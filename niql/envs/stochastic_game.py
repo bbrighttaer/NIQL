@@ -26,6 +26,10 @@ class CooperativeStochasticGame(MultiAgentEnv):
         self.joint_action_space = self.num_actions_per_agent ** env_config["num_agents"]
         self.current_step = 0  # Initialize step count
         self.max_steps = env_config["max_steps"]
+        self.start_state = -1
+        self.normalised_episode_reward = -1
+        self.sum_episode_rewards = 0
+        self.sum_optimal_episode_rewards = 0
 
         # Define state and action spaces
         self._dtype = np.float32
@@ -44,6 +48,9 @@ class CooperativeStochasticGame(MultiAgentEnv):
         # Randomly generate transition probabilities and reward function
         self.transition_matrix = self._generate_transition_matrix()
         self.reward_function = self._generate_reward_function()
+
+        # Compute optimal value table and policy for this game
+        self.V, self.optimal_policy = self.value_iteration()
 
         # Initial state
         self.state = None
@@ -88,7 +95,11 @@ class CooperativeStochasticGame(MultiAgentEnv):
         """
         # Reset to a random initial state
         self.state = self.rng.integers(low=0, high=self.num_states)
+        self.start_state = self.state
         self.current_step = 0  # Reset step count
+        self.normalised_episode_reward = -1
+        self.sum_episode_rewards = 0
+        self.sum_optimal_episode_rewards = 0
         obs = self._get_current_obs()
         return obs
 
@@ -116,19 +127,29 @@ class CooperativeStochasticGame(MultiAgentEnv):
 
         # Get reward for the joint action in the current state (fully cooperative reward)
         reward = self.reward_function[self.state, joint_action]
+        self.sum_episode_rewards += reward
         rewards = {a: reward for a in self.agents}
+
+        # Determine the optimal reward
+        optimal_joint_action = self.optimal_policy[self.state]
+        optimal_reward = self.reward_function[self.state, optimal_joint_action]
+        self.sum_optimal_episode_rewards += optimal_reward
 
         # Update the state and step count
         self.state = next_state
         self.current_step += 1
 
         # Check if max steps has been reached
-        dones = {"__all__": self.current_step >= self.max_steps}
+        done = self.current_step >= self.max_steps
 
         # Get current observation encoding
         obs = self._get_current_obs()
 
-        return obs, rewards, dones, {}
+        # Add optimal expected return as extra info
+        if done:
+            self.normalised_episode_reward = self.sum_episode_rewards / self.sum_optimal_episode_rewards
+
+        return obs, rewards, {"__all__": done}, {}
 
     def render(self, mode="human"):
         """
@@ -145,3 +166,43 @@ class CooperativeStochasticGame(MultiAgentEnv):
             "policy_mapping_info": policy_mapping_dict
         }
         return env_info
+
+    def value_iteration(self, epsilon=1e-3, discount_factor=0.99):
+        """
+        Perform value iteration to compute the optimal value function and return the optimal policy.
+        This will be used to compute the optimal return.
+
+        Args:
+        - epsilon: convergence threshold for value iteration
+
+        Returns:
+        - V: optimal value function for each state
+        - optimal_policy: the optimal policy (joint action) for each state
+        """
+        print("Computing the optimal value function...")
+        V = np.zeros(self.num_states)  # Initialize value function to zero for all states
+        optimal_policy = np.zeros(self.num_states, dtype=int)  # Initialize policy (best joint action)
+
+        while True:
+            delta = 0  # Measure of improvement in value function
+            for s in range(self.num_states):
+                # For each state, find the joint action that maximizes the expected reward + discounted future value
+                action_values = np.zeros(self.joint_action_space)
+                for a in range(self.joint_action_space):
+                    action_values[a] = (
+                        np.sum(self.transition_matrix[s, a, :] * (self.reward_function[s, a] + discount_factor * V))
+                    )
+
+                # Get the best action and update the value function for this state
+                best_action_value = np.max(action_values)
+                best_action = np.argmax(action_values)
+
+                delta = max(delta, np.abs(best_action_value - V[s]))
+                V[s] = best_action_value
+                optimal_policy[s] = best_action  # Store the best action for this state
+
+            # Check for convergence
+            if delta < epsilon:
+                break
+
+        return V, optimal_policy
