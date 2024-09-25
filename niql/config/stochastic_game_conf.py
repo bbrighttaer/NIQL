@@ -13,8 +13,8 @@ STOCHASTIC_GAME = {
             "tdw_eps": 0.1,
             "rollout_fragment_length": 1,
             "buffer_size": 5000,
-            "soft_target_update": True,
-            "target_network_update_freq": 1,
+            "soft_target_update": False,
+            "target_network_update_freq": 200,
             "tau": 0.01,  # target network soft update
             "final_epsilon": 0.05,
             "epsilon_timesteps": 50000,

@@ -22,15 +22,15 @@
 
 from ray.rllib.agents.trainer import Trainer
 from ray.rllib.evaluation.worker_set import WorkerSet
-from ray.util.iter import LocalIterator
-from ray.rllib.execution.rollout_ops import ParallelRollouts
-from ray.rllib.execution.replay_ops import Replay, StoreToReplayBuffer
-from ray.rllib.execution.train_ops import TrainOneStep, UpdateTargetNetwork
 from ray.rllib.execution.concurrency_ops import Concurrently
 from ray.rllib.execution.metric_ops import StandardMetricsReporting
+from ray.rllib.execution.replay_ops import Replay, StoreToReplayBuffer
+from ray.rllib.execution.rollout_ops import ParallelRollouts
 from ray.rllib.utils.typing import TrainerConfigDict
+from ray.util.iter import LocalIterator
 
 from niql.replay_buffers.basic_episode_based_replay_buffer import BasicEpisodeBasedReplayBuffer
+from niql.train_ops import TrainOneStep, UpdateTargetNetwork
 
 
 def episode_execution_plan(trainer: Trainer, workers: WorkerSet,

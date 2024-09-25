@@ -394,7 +394,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
 
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
-        rewards = to_batches(rew, torch.float) / self.env_num_agents
+        rewards = to_batches(rew, torch.float)  # / self.env_num_agents
         if self.reward_standardize:
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
