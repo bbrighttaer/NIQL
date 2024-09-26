@@ -26,7 +26,6 @@ class CooperativeStochasticGame(MultiAgentEnv):
         self.joint_action_space = self.num_actions_per_agent ** env_config["num_agents"]
         self.current_step = 0  # Initialize step count
         self.max_steps = env_config["max_steps"]
-        self.start_state = -1
         self.normalised_episode_reward = -1
         self.sum_episode_rewards = 0
         self.sum_optimal_episode_rewards = 0
@@ -95,7 +94,6 @@ class CooperativeStochasticGame(MultiAgentEnv):
         """
         # Reset to a random initial state
         self.state = self.rng.integers(low=0, high=self.num_states)
-        self.start_state = self.state
         self.current_step = 0  # Reset step count
         self.normalised_episode_reward = -1
         self.sum_episode_rewards = 0

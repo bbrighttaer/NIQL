@@ -1,5 +1,5 @@
 # MIT License
-
+import numpy as np
 # Copyright (c) 2023 Replicable-MARL
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -126,24 +126,24 @@ class JointQLoss(nn.Module):
         target_mac_out[ignore_action_tp1] = -np.inf
 
         # Max over target Q-Values
-        if self.double_q:
-            # large bugs here in original QMixloss, the gradient is calculated
-            # we fix this follow pymarl
-            mac_out_tp1 = mac_out.clone().detach()
-            mac_out_tp1 = mac_out_tp1[:, 1:]
-
-            # mask out unallowed actions
-            mac_out_tp1[ignore_action_tp1] = -np.inf
-
-            # obtain best actions at t+1 according to policy NN
-            cur_max_actions = mac_out_tp1.argmax(dim=3, keepdim=True)
-
-            # use the target network to estimate the Q-values of policy
-            # network's selected actions
-            target_max_qvals = torch.gather(target_mac_out, 3,
-                                            cur_max_actions).squeeze(3)
-        else:
-            target_max_qvals = target_mac_out.max(dim=3)[0]
+        # if self.double_q:
+        #     # large bugs here in original QMixloss, the gradient is calculated
+        #     # we fix this follow pymarl
+        #     mac_out_tp1 = mac_out.clone().detach()
+        #     mac_out_tp1 = mac_out_tp1[:, 1:]
+        #
+        #     # mask out unallowed actions
+        #     mac_out_tp1[ignore_action_tp1] = -np.inf
+        #
+        #     # obtain best actions at t+1 according to policy NN
+        #     cur_max_actions = mac_out_tp1.argmax(dim=3, keepdim=True)
+        #
+        #     # use the target network to estimate the Q-values of policy
+        #     # network's selected actions
+        #     target_max_qvals = torch.gather(target_mac_out, 3,
+        #                                     cur_max_actions).squeeze(3)
+        # else:
+        target_max_qvals = target_mac_out.max(dim=3)[0]
 
         assert target_max_qvals.min().item() != -np.inf, \
             "target_max_qvals contains a masked action; \
@@ -161,7 +161,8 @@ class JointQLoss(nn.Module):
         masked_td_error = td_error * mask
 
         # Normal L2 loss, take mean over actual data
-        loss = (masked_td_error ** 2).sum() / mask.sum()
+        loss = (masked_td_error ** 2).view(-1, self.n_agents).sum(dim=0) / mask.view(-1, self.n_agents).sum(dim=0)
+        loss = loss.sum()
         return loss, mask, masked_td_error, chosen_action_qvals, targets
 
 
@@ -402,7 +403,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
 
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
-        rewards = to_batches(rew, torch.float) / self.env_num_agents
+        rewards = to_batches(rew, torch.float) # / self.env_num_agents
         if self.reward_standardize:
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
@@ -438,15 +439,17 @@ class IQLPolicy(LearningRateSchedule, Policy):
         # Optimise
         self.optimiser.zero_grad()
         loss_out.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(
-            self.params, self.config["grad_norm_clipping"])
+        grad_norms = []
+        for agent in self.models:
+            model = self.models[agent]
+            g_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), self.config["grad_norm_clipping"])
+            grad_norms.append(g_norm.item())
         self.optimiser.step()
 
         mask_elems = mask.sum().item()
         stats = {
             "loss": loss_out.item(),
-            "grad_norm": grad_norm
-            if isinstance(grad_norm, float) else grad_norm.item(),
+            "grad_norm": np.mean(grad_norms),
             "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
             "q_taken_mean": (chosen_action_qvals * mask).sum().item() /
                             mask_elems,
