@@ -88,62 +88,67 @@ class JointQLoss(nn.Module):
             state: Tensor of shape [B, T, state_dim] (optional)
             next_state: Tensor of shape [B, T, state_dim] (optional)
         """
-        # append the first element of obs + next_obs to get new one
-        whole_obs = torch.cat((obs[:, 0:1], next_obs), axis=1)
-
-        # construct prev actions for whole_obs
+        # construct prev actions for obs and next_obs
         if self.add_action_dim:
             t0_actions_enc = torch.zeros((obs.shape[0], 1, self.n_agents, self.n_actions))
             actions_one_hot_enc = torch.eye(self.n_actions)[actions]
             actions_one_hot_enc = torch.cat([t0_actions_enc, actions_one_hot_enc], dim=1)
-            whole_obs = torch.cat([whole_obs, actions_one_hot_enc], dim=-1)
+            obs = torch.cat([obs, actions_one_hot_enc[:, :-1]], dim=-1)
+            next_obs = torch.cat([next_obs, actions_one_hot_enc[:, 1:]], dim=-1)
 
         # Calculate estimated Q-Values
         mac_out = [
             _iql_unroll_mac(
-                self.models[f"agent_{i}"], whole_obs[:, :, i:i + 1]
+                self.models[f"agent_{i}"], obs[:, :, i:i + 1]
             ) for i in range(self.n_agents)
         ]
         mac_out = torch.cat(mac_out, dim=2)
 
         # Pick the Q-Values for the actions taken -> [B * n_agents, T]
         chosen_action_qvals = torch.gather(
-            mac_out[:, :-1], dim=3, index=actions.unsqueeze(3)).squeeze(3)
+            mac_out, dim=3, index=actions.unsqueeze(3)).squeeze(3)
 
         # Calculate the Q-Values necessary for the target
         target_mac_out = [
             _iql_unroll_mac(
-                self.target_models[f"agent_{i}"], whole_obs[:, :, i:i + 1]
+                self.target_models[f"agent_{i}"], next_obs[:, :, i:i + 1]
             ) for i in range(self.n_agents)
         ]
         target_mac_out = torch.cat(target_mac_out, dim=2)
-
-        # we only need target_mac_out for raw next_obs part
-        target_mac_out = target_mac_out[:, 1:]
 
         # Mask out unavailable actions for the t+1 step
         ignore_action_tp1 = (next_action_mask == 0) & (mask == 1).unsqueeze(-1)
         target_mac_out[ignore_action_tp1] = -np.inf
 
         # Max over target Q-Values
-        # if self.double_q:
-        #     # large bugs here in original QMixloss, the gradient is calculated
-        #     # we fix this follow pymarl
-        #     mac_out_tp1 = mac_out.clone().detach()
-        #     mac_out_tp1 = mac_out_tp1[:, 1:]
-        #
-        #     # mask out unallowed actions
-        #     mac_out_tp1[ignore_action_tp1] = -np.inf
-        #
-        #     # obtain best actions at t+1 according to policy NN
-        #     cur_max_actions = mac_out_tp1.argmax(dim=3, keepdim=True)
-        #
-        #     # use the target network to estimate the Q-values of policy
-        #     # network's selected actions
-        #     target_max_qvals = torch.gather(target_mac_out, 3,
-        #                                     cur_max_actions).squeeze(3)
-        # else:
-        target_max_qvals = target_mac_out.max(dim=3)[0]
+        if self.double_q:
+            # Double Q learning computes the target Q values by selecting the
+            # t+1 timestep action according to the "policy" neural network and
+            # then estimating the Q-value of that action with the "target"
+            # neural network
+
+            with torch.no_grad():
+                # Compute the t+1 Q-values to be used in action selection
+                # using next_obs
+                mac_out_tp1 = [
+                    _iql_unroll_mac(
+                        self.models[f"agent_{i}"], next_obs[:, :, i:i + 1]
+                    ) for i in range(self.n_agents)
+                ]
+                mac_out_tp1 = torch.cat(mac_out_tp1, dim=2)
+
+                # mask out unallowed actions
+                mac_out_tp1[ignore_action_tp1] = -np.inf
+
+                # obtain best actions at t+1 according to policy NN
+                cur_max_actions = mac_out_tp1.argmax(dim=3, keepdim=True)
+
+                # use the target network to estimate the Q-values of policy
+                # network's selected actions
+                target_max_qvals = torch.gather(target_mac_out, 3,
+                                                cur_max_actions).squeeze(3)
+        else:
+            target_max_qvals = target_mac_out.max(dim=3)[0]
 
         assert target_max_qvals.min().item() != -np.inf, \
             "target_max_qvals contains a masked action; \
@@ -160,13 +165,13 @@ class JointQLoss(nn.Module):
         # 0-out the targets that came from padded data
         masked_td_error = td_error * mask
 
-        # Normal L2 loss, take mean over actual data
+        # Normal L2 loss, take mean over actual data for each agent
         loss = (masked_td_error ** 2).view(-1, self.n_agents).sum(dim=0) / mask.view(-1, self.n_agents).sum(dim=0)
         loss = loss.sum()
         return loss, mask, masked_td_error, chosen_action_qvals, targets
 
 
-class IQLPolicy(LearningRateSchedule, Policy):
+class IQLPolicy(Policy):
 
     def __init__(self, obs_space, action_space, config):
         if config["algo_type"].lower() == "il":
@@ -178,7 +183,6 @@ class IQLPolicy(LearningRateSchedule, Policy):
         config = dict(ray.rllib.agents.qmix.qmix.DEFAULT_CONFIG, **config)
         self.framework = "torch"
         Policy.__init__(self, obs_space, action_space, config)
-        LearningRateSchedule.__init__(self, config["lr"], config.get("lr_schedule"))
         self.n_agents = len(obs_space.original_space.spaces)  # num of agents controlled in this policy instance
         self.env_num_agents = config["model"]["custom_model_config"]["num_agents"]  # num of agents in the env/neighbors
         config["model"]["n_agents"] = self.n_agents
@@ -231,6 +235,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
                 framework="torch",
                 name="model",
                 default_model=JointQMLP if core_arch == "mlp" else JointQRNN)
+
         self.models = nn.ModuleDict()
         self.target_models = nn.ModuleDict()
         for i in range(self.n_agents):
@@ -250,7 +255,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
         )
 
         self.cur_epsilon = 1.0
-        self.update_target()  # initial sync
+        # self.update_target()  # initial sync
 
         # Setup optimizer
         self.params = list(self.models.parameters())
@@ -261,13 +266,13 @@ class IQLPolicy(LearningRateSchedule, Policy):
             from torch.optim import RMSprop
             self.optimiser = RMSprop(
                 params=self.params,
-                lr=self.cur_lr)
+                lr=config["lr"])
 
         elif config["optimizer"] == "adam":
             from torch.optim import Adam
             self.optimiser = Adam(
                 params=self.params,
-                lr=self.cur_lr)
+                lr=config["lr"])
 
         else:
             raise ValueError("choose one optimizer type from rmsprop(RMSprop) or adam(Adam)")
@@ -277,10 +282,6 @@ class IQLPolicy(LearningRateSchedule, Policy):
 
         # Combine view_requirements for Model and Policy.
         self.view_requirements.update(self.model.view_requirements)
-
-    @property
-    def _optimizers(self):
-        return [self.optimiser]
 
     @property
     def model(self):
@@ -403,9 +404,9 @@ class IQLPolicy(LearningRateSchedule, Policy):
 
         # reduce the scale of reward for small variance. This is also
         # because we copy the global reward to each agent in rllib_env
-        rewards = to_batches(rew, torch.float) # / self.env_num_agents
-        if self.reward_standardize:
-            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
+        rewards = to_batches(rew, torch.float)  # / self.env_num_agents
+        # if self.reward_standardize:
+        #     rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-5)
 
         actions = to_batches(act, torch.long)
         prev_actions = to_batches(prev_act, torch.long)
@@ -420,7 +421,9 @@ class IQLPolicy(LearningRateSchedule, Policy):
             next_env_global_state = to_batches(next_env_global_state,
                                                torch.float)
 
-        terminated = to_batches(terminal_flags, torch.float)
+        # terminated = to_batches(terminal_flags, torch.float)
+        terminated = to_batches(dones, torch.float).unsqueeze(2).expand(
+            B, T, self.n_agents)
 
         # Create mask for where index is < unpadded sequence length
         filled = np.reshape(
@@ -451,8 +454,7 @@ class IQLPolicy(LearningRateSchedule, Policy):
             "loss": loss_out.item(),
             "grad_norm": np.mean(grad_norms),
             "td_error_abs": masked_td_error.abs().sum().item() / mask_elems,
-            "q_taken_mean": (chosen_action_qvals * mask).sum().item() /
-                            mask_elems,
+            "q_taken_mean": (chosen_action_qvals * mask).sum().item() / mask_elems,
             "target_mean": (targets * mask).sum().item() / mask_elems,
             "exploration": self.exploration.get_state()["cur_epsilon"]
         }
