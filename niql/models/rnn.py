@@ -50,9 +50,9 @@ class JointQRNN(TorchModelV2, nn.Module):
             input_dim += num_outputs
 
         # encoder
-        self.encoder = nn.Linear(input_dim, self.hidden_state_size)
+        self.fc1 = nn.Linear(input_dim, self.hidden_state_size)
         self.rnn = nn.GRUCell(self.hidden_state_size, self.hidden_state_size)
-        self.q_value = nn.Linear(self.hidden_state_size, num_outputs)
+        self.fc2 = nn.Linear(self.hidden_state_size, num_outputs)
 
         # record the custom config
         if self.custom_config["global_state_flag"]:
@@ -65,7 +65,7 @@ class JointQRNN(TorchModelV2, nn.Module):
     def get_initial_state(self):
         # Place hidden states on same device as model.
         hidden_state = [
-            self.q_value.weight.new(self.n_agents, self.hidden_state_size).zero_()
+            self.fc2.weight.new(self.n_agents, self.hidden_state_size).zero_()
         ]
         return hidden_state
 
@@ -74,8 +74,8 @@ class JointQRNN(TorchModelV2, nn.Module):
         inputs = input_dict["obs_flat"].float()
         if len(self.full_obs_space.shape) == 3:  # 3D
             inputs = inputs.reshape((-1,) + self.full_obs_space.shape)
-        x = torch.relu(self.encoder(inputs))
+        x = torch.relu(self.fc1(inputs))
         h_in = hidden_state[0].reshape(-1, self.hidden_state_size)
         h = self.rnn(x, h_in)
-        q = self.q_value(h)
+        q = self.fc2(h)
         return q, [h]

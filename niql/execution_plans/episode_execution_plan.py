@@ -1,5 +1,5 @@
 # MIT License
-
+from marllib.marl.algos.utils.episode_replay_buffer import EpisodeBasedReplayBuffer
 # Copyright (c) 2023 Replicable-MARL
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -29,7 +29,8 @@ from ray.rllib.execution.rollout_ops import ParallelRollouts
 from ray.rllib.utils.typing import TrainerConfigDict
 from ray.util.iter import LocalIterator
 
-from niql.replay_buffers.basic_episode_based_replay_buffer import BasicEpisodeBasedReplayBuffer
+# from niql.replay_buffers import EpisodeBasedReplayBuffer
+# from niql.replay_buffers.basic_episode_based_replay_buffer import BasicEpisodeBasedReplayBuffer
 from niql.train_ops import TrainOneStep, UpdateTargetNetwork
 
 
@@ -39,7 +40,7 @@ def episode_execution_plan(trainer: Trainer, workers: WorkerSet,
     # Modified to be compatible with joint Q learning.
     # here we use EpisodeBasedReplayBuffer inherited from LocalReplayBuffer instead of SimpleReplayBuffer
 
-    local_replay_buffer = BasicEpisodeBasedReplayBuffer(
+    local_replay_buffer = EpisodeBasedReplayBuffer(
         learning_starts=config["learning_starts"],
         capacity=config["buffer_size"],
         replay_batch_size=config["train_batch_size"],

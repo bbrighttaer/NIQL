@@ -101,7 +101,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
             "buffer_size": buffer_size,  # buffer_size * episode_limit,  # in timesteps
             "train_batch_size": train_batch_episode,  # in sequence
             "target_network_update_freq": target_network_update_frequency,  # in timesteps
-            "learning_starts": episode_limit * train_batch_episode,  # samples in buffer
+            "learning_starts": _param.get("learning_starts", episode_limit * train_batch_episode),  # samples in buffer
             "lr": lr if restore is None else 1e-10,
             "exploration_config": {
                 "type": "EpsilonGreedy",
@@ -128,7 +128,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
         default_config=JointQ_Config,
         default_policy=None,
         get_policy_class=partial(get_policy_class, algorithm),
-        # execution_plan=episode_execution_plan
+        execution_plan=episode_execution_plan
     )
 
     # config update
@@ -140,7 +140,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
             "fcnet_activation": "relu"
         },
         "evaluation_interval": 10,  # x timesteps_per_iteration (default is 1000)
-        "evaluation_num_episodes": 10,
+        "evaluation_num_episodes": 20,
         "evaluation_config": {
             "explore": False,
         },

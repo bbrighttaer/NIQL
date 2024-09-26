@@ -255,12 +255,13 @@ class IQLPolicy(Policy):
         )
 
         self.cur_epsilon = 1.0
-        # self.update_target()  # initial sync
+        self.update_target()  # initial sync
 
         # Setup optimizer
         self.params = list(self.models.parameters())
+        double_q = False  # self.config["double_q"]
         self.loss = JointQLoss(self.models, self.target_models, self.n_agents, self.n_actions,
-                               self.add_action_dim, self.config["double_q"], self.config["gamma"])
+                               self.add_action_dim, double_q, self.config["gamma"])
 
         if config["optimizer"] == "rmsprop":
             from torch.optim import RMSprop
