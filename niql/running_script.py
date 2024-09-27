@@ -15,7 +15,7 @@ from ray.tune.utils import merge_dicts
 from niql import seed
 from niql.algo import JointQPolicy, IQLPolicy, HIQLPolicy, BQLPolicy, WBQLPolicy, WIQLPolicy
 from niql.algo.iqlps_vdn_qmix import JointQTrainer
-from niql.callbacks import EvaluationCSVLoggerCallback
+from niql.callbacks import EvaluationCSVLoggerCallback, NIQLCallbacks
 from niql.execution_plans import episode_execution_plan
 
 
@@ -147,7 +147,7 @@ def run_experiment(model: Any, exp: Dict, running_config: Dict, env: Dict,
         "seed": seed,
         "num_workers": 0,
         "batch_mode": "complete_episodes",
-        "callbacks": _param["callbacks"]
+        "callbacks": NIQLCallbacks
     })
 
     map_name = exp["env_args"]["map_name"]

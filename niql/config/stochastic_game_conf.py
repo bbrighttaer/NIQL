@@ -1,4 +1,3 @@
-from niql.callbacks import NIQLCallbacks
 
 STOCHASTIC_GAME = {
     "algo_parameters": {
@@ -22,7 +21,6 @@ STOCHASTIC_GAME = {
             "reward_standardize": False,
             "gamma": 0.99,
             "lambda": 0.5,
-            "callbacks": NIQLCallbacks,
             "add_action_dim": True,
         }
     },

@@ -1,5 +1,3 @@
-from niql.callbacks import NIQLCallbacks
-
 MPE = {
     "algo_parameters": {
         "algo_args": {
@@ -21,7 +19,6 @@ MPE = {
             "reward_standardize": False,
             "gamma": 0.99,
             "lambda": 0.65,
-            "callbacks": NIQLCallbacks,
             "add_action_dim": False,
         }
     },

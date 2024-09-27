@@ -1,4 +1,3 @@
-from niql.callbacks import NIQLCallbacks
 
 SWITCH_RIDDLE = {
     'algo_parameters': {
@@ -13,7 +12,6 @@ SWITCH_RIDDLE = {
             'optimizer': 'rmsprop',  # "rmsprop | adam"
             'reward_standardize': True,
             'gamma': 1,
-            'callbacks': NIQLCallbacks,
             'simple_optimizer': True,
         }
     },

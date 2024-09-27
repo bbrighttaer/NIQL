@@ -1,4 +1,3 @@
-from niql.callbacks import NIQLCallbacks
 
 MATRIX_GAME = {
     "algo_parameters": {
@@ -21,7 +20,6 @@ MATRIX_GAME = {
             "reward_standardize": False,
             "gamma": 0.99,
             "lambda": 0.2,
-            "callbacks": NIQLCallbacks,
             "add_action_dim": False,
         }
     },

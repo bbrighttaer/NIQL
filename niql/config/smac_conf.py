@@ -1,9 +1,8 @@
-from niql.callbacks import NIQLCallbacks
 
 SMAC = {
     "algo_parameters": {
         "algo_args": {
-            "batch_episode": 32,
+            "batch_episode": 64,
             "lr": 0.0005,
             "tdw_schedule": [
                 [0, 1.0],
@@ -23,7 +22,6 @@ SMAC = {
             "reward_standardize": False,
             "gamma": 0.99,
             "lambda": 0.8,
-            "callbacks": NIQLCallbacks,
             "add_action_dim": True,
         }
     },

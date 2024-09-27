@@ -1,4 +1,3 @@
-from niql.callbacks import NIQLCallbacks
 
 default_config = {
     "algo_parameters": {
@@ -21,7 +20,6 @@ default_config = {
             "reward_standardize": False,
             "gamma": 0.99,
             "lambda": 0.65,
-            "callbacks": NIQLCallbacks,
             "add_action_dim": True,
         }
     },
